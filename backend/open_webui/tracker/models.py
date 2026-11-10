@@ -32,6 +32,8 @@ class TrackerState(Base):
     # created_at (ns) of the last message folded into the state, and the latest edit seen.
     watermark = Column(BigInteger, nullable=False, default=0)
     edit_watermark = Column(BigInteger, nullable=False, default=0)
+    # Already-processed messages deleted since the last run: [{id, user_name, content, created_at}].
+    pending_deletions = Column(JSON, nullable=True)
 
     dirty_at = Column(BigInteger, nullable=True)
     last_activity_at = Column(BigInteger, nullable=True)
@@ -55,7 +57,11 @@ class TrackerState(Base):
 
 
 class TrackerItem(Base):
-    """One processed unit (a message batch for now; files and images later) with its summary."""
+    """One processed unit with its summary.
+
+    source_type is message_batch (per state update), file or image. File and image rows are a cache keyed by
+    content hash (id = "file:<hash>" / "image:<hash>"), so the same attachment is summarized once.
+    """
 
     __tablename__ = 'tracker_item'
 
@@ -81,10 +87,12 @@ class TrackerStateModel(BaseModel):
     version: int = 0
     watermark: int = 0
     edit_watermark: int = 0
+    pending_deletions: Optional[list[dict]] = None
     dirty_at: Optional[int] = None
     pending_count: int = 0
     force: bool = False
     fail_count: int = 0
+    next_attempt_at: Optional[int] = None
     last_error: Optional[str] = None
     processed_at: Optional[int] = None
     updated_at: int
@@ -100,6 +108,7 @@ class TrackerItemModel(BaseModel):
     period_start: int
     period_end: int
     summary: Optional[str] = None
+    data: Optional[dict] = None
     created_at: int
 
 
@@ -267,9 +276,15 @@ class TrackerTable:
         watermark: int,
         edit_watermark: int,
         item: Optional[dict] = None,
+        deletions_done: int = 0,
+        retry_after_ns: int = 0,
         db: Optional[AsyncSession] = None,
     ) -> bool:
-        """Store a processed batch if the lease is still ours, and requeue if messages remain."""
+        """Store a processed batch if the lease is still ours, and requeue if messages remain.
+
+        retry_after_ns > 0 means the remaining messages are waiting on something (file extraction), so the
+        channel is retried after that delay instead of immediately.
+        """
         now = time.time_ns()
         async with get_async_db_context(db) as db:
             stmt = select(TrackerState).where(TrackerState.channel_id == channel_id)
@@ -296,13 +311,17 @@ class TrackerTable:
                 row.processed_at = now
             row.watermark = watermark
             row.edit_watermark = max(row.edit_watermark or 0, edit_watermark)
+            if deletions_done:
+                row.pending_deletions = (row.pending_deletions or [])[deletions_done:] or None
+            remaining += len(row.pending_deletions or [])
             row.pending_count = remaining
             row.dirty_at = now if remaining else None
-            row.force = bool(remaining)  # keep catching up without waiting for the idle timer
+            # Keep catching up without waiting for the idle timer, unless we are waiting on files.
+            row.force = bool(remaining) and not retry_after_ns
             row.lease_id = None
             row.lease_until = None
             row.fail_count = 0
-            row.next_attempt_at = None
+            row.next_attempt_at = now + retry_after_ns if retry_after_ns and remaining else None
             row.last_error = None
             row.updated_at = now
 
@@ -310,6 +329,71 @@ class TrackerTable:
                 db.add(TrackerItem(id=str(uuid.uuid4()), channel_id=channel_id, created_at=now, **item))
             await db.commit()
             return True
+
+    async def add_deletion(self, channel_id: str, entry: dict, db: Optional[AsyncSession] = None) -> None:
+        """Remember a deleted, already-processed message so the next run can retract what it said."""
+        now = time.time_ns()
+        async with get_async_db_context(db) as db:
+            stmt = select(TrackerState).where(TrackerState.channel_id == channel_id)
+            if db.bind.dialect.name == 'postgresql':
+                stmt = stmt.with_for_update()
+            row = (await db.execute(stmt)).scalar_one_or_none()
+            if not row or entry.get('created_at', 0) > (row.watermark or 0):
+                return  # never folded into the state, nothing to retract
+            row.pending_deletions = [*(row.pending_deletions or []), entry][-50:]
+            row.pending_count = (row.pending_count or 0) + 1
+            row.dirty_at = row.dirty_at or now
+            row.last_activity_at = now
+            row.updated_at = now
+            await db.commit()
+
+    async def get_cached_item(self, item_id: str, db: Optional[AsyncSession] = None) -> Optional[TrackerItemModel]:
+        async with get_async_db_context(db) as db:
+            row = await db.get(TrackerItem, item_id)
+            return TrackerItemModel.model_validate(row) if row else None
+
+    async def put_cached_item(
+        self,
+        item_id: str,
+        channel_id: str,
+        source_type: str,
+        source_ids: list[str],
+        summary: str,
+        data: Optional[dict] = None,
+        db: Optional[AsyncSession] = None,
+    ) -> None:
+        now = time.time_ns()
+        async with get_async_db_context(db) as db:
+            db.add(
+                TrackerItem(
+                    id=item_id,
+                    channel_id=channel_id,
+                    source_type=source_type,
+                    source_ids=source_ids,
+                    period_start=now,
+                    period_end=now,
+                    summary=summary,
+                    data=data,
+                    created_at=now,
+                )
+            )
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()  # summarized concurrently by another worker; keep theirs
+
+    async def search_items(
+        self, channel_id: str, limit: int = 500, db: Optional[AsyncSession] = None
+    ) -> list[TrackerItemModel]:
+        """Recent batch summaries of a channel, newest first (for evidence search)."""
+        async with get_async_db_context(db) as db:
+            result = await db.execute(
+                select(TrackerItem)
+                .where(TrackerItem.channel_id == channel_id, TrackerItem.source_type == 'message_batch')
+                .order_by(TrackerItem.period_end.desc())
+                .limit(limit)
+            )
+            return [TrackerItemModel.model_validate(row) for row in result.scalars().all()]
 
     async def fail(self, channel_id: str, lease_id: str, error: str, db: Optional[AsyncSession] = None) -> None:
         now = time.time_ns()
@@ -329,17 +413,19 @@ class TrackerTable:
     async def get_items(
         self, channel_id: str, start: int, end: int, limit: int = 50, db: Optional[AsyncSession] = None
     ) -> list[TrackerItemModel]:
+        """The latest `limit` batch summaries in the window, oldest first."""
         async with get_async_db_context(db) as db:
             result = await db.execute(
                 select(TrackerItem)
                 .where(
                     TrackerItem.channel_id == channel_id,
+                    TrackerItem.source_type == 'message_batch',
                     and_(TrackerItem.period_end >= start, TrackerItem.period_start <= end),
                 )
-                .order_by(TrackerItem.period_end)
+                .order_by(TrackerItem.period_end.desc())
                 .limit(limit)
             )
-            return [TrackerItemModel.model_validate(row) for row in result.scalars().all()]
+            return [TrackerItemModel.model_validate(row) for row in reversed(result.scalars().all())]
 
     async def get_stats(self, now: int, db: Optional[AsyncSession] = None) -> dict:
         async with get_async_db_context(db) as db:

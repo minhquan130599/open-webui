@@ -2010,6 +2010,7 @@ async def delete_message_by_id(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.DEFAULT())
 
     try:
+        await tracker_hooks.on_message_deleted(message)
         await Messages.delete_message_by_id(message_id, db=db)
         await Messages.delete_replies_by_id(message_id, db=db)
         await sio.emit(

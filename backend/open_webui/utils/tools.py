@@ -892,9 +892,14 @@ async def get_builtin_tools(
         and config.get('channels.enable')
         and await has_user_permission('channels')
     ):
-        from open_webui.tracker.tools import get_project_status, list_my_projects
+        from open_webui.tracker.tools import (
+            get_project_status,
+            get_project_timeline,
+            list_my_projects,
+            search_project_evidence,
+        )
 
-        builtin_functions.extend([get_project_status, list_my_projects])
+        builtin_functions.extend([get_project_status, list_my_projects, get_project_timeline, search_project_evidence])
 
     # Skills tools - overview, targeted search, and bounded reads of relevant passages.
     skill_ids = sorted(set(extra_params.get('__skill_ids__') or []))

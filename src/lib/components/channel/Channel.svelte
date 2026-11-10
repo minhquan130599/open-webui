@@ -26,6 +26,8 @@
 	import ResizableSidePanel from '../common/ResizableSidePanel.svelte';
 	import EllipsisVertical from '../icons/EllipsisVertical.svelte';
 	import Thread from './Thread.svelte';
+	import ProjectProgress from './ProjectProgress.svelte';
+	import { getTrackerState } from '$lib/apis/tracker';
 	import i18n from '$lib/i18n';
 	import Spinner from '../common/Spinner.svelte';
 
@@ -98,6 +100,16 @@
 	let replyToMessage = null;
 	let threadId: any = null;
 
+	// Project tracker: the progress button only shows when the server has the tracker enabled.
+	let trackerAvailable = false;
+	let showProgress = false;
+	const checkTracker = async (channelId: string) => {
+		trackerAvailable = false;
+		showProgress = false;
+		const state = await getTrackerState(localStorage.token, channelId).catch(() => null);
+		trackerAvailable = state !== null && channelId === id;
+	};
+
 	onNavigate(({ from, to }) => {
 		if (from?.url.pathname !== to.url.pathname) {
 			threadId = null;
@@ -110,6 +122,7 @@
 
 	$: if (id) {
 		initHandler();
+		checkTracker(id);
 	}
 
 	$: if (channel && $page.url.searchParams.get('thread')) {
@@ -449,6 +462,7 @@
 			<Navbar
 				{channel}
 				onPin={pinHandler}
+				onProgress={trackerAvailable ? () => (showProgress = !showProgress) : null}
 				onUpdate={async () => {
 					channel = await getChannelById(localStorage.token, id).catch((error) => {
 						return null;
@@ -568,6 +582,20 @@
 						/>
 					</div>
 				</Drawer>
+			{:else if showProgress}
+				<Drawer
+					show={showProgress}
+					ariaLabel={$i18n.t('Project progress')}
+					onClose={() => (showProgress = false)}
+				>
+					<div class="h-screen w-full">
+						<ProjectProgress
+							{channel}
+							onClose={() => (showProgress = false)}
+							onSource={(messageId) => (threadId = messageId)}
+						/>
+					</div>
+				</Drawer>
 			{/if}
 		{:else if threadId !== null}
 			<ResizableSidePanel
@@ -585,6 +613,23 @@
 						bind:chatInputElement={threadChatInputElement}
 						onPin={pinHandler}
 						onClose={closeThread}
+					/>
+				</div>
+			</ResizableSidePanel>
+		{:else if showProgress}
+			<ResizableSidePanel
+				open={true}
+				bind:width={threadPanelWidth}
+				minWidth={320}
+				maxWidth={640}
+				minSiblingWidth={360}
+				className="h-full"
+			>
+				<div class="h-full w-full border-l border-gray-100/60 dark:border-gray-800/40">
+					<ProjectProgress
+						{channel}
+						onClose={() => (showProgress = false)}
+						onSource={(messageId) => (threadId = messageId)}
 					/>
 				</div>
 			</ResizableSidePanel>

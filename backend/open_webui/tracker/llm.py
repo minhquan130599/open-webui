@@ -56,28 +56,53 @@ async def _post(session: aiohttp.ClientSession, payload: dict) -> tuple[int, dic
             return response.status, body
 
 
+def _payload(messages: list[dict], max_tokens: int) -> dict:
+    payload = {
+        'model': TRACKER_MODEL,
+        'messages': messages,
+        'temperature': 0.1,
+        'max_tokens': max_tokens,
+        'stream': False,
+    }
+    if TRACKER_DISABLE_THINKING:
+        payload['chat_template_kwargs'] = {'enable_thinking': False}
+    return payload
+
+
+def _content(status: int, body) -> str:
+    if status != 200 or not isinstance(body, dict):
+        raise TrackerLLMError(f'LLM request failed ({status}): {str(body)[:500]}')
+    try:
+        return _THINK_RE.sub('', body['choices'][0]['message'].get('content') or '').strip()
+    except (KeyError, IndexError, TypeError):
+        raise TrackerLLMError(f'Unexpected LLM response: {str(body)[:500]}')
+
+
+def _require_config() -> None:
+    if not is_configured():
+        raise TrackerLLMError('TRACKER_LLM_BASE_URL and TRACKER_MODEL must be set')
+
+
+async def generate_text(messages: list[dict], max_tokens: int = 1024) -> str:
+    """Plain completion, used for file and image summaries."""
+    _require_config()
+    timeout = aiohttp.ClientTimeout(total=TRACKER_LLM_TIMEOUT)
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+        return _content(*await _post(session, _payload(messages, max_tokens)))
+
+
 async def generate_state_update(messages: list[dict]) -> StateUpdate:
     """One chat completion returning a validated StateUpdate; retries once with the validation error."""
     global _guided_json_supported
 
-    if not is_configured():
-        raise TrackerLLMError('TRACKER_LLM_BASE_URL and TRACKER_MODEL must be set')
-
+    _require_config()
     timeout = aiohttp.ClientTimeout(total=TRACKER_LLM_TIMEOUT)
     conversation = list(messages)
     last_error = ''
 
     async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
         for attempt in range(2):
-            payload = {
-                'model': TRACKER_MODEL,
-                'messages': conversation,
-                'temperature': 0.1,
-                'max_tokens': TRACKER_MAX_TOKENS,
-                'stream': False,
-            }
-            if TRACKER_DISABLE_THINKING:
-                payload['chat_template_kwargs'] = {'enable_thinking': False}
+            payload = _payload(conversation, TRACKER_MAX_TOKENS)
             if _guided_json_supported:
                 payload['response_format'] = {
                     'type': 'json_schema',
@@ -91,14 +116,7 @@ async def generate_state_update(messages: list[dict]) -> StateUpdate:
                 payload.pop('response_format', None)
                 status, body = await _post(session, payload)
 
-            if status != 200 or not isinstance(body, dict):
-                raise TrackerLLMError(f'LLM request failed ({status}): {str(body)[:500]}')
-
-            try:
-                content = body['choices'][0]['message'].get('content') or ''
-            except (KeyError, IndexError, TypeError):
-                raise TrackerLLMError(f'Unexpected LLM response: {str(body)[:500]}')
-
+            content = _content(status, body)
             try:
                 return StateUpdate.model_validate(extract_json(content))
             except (ValueError, ValidationError) as e:

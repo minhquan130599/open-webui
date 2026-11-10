@@ -5,7 +5,7 @@ from typing import Optional
 from open_webui.models.channels import Channels
 from open_webui.models.messages import Message
 from open_webui.models.users import Users
-from open_webui.tracker import llm
+from open_webui.tracker import llm, media
 from open_webui.tracker.config import (
     TRACKER_BATCH_MAX_CHARS,
     TRACKER_BATCH_MAX_MESSAGES,
@@ -30,6 +30,8 @@ log = logging.getLogger(__name__)
 
 TZ = get_tz(TRACKER_TIMEZONE)
 MAX_EDITED_PER_BATCH = 20
+# How often a channel is retried while a posted file is still being extracted.
+FILE_RETRY_NS = 20 * 1_000_000_000
 
 
 def is_tracked_message(message: Message) -> bool:
@@ -90,6 +92,43 @@ def _select_batch(messages: list[Message]) -> tuple[list[Message], int]:
     return selected, watermark
 
 
+async def _summarize_batch_attachments(
+    channel_id: str, batch: list[Message]
+) -> tuple[list[Message], dict[str, list[str]], Optional[Message], bool]:
+    """Summarize attachments in message order.
+
+    Returns (batch, summaries, stop, waiting). The batch is cut before `stop` when its files are still
+    being extracted by Open WebUI (waiting=True), or when its summaries would push the batch well past the
+    char budget (waiting=False, processed in the next run).
+    """
+    summaries: dict[str, list[str]] = {}
+    used = 0
+    for index, message in enumerate(batch):
+        used += min(len(message.content or ''), TRACKER_MESSAGE_MAX_CHARS) + 80
+        if not _file_names(message):
+            continue
+        result = await media.summarize_attachments(channel_id, message)
+        if result.pending:
+            return batch[:index], summaries, message, True
+        used += sum(len(line) for line in result.lines)
+        if index and used > TRACKER_BATCH_MAX_CHARS * 1.4:
+            return batch[:index], summaries, message, False
+        summaries[message.id] = result.lines
+    return batch, summaries, None, False
+
+
+def _watermark_before(messages: list[Message], stop: Message, fallback: int) -> int:
+    earlier = [m.created_at for m in messages if m.created_at < stop.created_at]
+    return max(earlier) if earlier else fallback
+
+
+def _drop_sources(state: dict, source_ids: set[str]) -> dict:
+    for key in ('hang_muc', 'quyet_dinh', 'rui_ro', 'viec_tiep_theo'):
+        for entry in state.get(key) or []:
+            entry['nguon'] = [s for s in entry.get('nguon') or [] if s not in source_ids]
+    return state
+
+
 async def process_channel(channel_id: str, lease_id: str) -> None:
     try:
         row = await Trackers.get_state(channel_id)
@@ -108,6 +147,11 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         batch, watermark = _select_batch(new_messages)
         watermark = watermark if watermark is not None else row.watermark
 
+        batch, attachments, stop, waiting = await _summarize_batch_attachments(channel_id, batch)
+        if stop:
+            watermark = _watermark_before(new_messages, stop, row.watermark)
+        retry_after_ns = FILE_RETRY_NS if waiting else 0
+
         edited = [
             m
             for m in await Trackers.get_edited_messages(
@@ -116,16 +160,37 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             if is_tracked_message(m)
         ]
         edit_watermark = max([row.edit_watermark] + [m.updated_at for m in edited])
+        for message in edited:
+            if _file_names(message):
+                attachments[message.id] = (await media.summarize_attachments(channel_id, message)).lines
 
+        deletions = list(row.pending_deletions or [])
         candidates = edited + batch
-        if not candidates:
+        if not candidates and not deletions:
             await Trackers.complete(
-                channel_id, lease_id, state=None, watermark=watermark, edit_watermark=edit_watermark
+                channel_id,
+                lease_id,
+                state=None,
+                watermark=watermark,
+                edit_watermark=edit_watermark,
+                retry_after_ns=retry_after_ns,
             )
             return
 
         old_state = load_state(row.state)
-        prompt_messages = await _to_prompt_messages(candidates, {m.id for m in edited})
+        prompt_messages = [
+            PromptMessage(
+                id=d.get('id', ''),
+                created_at=d.get('created_at', 0),
+                user_name=d.get('user_name', 'Không rõ'),
+                content=d.get('content', ''),
+                deleted=True,
+            )
+            for d in deletions
+        ] + await _to_prompt_messages(candidates, {m.id for m in edited})
+        for prompt_message in prompt_messages:
+            prompt_message.attachments = attachments.get(prompt_message.id, [])
+
         chat_messages, ref_map = build_update_messages(
             channel.name, old_state, prompt_messages, TZ, TRACKER_MESSAGE_MAX_CHARS, time.time_ns()
         )
@@ -135,21 +200,35 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         new_state = merge_sources(update.trang_thai, old_state, ref_map)
 
         stored = {**new_state.model_dump(), 'schema_version': SCHEMA_VERSION}
+        _drop_sources(stored, {f'msg:{d.get("id")}' for d in deletions})
+        sources = [m.id for m in candidates]
         item = {
             'source_type': 'message_batch',
-            'source_ids': [m.id for m in candidates],
-            'period_start': min(m.created_at for m in candidates),
-            'period_end': max(m.created_at for m in candidates),
+            'source_ids': sources,
+            'period_start': min([m.created_at for m in candidates] or [time.time_ns()]),
+            'period_end': max([m.created_at for m in candidates] or [time.time_ns()]),
             'summary': update.tom_tat_lo,
-            'data': {'edited_ids': [m.id for m in edited]},
+            'data': {
+                'edited_ids': [m.id for m in edited],
+                'deleted_ids': [d.get('id') for d in deletions],
+                'attachments': [line for lines in attachments.values() for line in lines],
+            },
         }
         await Trackers.complete(
-            channel_id, lease_id, state=stored, watermark=watermark, edit_watermark=edit_watermark, item=item
+            channel_id,
+            lease_id,
+            state=stored,
+            watermark=watermark,
+            edit_watermark=edit_watermark,
+            item=item,
+            deletions_done=len(deletions),
+            retry_after_ns=retry_after_ns,
         )
         log.info(
-            'Tracker updated channel %s with %s messages in %.1fs',
+            'Tracker updated channel %s with %s messages, %s deletions in %.1fs',
             channel_id,
             len(candidates),
+            len(deletions),
             time.monotonic() - started,
         )
     except Exception as e:

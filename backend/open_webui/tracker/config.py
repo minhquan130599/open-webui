@@ -32,7 +32,8 @@ TRACKER_DISABLE_THINKING = _bool_env('TRACKER_DISABLE_THINKING', True)
 # Cluster-wide cap on concurrent tracker LLM calls (counted via active leases).
 TRACKER_MAX_CONCURRENCY = _int_env('TRACKER_MAX_CONCURRENCY', 2)
 TRACKER_POLL_INTERVAL = _int_env('TRACKER_POLL_INTERVAL', 5)
-TRACKER_LEASE_SECONDS = _int_env('TRACKER_LEASE_SECONDS', 600)
+# Long enough for a batch with several file summaries (each file may take a few LLM calls).
+TRACKER_LEASE_SECONDS = _int_env('TRACKER_LEASE_SECONDS', 900)
 
 # A channel is processed once it has this many pending messages, or after it has been idle this long.
 TRACKER_BATCH_SIZE = _int_env('TRACKER_BATCH_SIZE', 30)
@@ -48,3 +49,15 @@ TRACKER_TAIL_LIMIT = _int_env('TRACKER_TAIL_LIMIT', 50)
 TRACKER_TAIL_MAX_CHARS = _int_env('TRACKER_TAIL_MAX_CHARS', 8_000)
 
 TRACKER_TIMEZONE = os.getenv('TRACKER_TIMEZONE', 'Asia/Ho_Chi_Minh')
+
+# Attachments (P2). Files use the text Open WebUI already extracted; images go to the same model as vision input.
+TRACKER_ENABLE_FILES = _bool_env('TRACKER_ENABLE_FILES', True)
+TRACKER_ENABLE_IMAGES = _bool_env('TRACKER_ENABLE_IMAGES', True)
+TRACKER_FILE_CHUNK_CHARS = _int_env('TRACKER_FILE_CHUNK_CHARS', 12_000)
+# Longer files are summarized from evenly spaced chunks, and the summary says so.
+TRACKER_FILE_MAX_CHUNKS = _int_env('TRACKER_FILE_MAX_CHUNKS', 8)
+TRACKER_ATTACHMENT_SUMMARY_MAX_CHARS = _int_env('TRACKER_ATTACHMENT_SUMMARY_MAX_CHARS', 1_500)
+# A message waits this long for Open WebUI to finish extracting its files before it is processed without them.
+TRACKER_FILE_WAIT_SECONDS = _int_env('TRACKER_FILE_WAIT_SECONDS', 600)
+TRACKER_IMAGE_MAX_SIDE = _int_env('TRACKER_IMAGE_MAX_SIDE', 1024)
+TRACKER_MAX_ATTACHMENTS_PER_MESSAGE = _int_env('TRACKER_MAX_ATTACHMENTS_PER_MESSAGE', 6)

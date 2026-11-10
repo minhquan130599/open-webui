@@ -18,6 +18,7 @@
 	import ChannelInfoModal from './ChannelInfoModal.svelte';
 	import Users from '../icons/Users.svelte';
 	import Pin from '../icons/Pin.svelte';
+	import ChartBar from '../icons/ChartBar.svelte';
 	import Search from '../icons/Search.svelte';
 	import SearchModal from '../layout/SearchModal.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
@@ -53,6 +54,8 @@
 
 	export let onPin = (messageId, pinned) => {};
 	export let onUpdate = () => {};
+	// Set when the project tracker is enabled; toggles the progress panel.
+	export let onProgress: (() => void) | null = null;
 </script>
 
 {#if !readOnly}
@@ -172,6 +175,19 @@
 			>
 				<slot name="actions">
 					{#if channel}
+						{#if onProgress}
+							<Tooltip content={$i18n.t('Project progress')}>
+								<button
+									class=" flex size-7 items-center justify-center cursor-pointer rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-50/60 dark:hover:bg-gray-800/60 transition-colors"
+									aria-label={$i18n.t('Project progress')}
+									type="button"
+									on:click={onProgress}
+								>
+									<ChartBar className=" size-3.5" strokeWidth="1.5" />
+								</button>
+							</Tooltip>
+						{/if}
+
 						<Tooltip content={$i18n.t('Pinned Messages')}>
 							<button
 								class=" flex size-7 items-center justify-center cursor-pointer rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-50/60 dark:hover:bg-gray-800/60 transition-colors"
