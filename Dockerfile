@@ -212,6 +212,17 @@ COPY --chown=$UID:$GID --from=build /app/package.json /app/package.json
 # copy backend files with the ownership and static permissions prepared above
 COPY --from=build /app/backend .
 
+# Rebrand: logos/favicons/splash and the visible name (see branding/rebrand.py).
+# This deployment is covered by an Open WebUI enterprise license / written permission
+# (LICENSE exception (ii)/(iii)). Placed last so changing the brand only rebuilds these layers.
+ARG ENABLE_REBRAND=true
+ARG BRAND_NAME="NCS ChatUI"
+ARG LOGO_STYLE=light
+COPY branding /tmp/branding
+RUN if [ "$ENABLE_REBRAND" = "true" ]; then \
+    BRAND_NAME="$BRAND_NAME" LOGO_STYLE="$LOGO_STYLE" python /tmp/branding/rebrand.py; \
+    fi && rm -rf /tmp/branding
+
 EXPOSE 8080
 
 HEALTHCHECK CMD curl --silent --fail http://localhost:${PORT:-8080}/health | jq -ne 'input.status == true' || exit 1

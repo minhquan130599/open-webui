@@ -12,6 +12,9 @@ x-owui-build: &owui-build
   dockerfile: Dockerfile
   args:
     BUILD_HASH: ${BUILD_HASH:-dev-build}
+    # Đổi thương hiệu khi build (logo, favicon, splash, tên). Đổi giá trị trong .env rồi chạy update.ps1.
+    BRAND_NAME: ${BRAND_NAME:-NCS ChatUI}
+    LOGO_STYLE: ${LOGO_STYLE:-light}       # light | blue
 
 services:
   postgres:
@@ -100,6 +103,9 @@ services:
     volumes:
       - open-webui:/app/backend/data
     environment:
+      # --- Thương hiệu (tên hiển thị trên giao diện, tiêu đề tab, email...) ---
+      - WEBUI_NAME=${BRAND_NAME:-NCS ChatUI}
+
       # --- Bảo mật ---
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
       - ENABLE_SIGNUP=false
