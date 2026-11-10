@@ -50,6 +50,7 @@ from open_webui.socket.main import (
     sio,
 )
 from open_webui.tasks import create_task
+from open_webui.tracker import hooks as tracker_hooks
 from open_webui.utils.access_control import filter_allowed_access_grants, has_permission, validate_access_grants
 from open_webui.utils.apps import (
     check_app_channel_access,
@@ -1340,6 +1341,15 @@ async def model_response_handler(request, channel, message, user, db=None):
                         else ''
                     ),
                 }
+                project_context = await tracker_hooks.get_channel_prompt_context(
+                    channel.id, {m.id for m in thread_messages} | {message.id}
+                )
+                if project_context:
+                    system_message['content'] += (
+                        f'\n\nThis channel is the project "{channel.name}". Use the project context below to answer '
+                        'questions about progress, owners, deadlines and blockers; cite sources when helpful.\n\n'
+                        + project_context
+                    )
 
                 content = f'{user.name if user else "User"}: {message_content}'
                 if images:
@@ -1461,6 +1471,8 @@ async def new_message_handler(request: Request, id: str, form_data: MessageForm,
                         },
                         to=f'channel:{channel.id}',
                     )
+            if not (message.meta or {}).get('model_id'):
+                await tracker_hooks.on_channel_activity(channel.id)
             return message, channel
         else:
             raise Exception('Error creating message')
@@ -1775,6 +1787,7 @@ async def update_message_by_id(
     try:
         await Messages.update_message_by_id(message_id, form_data, db=db)
         message = await Messages.get_message_by_id(message_id, db=db)
+        await tracker_hooks.on_channel_activity(channel.id)
 
         if message:
             await sio.emit(
@@ -2280,6 +2293,7 @@ async def post_webhook_message(
 
     # Update last_used_at
     await Channels.update_webhook_last_used_at(webhook_id, db=db)
+    await tracker_hooks.on_channel_activity(webhook.channel_id)
 
     # Get full message and emit event
     message = await Messages.get_message_by_id(message.id, db=db)

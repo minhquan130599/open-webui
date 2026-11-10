@@ -883,6 +883,19 @@ async def get_builtin_tools(
             ]
         )
 
+    # Project tracker tools - per-channel project status maintained in the background
+    from open_webui.tracker.config import ENABLE_PROJECT_TRACKER
+
+    if (
+        ENABLE_PROJECT_TRACKER
+        and is_builtin_tool_enabled('project_tracker')
+        and config.get('channels.enable')
+        and await has_user_permission('channels')
+    ):
+        from open_webui.tracker.tools import get_project_status, list_my_projects
+
+        builtin_functions.extend([get_project_status, list_my_projects])
+
     # Skills tools - overview, targeted search, and bounded reads of relevant passages.
     skill_ids = sorted(set(extra_params.get('__skill_ids__') or []))
     workspace_skill_ids = [skill_id for skill_id in skill_ids if not skill_id.startswith('terminal:')]
