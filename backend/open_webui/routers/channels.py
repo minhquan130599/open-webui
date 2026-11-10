@@ -3,13 +3,20 @@ import io
 import logging
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from open_webui.config import ENABLE_ADMIN_CHAT_ACCESS, ENABLE_ADMIN_EXPORT
 from open_webui.constants import ERROR_MESSAGES
-from open_webui.env import ENABLE_PROFILE_IMAGE_URL_FORWARDING, STATIC_DIR
+from open_webui.env import (
+    CHANNEL_MODEL_DEFAULT_TIMEZONE,
+    CHANNEL_MODEL_HISTORY_LIMIT,
+    CHANNEL_MODEL_MAX_FILES,
+    ENABLE_PROFILE_IMAGE_URL_FORWARDING,
+    STATIC_DIR,
+)
 from open_webui.events import EVENTS, publish_event
 from open_webui.internal.db import get_async_db, get_async_session
 from open_webui.models.access_grants import AccessGrants, has_public_read_access_grant, has_public_write_access_grant
@@ -1231,6 +1238,186 @@ async def app_channel_reply_handler(channel_id, message_id, user_id):
             )
 
 
+def _resolve_user_timezone(name: Optional[str]):
+    """The user's IANA timezone (sent by their browser), else CHANNEL_MODEL_DEFAULT_TIMEZONE, else UTC."""
+    for candidate in (name, CHANNEL_MODEL_DEFAULT_TIMEZONE):
+        if not candidate:
+            continue
+        try:
+            from zoneinfo import ZoneInfo
+
+            return ZoneInfo(candidate)
+        except Exception:
+            pass
+        try:
+            import pytz  # bundles its own tz database if the OS has none
+
+            return pytz.timezone(candidate)
+        except Exception:
+            pass
+    return timezone.utc
+
+
+def _file_name(file: dict) -> str:
+    return str(file.get('name') or file.get('filename') or (file.get('meta') or {}).get('name') or 'file')
+
+
+def _message_files(message) -> list[dict]:
+    files = (getattr(message, 'data', None) or {}).get('files') or []
+    return [file for file in files if isinstance(file, dict) and (file.get('id') or file.get('url'))]
+
+
+def _message_file_names(message) -> list[str]:
+    return [_file_name(file) for file in _message_files(message)]
+
+
+async def _message_author_names(messages, db=None) -> dict:
+    """user_id -> display name. Channel message listings only carry user info for apps and
+    webhooks, so regular senders must be looked up (otherwise they show up as "Unknown")."""
+    user_ids = list({m.user_id for m in messages if getattr(m, 'user_id', None)})
+    if not user_ids:
+        return {}
+    return {u.id: u.name for u in await Users.get_users_by_user_ids(user_ids, db=db)}
+
+
+def _message_author(message, names: dict, models: dict) -> str:
+    meta = getattr(message, 'meta', None) or {}
+    if meta.get('model_id'):
+        model_id = meta['model_id']
+        return (models.get(model_id) or {}).get('name', model_id)
+    user_info = getattr(message, 'user', None)
+    if user_info is not None and getattr(user_info, 'name', None):
+        return user_info.name  # apps and webhooks
+    return names.get(getattr(message, 'user_id', None)) or 'Unknown'
+
+
+def _attachment_label(file: dict, author: str, posted: datetime, content: str) -> str:
+    caption = replace_mentions(content or '').strip().replace('\n', ' ')
+    if len(caption) > 200:
+        caption = caption[:200] + '…'
+    label = f'{_file_name(file)} — posted by {author} at {posted:%Y-%m-%d %H:%M}'
+    return label + (f', with the message: "{caption}"' if caption else '')
+
+
+async def get_channel_files_for_model(channel, message, db=None) -> list[tuple[dict, object]]:
+    """Files a model mentioned in a channel should be able to read, newest first, as (file, source message).
+
+    Previously only files posted *inside the thread* reached the model, so a file uploaded to the channel
+    (or attached to the mention itself, or to the thread's first message) was never visible and the model
+    answered that it could not find any file.
+    """
+    if CHANNEL_MODEL_MAX_FILES <= 0:
+        return []
+
+    # Messages the user pointed at directly: the mention itself, the message it replies to,
+    # and the thread's first message (thread lookups only return the replies).
+    explicit = [message]
+    for ref_id in (getattr(message, 'reply_to_id', None), getattr(message, 'parent_id', None)):
+        if ref_id:
+            ref = await Messages.get_message_by_id(ref_id, include_thread_replies=False, db=db)
+            if ref and ref.channel_id == channel.id:
+                explicit.append(ref)
+
+    if getattr(message, 'parent_id', None):
+        # Files already shared in this thread (newest first) count as pointed at too.
+        explicit += await Messages.get_messages_by_parent_id(channel.id, message.parent_id, db=db)
+
+    candidates = explicit
+    if not any(_message_files(m) for m in explicit):
+        # "Review that file": fall back to files recently posted in this channel, newest first.
+        # This also covers a follow-up inside the AI's reply thread about a file posted in the channel.
+        recent = await Messages.get_messages_by_channel_id(channel.id, 0, max(CHANNEL_MODEL_HISTORY_LIMIT, 1), db=db)
+        candidates = [m for m in recent if m.id != message.id]
+
+    selected, seen = [], set()
+    for source in candidates:
+        for file in _message_files(source):
+            key = file.get('id') or file.get('url')
+            if key in seen:
+                continue
+            seen.add(key)
+            selected.append((file, source))
+            if len(selected) >= CHANNEL_MODEL_MAX_FILES:
+                return selected
+    return selected
+
+
+async def get_channel_context_for_model(
+    channel, message, user, models: dict, db=None, shown_ids: Optional[set] = None
+) -> str:
+    """System-prompt block with this channel's recent top-level messages, for a model mentioned outside a thread.
+
+    shown_ids, when given, receives the ids of the messages included (so other context can skip them).
+    """
+    if message.parent_id or CHANNEL_MODEL_HISTORY_LIMIT <= 0:
+        return ''
+
+    recent_messages = await Messages.get_messages_by_channel_id(channel.id, 0, CHANNEL_MODEL_HISTORY_LIMIT + 1, db=db)
+
+    tz = _resolve_user_timezone(getattr(user, 'timezone', None))
+    now = datetime.now(tz)
+    names = await _message_author_names(recent_messages, db=db)
+    utc_offset = now.strftime('%z')
+    utc_offset = f'UTC{utc_offset[:3]}:{utc_offset[3:]}' if utc_offset else 'UTC'
+
+    lines = []
+    for recent_message in reversed(recent_messages):
+        # The triggering message is sent separately as the user turn.
+        if recent_message.id == message.id:
+            continue
+        content = replace_mentions(recent_message.content or '').strip()
+        attachments = _message_file_names(recent_message)
+        if attachments:
+            content = (content + ' ' if content else '') + f'[attached: {", ".join(attachments)}]'
+        if not content:
+            continue
+
+        author = _message_author(recent_message, names, models)
+
+        posted = datetime.fromtimestamp(recent_message.created_at / 1_000_000_000, tz=tz)
+        lines.append((recent_message.id, f'[{posted:%Y-%m-%d %H:%M}] {author}: {content}'))
+
+    lines = lines[-CHANNEL_MODEL_HISTORY_LIMIT:]
+    if not lines:
+        return ''
+    if shown_ids is not None:
+        shown_ids.update(message_id for message_id, _ in lines)
+    lines = [line for _, line in lines]
+
+    history = '\n\n'.join(lines)
+    return (
+        f'\n\nYou are in the channel "{channel.name}". '
+        f'Current date and time: {now:%Y-%m-%d %H:%M} ({now:%A}), timezone {utc_offset}. '
+        f"Here are the channel's most recent messages, oldest first, each prefixed with the local date and time it was posted:"
+        f'\n\n\n{history}\n\n\n'
+        'Rules for summaries and reports:\n'
+        '- Use only the messages of this channel. Do not include content from other channels unless the user explicitly asks for another channel.\n'
+        '- If the user asks about a specific day or period (for example "ngày 9/11", "hôm nay", "hôm qua", "tuần này"), '
+        'include only messages posted within that day or period according to the timestamps above, and resolve relative days from the current date.\n'
+        '- Within that day, also leave out any message whose content says it reports on a different day '
+        '(for example "Báo cáo ngày 04/11" posted on 09/11 belongs to 04/11, not 09/11).\n'
+        '- Dates written like 9/11 mean day/month.\n'
+        '- Leave out requests asking for a summary; they are not reports.\n'
+        '- If no report matches the requested day, say so plainly instead of summarizing other days.'
+    )
+
+
+async def _add_model_file(file: dict, images: list, files: list, seen: set, user, label: str = '') -> None:
+    """images collects (url, label) pairs so each image can be introduced with who posted it."""
+    key = file.get('id') or file.get('url')
+    if not key or key in seen:
+        return
+    seen.add(key)
+    if file.get('type', '') == 'image':
+        images.append((file.get('url', ''), label))
+    elif (file.get('content_type') or '').startswith('image/'):
+        image = await get_image_base64_from_file_id(file.get('id', ''), user=user)
+        if image:
+            images.append((image, label))
+    elif file.get('id'):
+        files.append(file)
+
+
 async def model_response_handler(request, channel, message, user, db=None):
     if not await get_verified_user_by_id(user.id):
         return
@@ -1259,6 +1446,22 @@ async def model_response_handler(request, channel, message, user, db=None):
     if not model_mentions:
         return False
 
+    # A mention outside a thread previously reached the model with no channel context at all,
+    # so it searched every channel the user belongs to. Give it this channel's recent messages.
+    # Fetched once, before any response placeholder is posted.
+    channel_context_ids: set = set()
+    channel_context = await get_channel_context_for_model(
+        channel, message, user, MODELS, db=db, shown_ids=channel_context_ids
+    )
+    channel_files = await get_channel_files_for_model(channel, message, db=db)
+    thread_parent = (
+        await Messages.get_message_by_id(message.parent_id, include_thread_replies=False, db=db)
+        if message.parent_id
+        else None
+    )
+    if thread_parent and thread_parent.channel_id != channel.id:
+        thread_parent = None
+
     for mention in model_mentions.values():
         model_id = mention['id']
         model = MODELS.get(model_id, None)
@@ -1273,6 +1476,9 @@ async def model_response_handler(request, channel, message, user, db=None):
                         db=db,
                     )
                 )[::-1]
+                # Thread lookups return only the replies; the model also needs the message that started the thread.
+                if thread_parent and all(m.id != thread_parent.id for m in thread_messages):
+                    thread_messages = [thread_parent, *thread_messages]
                 response_parent_id = (
                     message.parent_id
                     if message.parent_id
@@ -1302,6 +1508,9 @@ async def model_response_handler(request, channel, message, user, db=None):
                 thread_history = []
                 images = []
                 files = []
+                seen_files = set()
+                tz = _resolve_user_timezone(getattr(user, 'timezone', None))
+                file_authors = await _message_author_names([source for _file, source in channel_files], db=db)
 
                 # Batch fetch all users in a single query (fixes N+1 problem)
                 user_ids = list({message.user_id for message in thread_messages})
@@ -1320,29 +1529,53 @@ async def model_response_handler(request, channel, message, user, db=None):
 
                     thread_history.append(f'{username}: {replace_mentions(thread_message.content)}')
 
-                    thread_message_files = (thread_message.data or {}).get('files', [])
-                    for file in thread_message_files:
-                        if file.get('type', '') == 'image':
-                            images.append(file.get('url', ''))
-                        elif file.get('content_type', '').startswith('image/'):
-                            image = await get_image_base64_from_file_id(file.get('id', ''), user=user)
-                            if image:
-                                images.append(image)
-                        elif file.get('id'):
-                            files.append(file)
+                    for file in _message_files(thread_message):
+                        posted = datetime.fromtimestamp(thread_message.created_at / 1_000_000_000, tz=tz)
+                        await _add_model_file(
+                            file,
+                            images,
+                            files,
+                            seen_files,
+                            user,
+                            label=_attachment_label(file, username, posted, thread_message.content),
+                        )
+
+                # Files from the mention, the message it replies to, the thread start, or recent channel uploads.
+                listed = []
+                for file, source in channel_files:
+                    author = _message_author(source, file_authors, MODELS)
+                    posted = datetime.fromtimestamp(source.created_at / 1_000_000_000, tz=tz)
+                    label = _attachment_label(file, author, posted, source.content)
+                    listed.append(f'- {label}')
+                    await _add_model_file(file, images, files, seen_files, user, label=label)
+
+                files_note = ''
+                if channel_files:
+                    files_note = (
+                        '\n\nFiles from this channel are attached to this request, most relevant first:\n'
+                        + '\n'.join(listed)
+                        + '\nWhen the user mentions "the file" or "file đó" without a name, they mean the first one listed. '
+                        'Read the files with the available file tools (list them, then view or search their content) '
+                        'or use the provided file content; do not answer that no file was found while files are listed here. '
+                        'Each attached image is introduced by a line naming who posted it and when; '
+                        'use those names when asked who sent an image.'
+                    )
 
                 thread_history_string = '\n\n'.join(thread_history)
                 system_message = {
                     'role': 'system',
                     'content': f'You are {model.get("name", model_id)}, participating in a threaded conversation. Be concise and conversational.'
+                    + channel_context
+                    + files_note
                     + (
                         f"Here's the thread history:\n\n\n{thread_history_string}\n\n\nContinue the conversation naturally as {model.get('name', model_id)}, addressing the most recent message while being aware of the full context."
                         if thread_history
                         else ''
                     ),
                 }
+                # Skip tail messages already shown above (thread history / recent channel messages).
                 project_context = await tracker_hooks.get_channel_prompt_context(
-                    channel.id, {m.id for m in thread_messages} | {message.id}
+                    channel.id, {m.id for m in thread_messages} | {message.id} | channel_context_ids
                 )
                 if project_context:
                     system_message['content'] += (
@@ -1352,6 +1585,9 @@ async def model_response_handler(request, channel, message, user, db=None):
                     )
 
                 content = f'{user.name if user else "User"}: {message_content}'
+                own_attachments = _message_file_names(message)
+                if own_attachments:
+                    content += f' [attached: {", ".join(own_attachments)}]'
                 if images:
                     content = [
                         {
@@ -1359,13 +1595,17 @@ async def model_response_handler(request, channel, message, user, db=None):
                             'text': content,
                         },
                         *[
-                            {
-                                'type': 'image_url',
-                                'image_url': {
-                                    'url': image,
+                            part
+                            for index, (image, label) in enumerate(images, start=1)
+                            for part in (
+                                *([{'type': 'text', 'text': f'Image {index}: {label}'}] if label else []),
+                                {
+                                    'type': 'image_url',
+                                    'image_url': {
+                                        'url': image,
+                                    },
                                 },
-                            }
-                            for image in images
+                            )
                         ],
                     ]
 

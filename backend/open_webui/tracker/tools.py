@@ -1,4 +1,8 @@
-"""Builtin tools exposing tracker state. Access is limited to channels the user can read."""
+"""Builtin tools exposing tracker state. Access is limited to channels the user can read.
+
+When the model runs inside a channel (chat id "channel:<id>"), the tools only see that channel: the
+answer is visible to every channel member, so it must not reveal other projects of the asking user.
+"""
 
 import logging
 import time
@@ -11,12 +15,17 @@ from open_webui.tracker.models import Trackers
 from open_webui.tracker.prompts import format_time
 from open_webui.tracker.schema import load_state, normalize_key
 from open_webui.tracker.service import TZ, build_channel_context
+from open_webui.utils.chat_id import CHANNEL_CHAT_ID_PREFIX
 from open_webui.utils.json_codec import JSONCodec
 
 log = logging.getLogger(__name__)
 
 
-async def _accessible_channels(user_id: str) -> list:
+async def _accessible_channels(user_id: str, chat_id: Optional[str] = None) -> list:
+    if isinstance(chat_id, str) and chat_id.startswith(CHANNEL_CHAT_ID_PREFIX):
+        # The channel chat id is only accepted after the chat completion membership/write gate.
+        channel = await Channels.get_channel_by_id(chat_id.removeprefix(CHANNEL_CHAT_ID_PREFIX))
+        return [channel] if channel else []
     return [c for c in await Channels.get_channels_by_user_id(user_id) if c.type != 'dm']
 
 
@@ -24,6 +33,7 @@ async def get_project_status(
     project: str,
     __request__: Request = None,
     __user__: dict = None,
+    __chat_id__: str = None,
 ) -> str:
     """
     Get the current status of a project (one channel = one project): summary, work items with owner,
@@ -36,7 +46,7 @@ async def get_project_status(
         return JSONCodec.dumps({'error': 'User context not available'})
 
     try:
-        match, error = await _resolve_project(project, __user__.get('id'))
+        match, error = await _resolve_project(project, __user__.get('id'), __chat_id__)
         if error:
             return error
         return f'Dự án: {match.name} (id: {match.id})\n\n' + await build_channel_context(match.id)
@@ -45,9 +55,11 @@ async def get_project_status(
         return JSONCodec.dumps({'error': str(e)})
 
 
-async def _resolve_project(project: str, user_id: str):
+async def _resolve_project(project: str, user_id: str, chat_id: Optional[str] = None):
     """Find an accessible channel by id or name. Returns (channel, None) or (None, error JSON)."""
-    channels = await _accessible_channels(user_id)
+    channels = await _accessible_channels(user_id, chat_id)
+    if len(channels) == 1 and chat_id and chat_id.startswith(CHANNEL_CHAT_ID_PREFIX):
+        return channels[0], None  # inside a channel, "the project" is always this channel
     key = normalize_key(project)
     match = next((c for c in channels if c.id == project), None) or next(
         (c for c in channels if normalize_key(c.name) == key), None
@@ -70,6 +82,7 @@ async def get_project_timeline(
     days: int = 7,
     __request__: Request = None,
     __user__: dict = None,
+    __chat_id__: str = None,
 ) -> str:
     """
     Get what happened in a project over the last N days, as a chronological list of update summaries.
@@ -83,7 +96,7 @@ async def get_project_timeline(
         return JSONCodec.dumps({'error': 'User context not available'})
 
     try:
-        match, error = await _resolve_project(project, __user__.get('id'))
+        match, error = await _resolve_project(project, __user__.get('id'), __chat_id__)
         if error:
             return error
         days = min(max(int(days or 7), 1), 90)
@@ -116,6 +129,7 @@ async def search_project_evidence(
     count: int = 10,
     __request__: Request = None,
     __user__: dict = None,
+    __chat_id__: str = None,
 ) -> str:
     """
     Search a project's history (update summaries, including file and image summaries) for a topic.
@@ -131,7 +145,7 @@ async def search_project_evidence(
         return JSONCodec.dumps({'error': 'User context not available'})
 
     try:
-        match, error = await _resolve_project(project, __user__.get('id'))
+        match, error = await _resolve_project(project, __user__.get('id'), __chat_id__)
         if error:
             return error
         terms = [t for t in normalize_key(query).split() if len(t) > 1]
@@ -169,6 +183,7 @@ async def list_my_projects(
     only_with_issues: bool = False,
     __request__: Request = None,
     __user__: dict = None,
+    __chat_id__: str = None,
 ) -> str:
     """
     List projects (channels) the user can access with a short status: overview, number of work items,
@@ -182,7 +197,7 @@ async def list_my_projects(
         return JSONCodec.dumps({'error': 'User context not available'})
 
     try:
-        channels = await _accessible_channels(__user__.get('id'))
+        channels = await _accessible_channels(__user__.get('id'), __chat_id__)
         if query:
             key = normalize_key(query)
             channels = [c for c in channels if key in normalize_key(c.name)]

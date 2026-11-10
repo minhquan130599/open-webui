@@ -979,6 +979,29 @@ ENABLE_EASTER_EGGS = os.getenv('ENABLE_EASTER_EGGS', 'True').lower() == 'true'
 ENABLE_STAR_SESSIONS_MIDDLEWARE = os.getenv('ENABLE_STAR_SESSIONS_MIDDLEWARE', 'False').lower() == 'true'
 ENABLE_KB_EXEC = os.getenv('ENABLE_KB_EXEC', 'False').lower() == 'true'
 
+####################################
+# CHANNELS: model context
+####################################
+
+# Number of recent top-level messages from the *current* channel that are given to a
+# model when it is @mentioned outside a thread (0 disables). Lets "summarize the reports"
+# work from the channel the user is looking at instead of searching other channels.
+try:
+    CHANNEL_MODEL_HISTORY_LIMIT = max(0, int(os.getenv('CHANNEL_MODEL_HISTORY_LIMIT', '50')))
+except ValueError:
+    CHANNEL_MODEL_HISTORY_LIMIT = 50
+
+# Timezone used for channel message timestamps when a user has none saved yet
+# (normally the browser reports it). IANA name, e.g. Asia/Ho_Chi_Minh.
+CHANNEL_MODEL_DEFAULT_TIMEZONE = os.getenv('CHANNEL_MODEL_DEFAULT_TIMEZONE', 'UTC')
+
+# Maximum number of channel files (PDF, DOCX, images...) handed to a model mentioned in a channel:
+# files on the mention / replied-to message / thread start, else the newest uploads in the channel.
+try:
+    CHANNEL_MODEL_MAX_FILES = max(0, int(os.getenv('CHANNEL_MODEL_MAX_FILES', '5')))
+except ValueError:
+    CHANNEL_MODEL_MAX_FILES = 5
+
 ENABLE_PROFILE_IMAGE_URL_FORWARDING = os.getenv('ENABLE_PROFILE_IMAGE_URL_FORWARDING', 'True').lower() == 'true'
 PROFILE_IMAGE_ALLOWED_MIME_TYPES = frozenset(
     t.strip()

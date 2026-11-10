@@ -65,7 +65,7 @@ from open_webui.routers.retrieval import search_web as _search_web
 from open_webui.socket.main import close_changed_note_documents, sio
 from open_webui.tools.knowledge_fs import kb_exec  # noqa: F401 — re-exported
 from open_webui.utils.access_control.files import has_access_to_note_files
-from open_webui.utils.chat_id import is_saved_chat_id
+from open_webui.utils.chat_id import CHANNEL_CHAT_ID_PREFIX, is_saved_chat_id
 from open_webui.utils.json_codec import JSONCodec
 from open_webui.utils.notifications import notify_target
 from open_webui.utils.sanitize import sanitize_code
@@ -1881,14 +1881,27 @@ async def timer(
 # Channels tools
 
 
+def _current_channel_id(chat_id) -> Optional[str]:
+    """Channel the model was @mentioned in, or None outside a channel.
+
+    The 'channel:' chat ID is only accepted by /api/chat/completions after its membership
+    and write-access gate, so the channel tools can trust it to scope their results.
+    """
+    if isinstance(chat_id, str) and chat_id.startswith(CHANNEL_CHAT_ID_PREFIX):
+        return chat_id.removeprefix(CHANNEL_CHAT_ID_PREFIX) or None
+    return None
+
+
 async def search_channels(
     query: str,
     count: int = 5,
     __request__: Request = None,
     __user__: dict = None,
+    __chat_id__: str = None,
 ) -> str:
     """
     Search channels by name and description to find accessible team spaces.
+    When called from inside a channel, only that channel is returned.
 
     :param query: The search query to find matching channels
     :param count: Maximum number of results to return (default: 5)
@@ -1902,6 +1915,24 @@ async def search_channels(
 
     try:
         user_id = __user__.get('id')
+
+        current_channel_id = _current_channel_id(__chat_id__)
+        if current_channel_id:
+            # Inside a channel the model must stay in that channel.
+            channel = await Channels.get_channel_by_id(current_channel_id)
+            if not channel:
+                return JSONCodec.dumps([])
+            return JSONCodec.dumps(
+                [
+                    {
+                        'id': channel.id,
+                        'name': channel.name,
+                        'description': channel.description or '',
+                        'type': channel.type or 'public',
+                    }
+                ],
+                ensure_ascii=False,
+            )
 
         # Get all channels the user has access to
         all_channels = await Channels.get_channels_by_user_id(user_id)
@@ -1940,10 +1971,12 @@ async def search_channel_messages(
     end_timestamp: Optional[int] = None,
     __request__: Request = None,
     __user__: dict = None,
+    __chat_id__: str = None,
 ) -> str:
     """
     Search messages in channels the user is a member of, including thread replies.
     Helpful for finding prior team/channel discussion.
+    When called from inside a channel, only messages of that channel are searched.
 
     :param query: The search query to find matching messages
     :param count: Maximum number of results to return (default: 10)
@@ -1960,8 +1993,14 @@ async def search_channel_messages(
     try:
         user_id = __user__.get('id')
 
-        # Get all channels the user has access to
-        user_channels = await Channels.get_channels_by_user_id(user_id)
+        current_channel_id = _current_channel_id(__chat_id__)
+        if current_channel_id:
+            # Inside a channel, never mix in messages from the user's other channels.
+            channel = await Channels.get_channel_by_id(current_channel_id)
+            user_channels = [channel] if channel else []
+        else:
+            # Get all channels the user has access to
+            user_channels = await Channels.get_channels_by_user_id(user_id)
         channel_ids = [c.id for c in user_channels]
         channel_map = {c.id: c for c in user_channels}
 
@@ -2018,9 +2057,11 @@ async def view_channel_message(
     message_id: str,
     __request__: Request = None,
     __user__: dict = None,
+    __chat_id__: str = None,
 ) -> str:
     """
     Get the full content of a channel message by its ID, including thread replies.
+    When called from inside a channel, only messages of that channel can be viewed.
 
     :param message_id: The ID of the message to retrieve
     :return: JSON with the message content, channel info, and thread replies if any
@@ -2044,12 +2085,17 @@ async def view_channel_message(
         if not channel:
             return JSONCodec.dumps({'error': 'Channel not found'})
 
-        # Check if user has access to the channel
-        user_channels = await Channels.get_channels_by_user_id(user_id)
-        channel_ids = [c.id for c in user_channels]
+        current_channel_id = _current_channel_id(__chat_id__)
+        if current_channel_id:
+            if message.channel_id != current_channel_id:
+                return JSONCodec.dumps({'error': 'Message is outside the current channel'})
+        else:
+            # Check if user has access to the channel
+            user_channels = await Channels.get_channels_by_user_id(user_id)
+            channel_ids = [c.id for c in user_channels]
 
-        if message.channel_id not in channel_ids:
-            return JSONCodec.dumps({'error': 'Access denied'})
+            if message.channel_id not in channel_ids:
+                return JSONCodec.dumps({'error': 'Access denied'})
 
         # Build response with thread information
         result = {
@@ -2079,9 +2125,11 @@ async def view_channel_thread(
     parent_message_id: str,
     __request__: Request = None,
     __user__: dict = None,
+    __chat_id__: str = None,
 ) -> str:
     """
     Get all messages in a channel thread, including the parent message and all replies.
+    When called from inside a channel, only threads of that channel can be viewed.
 
     :param parent_message_id: The ID of the parent message that started the thread
     :return: JSON with the parent message and all thread replies in chronological order
@@ -2106,11 +2154,16 @@ async def view_channel_thread(
         if not channel:
             return JSONCodec.dumps({'error': 'Channel not found'})
 
-        user_channels = await Channels.get_channels_by_user_id(user_id)
-        channel_ids = [c.id for c in user_channels]
+        current_channel_id = _current_channel_id(__chat_id__)
+        if current_channel_id:
+            if parent_message.channel_id != current_channel_id:
+                return JSONCodec.dumps({'error': 'Thread is outside the current channel'})
+        else:
+            user_channels = await Channels.get_channels_by_user_id(user_id)
+            channel_ids = [c.id for c in user_channels]
 
-        if parent_message.channel_id not in channel_ids:
-            return JSONCodec.dumps({'error': 'Access denied'})
+            if parent_message.channel_id not in channel_ids:
+                return JSONCodec.dumps({'error': 'Access denied'})
 
         # Get all thread replies
         thread_replies = await Messages.get_thread_replies_by_message_id(parent_message_id)

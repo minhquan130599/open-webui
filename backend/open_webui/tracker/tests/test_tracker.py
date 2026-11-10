@@ -192,6 +192,15 @@ async def test_end_to_end(project, monkeypatch):
     outsider = {'id': str(uuid.uuid4())}
     assert 'not found' in (await get_project_status(channel.name, __user__=outsider)).lower()
 
+    # Inside another channel the answer is visible to its members: tools only see that channel.
+    from open_webui.models.channels import Channels, CreateChannelForm
+
+    shared = await Channels.insert_new_channel(CreateChannelForm(name=f'shared-{uuid.uuid4().hex[:6]}'), user.id)
+    in_shared = {'__user__': {'id': user.id}, '__chat_id__': f'channel:{shared.id}'}
+    listed = await list_my_projects(**in_shared)
+    assert shared.name in listed and channel.name not in listed
+    assert f'Dự án: {shared.name}' in await get_project_status(channel.name, **in_shared)
+
 
 @pytest.mark.asyncio(loop_scope='module')
 async def test_failure_backs_off_and_lease_is_checked(project, monkeypatch):
