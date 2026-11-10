@@ -1,3 +1,12 @@
+# Open WebUI build từ source (fork, nhánh feature/project-tracker) + PostgreSQL/pgvector + Redis + RustFS.
+# Đặt file này cùng .env và update.ps1 trong thư mục nằm cạnh repo, ví dụ:
+#   D:\WebUi\open-webui\          <- repo (git)
+#   D:\WebUi\openwenui-docker\    <- docker-compose.yaml, .env, update.ps1
+
+# Giữ cố định tên project để Docker dùng lại đúng các volume dữ liệu đang có
+# (openwenui-docker_postgres, _s3data, _open-webui), kể cả khi đổi tên thư mục.
+name: openwenui-docker
+
 x-owui-build: &owui-build
   context: ../open-webui
   dockerfile: Dockerfile
@@ -45,10 +54,12 @@ services:
       - s3data:/data
     restart: unless-stopped
 
-  # Tạo bucket "openwebui" một lần rồi thoát (dùng boto3 có sẵn trong image Open WebUI)
+  # Tạo bucket "openwebui" một lần rồi thoát (dùng boto3 có sẵn trong image Open WebUI).
+  # Không có "build:" để image chỉ build một lần (service open-webui); hai lần build song song
+  # (mỗi lần npm build dùng tới 12 GB RAM) làm Docker hết bộ nhớ. update.ps1 build trước rồi mới up.
   bucket-init:
-    build: *owui-build
     image: open-webui-local:latest
+    pull_policy: never
     container_name: owui-bucket-init
     depends_on: [rustfs]
     environment:
@@ -128,6 +139,20 @@ services:
       - CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS=40
       - ENABLE_CONTEXT_COMPACTION=true
       - CONTEXT_COMPACTION_TOKEN_THRESHOLD=20000
+
+      # --- AI khi được @mention trong kênh ---
+      - CHANNEL_MODEL_DEFAULT_TIMEZONE=Asia/Ho_Chi_Minh   # khi trình duyệt chưa gửi múi giờ người dùng
+      - CHANNEL_MODEL_HISTORY_LIMIT=50                    # số tin gần nhất của kênh đưa cho AI (0 = tắt)
+      - CHANNEL_MODEL_MAX_FILES=5                         # số file trong kênh đưa cho AI
+
+      # --- Project tracker: tự tổng hợp tiến độ dự án theo kênh ---
+      # Dùng chung OPENAI_API_BASE_URL / OPENAI_API_KEY ở trên. Tắt nhanh: đổi thành false.
+      - ENABLE_PROJECT_TRACKER=true
+      - TRACKER_MODEL=${TRACKER_MODEL}
+      - TRACKER_MAX_CONCURRENCY=${TRACKER_MAX_CONCURRENCY:-2}
+      - TRACKER_TIMEZONE=Asia/Ho_Chi_Minh
+      - TRACKER_IDLE_SECONDS=90       # kênh im lặng bao lâu thì tổng hợp
+      - TRACKER_BATCH_SIZE=30         # đủ bao nhiêu tin thì tổng hợp ngay
     restart: unless-stopped
 
 volumes:
