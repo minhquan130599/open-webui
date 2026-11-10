@@ -1,0 +1,136 @@
+x-owui-build: &owui-build
+  context: ../open-webui
+  dockerfile: Dockerfile
+  args:
+    BUILD_HASH: ${BUILD_HASH:-dev-build}
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: owui-postgres
+    environment:
+      POSTGRES_USER: openwebui
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: openwebui
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openwebui -d openwebui"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: owui-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: owui-rustfs
+    environment:
+      - RUSTFS_VOLUMES=/data
+      - RUSTFS_ADDRESS=0.0.0.0:9000
+      - RUSTFS_CONSOLE_ADDRESS=0.0.0.0:9001
+      - RUSTFS_CONSOLE_ENABLE=true
+      - RUSTFS_ACCESS_KEY=${S3_ACCESS_KEY}
+      - RUSTFS_SECRET_KEY=${S3_SECRET_KEY}
+    ports:
+      - "9001:9001"            # giao diện web quản lý file (có thể bỏ)
+    volumes:
+      - s3data:/data
+    restart: unless-stopped
+
+  # Tạo bucket "openwebui" một lần rồi thoát (dùng boto3 có sẵn trong image Open WebUI)
+  bucket-init:
+    build: *owui-build
+    image: open-webui-local:latest
+    container_name: owui-bucket-init
+    depends_on: [rustfs]
+    environment:
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_KEY}
+    entrypoint:
+      - python
+      - -c
+      - |
+        import os, time, boto3
+        s3 = boto3.client('s3', endpoint_url='http://rustfs:9000', region_name='us-east-1',
+                          aws_access_key_id=os.environ['S3_ACCESS_KEY_ID'],
+                          aws_secret_access_key=os.environ['S3_SECRET_ACCESS_KEY'])
+        for _ in range(60):
+            try:
+                names = [b['Name'] for b in s3.list_buckets().get('Buckets', [])]
+                if 'openwebui' not in names:
+                    s3.create_bucket(Bucket='openwebui')
+                print('bucket openwebui OK')
+                break
+            except Exception as e:
+                print('waiting for rustfs:', e)
+                time.sleep(2)
+        else:
+            raise SystemExit(1)
+    restart: "no"
+
+  open-webui:
+    build: *owui-build
+    image: open-webui-local:latest
+    container_name: open-webui
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      bucket-init: { condition: service_completed_successfully }
+    ports:
+      - "${WEBUI_PORT:-8000}:8080"
+    volumes:
+      - open-webui:/app/backend/data
+    environment:
+      # --- Bảo mật ---
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - ENABLE_SIGNUP=false
+
+      # --- Database và vector DB ---
+      - DATABASE_URL=postgresql://openwebui:${POSTGRES_PASSWORD}@postgres:5432/openwebui
+      - DATABASE_POOL_SIZE=20
+      - VECTOR_DB=pgvector
+
+      # --- Nhiều worker và realtime ---
+      - UVICORN_WORKERS=4
+      - REDIS_URL=redis://redis:6379/0
+      - WEBSOCKET_MANAGER=redis
+      - ENABLE_WEBSOCKET_SUPPORT=true
+
+      # --- Lưu file vào RustFS (S3) ---
+      - STORAGE_PROVIDER=s3
+      - S3_ENDPOINT_URL=http://rustfs:9000
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_KEY}
+      - S3_BUCKET_NAME=openwebui
+      - S3_REGION_NAME=us-east-1
+      - S3_ADDRESSING_STYLE=path
+
+      # --- LLM trên cloud ---
+      - ENABLE_OLLAMA_API=false
+      - OPENAI_API_BASE_URL=${OPENAI_API_BASE_URL}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+
+      # --- Upload nhanh ---
+      - BYPASS_EMBEDDING_AND_RETRIEVAL=true
+      - RAG_FILE_MAX_SIZE=50
+
+      # --- Đọc file vừa với context 32k ---
+      - VIEW_FILE_DEFAULT_MAX_CHARS=12000
+      - VIEW_FILE_MAX_CHARS=20000
+      - CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS=40
+      - ENABLE_CONTEXT_COMPACTION=true
+      - CONTEXT_COMPACTION_TOKEN_THRESHOLD=20000
+    restart: unless-stopped
+
+volumes:
+  postgres: {}
+  s3data: {}
+  open-webui: {}
