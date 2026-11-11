@@ -4,6 +4,7 @@ import re
 import aiohttp
 from pydantic import ValidationError
 
+from open_webui.models.config import Config
 from open_webui.tracker.config import (
     TRACKER_DISABLE_THINKING,
     TRACKER_GUIDED_JSON,
@@ -29,7 +30,25 @@ class TrackerLLMError(Exception):
 
 
 def is_configured() -> bool:
-    return bool(TRACKER_LLM_BASE_URL and TRACKER_MODEL)
+    """The endpoint can come from the admin connections at call time, so only the model is required here."""
+    return bool(TRACKER_MODEL)
+
+
+async def _connection() -> tuple[str, str]:
+    """(base_url, api_key): TRACKER_LLM_BASE_URL if set, else the first enabled admin OpenAI connection."""
+    if TRACKER_LLM_BASE_URL:
+        return TRACKER_LLM_BASE_URL, TRACKER_LLM_API_KEY
+
+    values = await Config.get_many('openai.enable', 'openai.api_base_urls', 'openai.api_keys', 'openai.api_configs')
+    if values.get('openai.enable') is False:
+        raise TrackerLLMError('OpenAI connections are disabled in admin settings and TRACKER_LLM_BASE_URL is not set')
+    urls = values.get('openai.api_base_urls') or []
+    keys = values.get('openai.api_keys') or []
+    configs = values.get('openai.api_configs') or {}
+    for idx, url in enumerate(urls):
+        if url and configs.get(str(idx), configs.get(url, {})).get('enable', True):
+            return url.rstrip('/'), keys[idx] if idx < len(keys) else ''
+    raise TrackerLLMError('No enabled OpenAI connection in admin settings and TRACKER_LLM_BASE_URL is not set')
 
 
 def extract_json(text: str) -> dict:
@@ -43,12 +62,11 @@ def extract_json(text: str) -> dict:
 
 
 async def _post(session: aiohttp.ClientSession, payload: dict) -> tuple[int, dict | str]:
+    base_url, api_key = await _connection()
     headers = {'Content-Type': 'application/json'}
-    if TRACKER_LLM_API_KEY:
-        headers['Authorization'] = f'Bearer {TRACKER_LLM_API_KEY}'
-    async with session.post(
-        f'{TRACKER_LLM_BASE_URL}/chat/completions', data=JSONCodec.dumps(payload), headers=headers
-    ) as response:
+    if api_key:
+        headers['Authorization'] = f'Bearer {api_key}'
+    async with session.post(f'{base_url}/chat/completions', data=JSONCodec.dumps(payload), headers=headers) as response:
         body = await response.text()
         try:
             return response.status, JSONCodec.loads(body)
@@ -80,7 +98,7 @@ def _content(status: int, body) -> str:
 
 def _require_config() -> None:
     if not is_configured():
-        raise TrackerLLMError('TRACKER_LLM_BASE_URL and TRACKER_MODEL must be set')
+        raise TrackerLLMError('TRACKER_MODEL must be set')
 
 
 async def generate_text(messages: list[dict], max_tokens: int = 1024) -> str:

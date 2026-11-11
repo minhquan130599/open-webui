@@ -21,6 +21,10 @@ class TrackerStateResponse(BaseModel):
     version: int = 0
     processed_at: Optional[int] = None
     pending_count: int = 0
+    # A run holds a lease while it calls the LLM.
+    processing: bool = False
+    # Set after a failed run: the channel is not retried before this time (ns), except on refresh.
+    next_attempt_at: Optional[int] = None
     last_error: Optional[str] = None
 
 
@@ -49,6 +53,9 @@ async def get_channel_state(channel_id: str, user=Depends(get_verified_user)):
         version=row.version,
         processed_at=row.processed_at,
         pending_count=row.pending_count,
+        processing=bool(row.lease_until and row.lease_until > time.time_ns()),
+        # next_attempt_at is also set while waiting for file extraction; only report it for failures.
+        next_attempt_at=row.next_attempt_at if row.fail_count else None,
         last_error=row.last_error if user.role == 'admin' else None,
     )
 
@@ -56,7 +63,8 @@ async def get_channel_state(channel_id: str, user=Depends(get_verified_user)):
 @router.post('/channels/{channel_id}/refresh')
 async def refresh_channel_state(channel_id: str, user=Depends(get_verified_user)):
     await _get_readable_channel(channel_id, user)
-    await Trackers.mark_dirty(channel_id, force=True)
+    # Not mark_dirty: a refresh is not a message, and it must also skip the retry backoff of a failed run.
+    await Trackers.request_refresh(channel_id)
     return {'status': True}
 
 

@@ -91,6 +91,7 @@ class TrackerStateModel(BaseModel):
     dirty_at: Optional[int] = None
     pending_count: int = 0
     force: bool = False
+    lease_until: Optional[int] = None
     fail_count: int = 0
     next_attempt_at: Optional[int] = None
     last_error: Optional[str] = None

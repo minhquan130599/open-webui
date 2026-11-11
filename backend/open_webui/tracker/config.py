@@ -18,9 +18,11 @@ ENABLE_PROJECT_TRACKER = _bool_env('ENABLE_PROJECT_TRACKER', False)
 # `python -m open_webui.tracker.worker` to run in its own container.
 TRACKER_WORKER_MODE = os.getenv('TRACKER_WORKER_MODE', 'app').strip().lower()
 
-# OpenAI-compatible endpoint (vLLM) used for state updates. Defaults to the main OpenAI connection.
-TRACKER_LLM_BASE_URL = (os.getenv('TRACKER_LLM_BASE_URL') or os.getenv('OPENAI_API_BASE_URL') or '').rstrip('/')
-TRACKER_LLM_API_KEY = os.getenv('TRACKER_LLM_API_KEY') or os.getenv('OPENAI_API_KEY') or ''
+# OpenAI-compatible endpoint (vLLM) used for state updates. When unset, the tracker uses the first enabled
+# OpenAI connection from Admin > Settings > Connections, read on every call so edits there apply without
+# a restart (OPENAI_API_BASE_URL only seeds that setting on first start).
+TRACKER_LLM_BASE_URL = (os.getenv('TRACKER_LLM_BASE_URL') or '').rstrip('/')
+TRACKER_LLM_API_KEY = os.getenv('TRACKER_LLM_API_KEY') or ''
 TRACKER_MODEL = os.getenv('TRACKER_MODEL', '')
 TRACKER_LLM_TIMEOUT = _int_env('TRACKER_LLM_TIMEOUT', 300)
 TRACKER_MAX_TOKENS = _int_env('TRACKER_MAX_TOKENS', 4096)

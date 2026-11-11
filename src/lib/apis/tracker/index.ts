@@ -34,7 +34,9 @@ export type TrackerState = {
 	version: number;
 	processed_at: number | null; // ns
 	pending_count: number;
-	last_error: string | null;
+	processing: boolean;
+	next_attempt_at: number | null; // ns, set after a failed run
+	last_error: string | null; // admins only
 };
 
 export type TrackerItem = {

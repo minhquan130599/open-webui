@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 
 async def tracker_worker_loop() -> None:
     if not llm.is_configured():
-        log.warning('Project tracker enabled but TRACKER_LLM_BASE_URL/TRACKER_MODEL are not set; worker idle')
+        log.warning('Project tracker enabled but TRACKER_MODEL is not set; worker idle')
         return
 
     log.info('Project tracker worker started (max concurrency %s)', TRACKER_MAX_CONCURRENCY)

@@ -152,7 +152,8 @@ services:
       - CHANNEL_MODEL_MAX_FILES=5                         # số file trong kênh đưa cho AI
 
       # --- Project tracker: tự tổng hợp tiến độ dự án theo kênh ---
-      # Dùng chung OPENAI_API_BASE_URL / OPENAI_API_KEY ở trên. Tắt nhanh: đổi thành false.
+      # Dùng kết nối OpenAI đầu tiên đang bật trong Admin > Cài đặt > Kết nối (sửa ở đó là áp dụng ngay).
+      # Tắt nhanh: đổi thành false.
       - ENABLE_PROJECT_TRACKER=true
       - TRACKER_MODEL=${TRACKER_MODEL}
       - TRACKER_MAX_CONCURRENCY=${TRACKER_MAX_CONCURRENCY:-2}

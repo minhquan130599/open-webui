@@ -26,11 +26,10 @@ ARG GID=0
 
 ######## WebUI frontend ########
 FROM --platform=$BUILDPLATFORM node:22-alpine3.20 AS build
-ARG BUILD_HASH
+# BUILD_HASH is deliberately not declared here: every declared ARG is part of the cache key of the
+# RUN steps after it, so a new commit hash would re-run `npm ci` and `npm run build` every time.
 ARG BUILD_CHANNEL
 ARG USE_SLIM
-ARG UID
-ARG GID
 
 # Set Node.js options (heap limit Allocation failed - JavaScript heap out of memory)
 # ENV NODE_OPTIONS="--max-old-space-size=4096"

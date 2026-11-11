@@ -137,10 +137,24 @@
 				{:else}
 					{$i18n.t('Not summarized yet')}
 				{/if}
-				{#if tracker?.pending_count}
+				{#if tracker?.processing}
+					· {$i18n.t('Summarizing...')}
+				{:else if tracker?.pending_count}
 					· {$i18n.t('{{count}} new messages pending', { count: tracker.pending_count })}
 				{/if}
 			</div>
+			{#if !tracker?.processing && tracker?.next_attempt_at}
+				<div class="text-xs text-red-600 dark:text-red-400 break-words">
+					{$i18n.t('Last summary failed, retrying at {{time}}', {
+						time: fromNs(tracker.next_attempt_at)
+					})}
+					{#if tracker.last_error}
+						<Tooltip content={tracker.last_error}>
+							<span class="underline decoration-dotted cursor-help">{$i18n.t('Details')}</span>
+						</Tooltip>
+					{/if}
+				</div>
+			{/if}
 		</div>
 		<div class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
 			<Tooltip content={$i18n.t('Update now')}>
