@@ -3055,18 +3055,6 @@ async def oauth_login_callback(
     return await oauth_manager.handle_callback(request, provider, response, db=db)
 
 
-# The Microsoft Entra app for ai.ncsgroup.vn was registered with this redirect URI; serve it here so the
-# registration works unchanged (set MICROSOFT_REDIRECT_URI=https://<domain>/accounts/microsoft/login/callback/).
-@app.get('/accounts/microsoft/login/callback/', include_in_schema=False)
-@app.get('/accounts/microsoft/login/callback', include_in_schema=False)
-async def microsoft_registered_login_callback(
-    request: Request,
-    response: Response,
-    db: AsyncSession = Depends(get_async_session),
-):
-    return await oauth_manager.handle_callback(request, 'microsoft', response, db=db)
-
-
 # OIDC Back-Channel Logout
 
 
