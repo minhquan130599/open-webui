@@ -72,10 +72,13 @@ print(f'[rebrand] frontend: "Open WebUI" -> "{BRAND}" in {hits} places, {files_c
 
 # ---------------------------------------------------------------- 3. backend names
 backend_edits = [
+    # Default display name (sidebar, browser tab, manifest) when WEBUI_NAME is not set in the environment
+    ('env.py', "WEBUI_NAME = os.getenv('WEBUI_NAME', 'Open WebUI')", f"WEBUI_NAME = os.getenv('WEBUI_NAME', '{BRAND}')"),
     ('utils/mfa.py', "issuer_name='Open WebUI'", f"issuer_name='{BRAND}'"),  # name in authenticator apps
     ('main.py', "title='Open WebUI',", f"title='{BRAND}',"),  # API docs title
     ('utils/headers.py', "'X-Title': 'Open WebUI',", f"'X-Title': '{BRAND}',"),  # app name sent to providers
     ('utils/oauth.py', "client_name='Open WebUI',", f"client_name='{BRAND}',"),  # OAuth client registration
+    ('routers/channels.py', "f'{channel.name} / Open WebUI'", f"f'{{channel.name}} / {BRAND}'"),  # notification title
 ]
 for rel, old, new in backend_edits:
     path = BACKEND / rel
@@ -85,3 +88,14 @@ for rel, old, new in backend_edits:
         print(f'[rebrand] backend: {rel} updated')
     else:
         print(f'[rebrand] backend: {rel} pattern not found, skipped')
+
+# Error message shown in the UI when a model provider is unreachable (several routers).
+error_old = 'Open WebUI: Server Connection Error'
+error_new = f'{BRAND}: Server Connection Error'
+error_files = 0
+for path in BACKEND.rglob('*.py'):
+    text = path.read_text(encoding='utf-8')
+    if error_old in text:
+        path.write_text(text.replace(error_old, error_new), encoding='utf-8')
+        error_files += 1
+print(f'[rebrand] backend: connection error message updated in {error_files} files')
