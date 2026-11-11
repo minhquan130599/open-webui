@@ -157,6 +157,9 @@ services:
       - CHANNEL_MODEL_MAX_FILES=5
       # Terminal cho AI khi được @mention trong kênh (ID kết nối trong Admin > Tích hợp > Terminal; trống = tắt)
       - CHANNEL_MODEL_TERMINAL_ID=${CHANNEL_MODEL_TERMINAL_ID:-}
+      # Kết nối Terminal tạo sẵn ở lần chạy đầu (khi database chưa lưu danh sách Terminal nào).
+      # Sau khi đã sửa trong Admin > Tích hợp > Terminal thì giá trị trong Admin được dùng, dòng này bị bỏ qua.
+      - 'TERMINAL_SERVER_CONNECTIONS=[{"id":"ncs-terminal","name":"NCS Terminal","url":"http://open-terminal:8000","path":"/openapi.json","auth_type":"bearer","key":"${TERMINAL_API_KEY}","enabled":true,"config":{"access_grants":${TERMINAL_ACCESS_GRANTS:-[]}}}]'
 
       # --- Project tracker: tự tổng hợp tiến độ công việc theo kênh ---
       - ENABLE_PROJECT_TRACKER=true

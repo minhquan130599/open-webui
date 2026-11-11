@@ -79,13 +79,20 @@ Nếu dùng nginx hoặc IIS, nhớ bật chuyển tiếp WebSocket (`Upgrade` /
 3. Bấm **Register**. Ở trang **Overview**, chép:
    - **Application (client) ID** → `MICROSOFT_CLIENT_ID`
    - **Directory (tenant) ID** → `MICROSOFT_CLIENT_TENANT_ID`
+
+   Hai mã này cùng dạng GUID, rất dễ điền đảo. Tenant ID là mã của cả công ty (giống nhau cho mọi ứng
+   dụng); Client ID là mã riêng của ứng dụng này.
 4. **Certificates & secrets → Client secrets → New client secret**: đặt thời hạn (tối đa 24 tháng),
    chép ngay cột **Value** (không phải *Secret ID*) → `MICROSOFT_CLIENT_SECRET`.
    Giá trị này chỉ hiện một lần. **Ghi lại ngày hết hạn**: hết hạn là mọi người không đăng nhập
    bằng Microsoft được nữa, phải tạo secret mới và cập nhật `.env`.
 5. **API permissions**: giữ quyền mặc định `Microsoft Graph → User.Read`. Nếu cột *Status* báo cần
    duyệt, bấm **Grant admin consent for <tên công ty>** để người dùng không bị hỏi xin quyền.
-6. Tài khoản đăng nhập phải có **địa chỉ email** (thuộc tính *Mail* trong Entra ID). Tài khoản
+6. **Ai được đăng nhập**: vào **Enterprise applications → (tên ứng dụng) → Properties**. Nếu
+   *Assignment required?* là **Yes**, chỉ người/nhóm được gán ở **Users and groups** mới đăng nhập được
+   (người khác bị lỗi `AADSTS50105`). Gán nhóm nhân viên cần dùng, hoặc đặt **No** để mọi tài khoản
+   công ty đều vào được.
+7. Tài khoản đăng nhập phải có **địa chỉ email** (thuộc tính *Mail* trong Entra ID). Tài khoản
    Microsoft 365 có hộp thư đều có sẵn; tài khoản không có email sẽ bị báo đăng nhập thất bại.
 
 ---
@@ -209,6 +216,9 @@ docker compose logs --tail 300 open-webui | Select-String "oauth" -CaseSensitive
 | Microsoft báo **AADSTS50011** | Redirect URI trong Entra ID khác `PUBLIC_URL/oauth/microsoft/login/callback`, hoặc không chọn loại **Web** |
 | Microsoft báo **AADSTS7000215** (invalid client secret) | Dán nhầm *Secret ID* thay vì *Value*, hoặc secret đã hết hạn |
 | Microsoft báo **AADSTS50020** (user không thuộc tenant) | Tài khoản ngoài công ty; đúng như thiết lập *organizational directory only* |
+| Microsoft báo **AADSTS50105** (*not a direct member of a group with access*) | Ứng dụng bật **Assignment required**. Người quản trị Entra ID vào **Enterprise applications → (tên ứng dụng) → Users and groups → Add user/group**, gán người dùng hoặc nhóm (vd nhóm toàn công ty). Muốn mọi tài khoản công ty đều vào được: **Properties → Assignment required? = No** |
+| Bấm nút Microsoft ra **Internal Server Error**, log có `400 Bad Request` cho `.../.well-known/openid-configuration` | Tenant ID sai. Kiểm tra: `curl -s https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration` — báo `AADSTS90002 Tenant not found` là sai. Hay gặp nhất: **điền đảo Tenant ID và Client ID**. Tra tenant đúng theo tên miền: `curl -s https://login.microsoftonline.com/ncsgroup.vn/v2.0/.well-known/openid-configuration` (mã GUID trong `issuer` là Tenant ID) |
+| Microsoft báo **AADSTS700016** (application not found in directory) | Client ID sai, hoặc ứng dụng thuộc tenant khác Tenant ID đã điền |
 | Google báo **Access blocked / app chưa được xác minh** | App đang ở chế độ *Testing*: thêm email vào *Test users* hoặc bấm *Publish app* |
 | Quay lại trang đăng nhập với thông báo **đăng nhập thất bại** | Email không thuộc `OAUTH_ALLOWED_DOMAINS`, hoặc tài khoản không có email. Log có dòng `e-mail domain is not in the list` hoặc `email is missing` |
 | Đăng nhập xong lại bị đẩy ra trang đăng nhập | Đang mở bằng `http://` hoặc IP. Mở đúng `https://<tên miền>` |

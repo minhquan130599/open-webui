@@ -1640,8 +1640,15 @@ async def model_response_handler(request, channel, message, user, db=None):
                 }
                 if files:
                     form_data['files'] = files
-                if CHANNEL_MODEL_TERMINAL_ID and await _can_use_terminal(user, CHANNEL_MODEL_TERMINAL_ID):
-                    form_data['terminal_id'] = CHANNEL_MODEL_TERMINAL_ID
+                if CHANNEL_MODEL_TERMINAL_ID:
+                    if await _can_use_terminal(user, CHANNEL_MODEL_TERMINAL_ID):
+                        form_data['terminal_id'] = CHANNEL_MODEL_TERMINAL_ID
+                    else:
+                        log.info(
+                            'Channel terminal %s not used for user %s: connection missing, disabled or not granted',
+                            CHANNEL_MODEL_TERMINAL_ID,
+                            user.id,
+                        )
 
                 # Run the chat pipeline as a task; the channel emitter streams progress over socket events.
                 await request.app.state.CHAT_COMPLETION_HANDLER(request, form_data, user=user)
