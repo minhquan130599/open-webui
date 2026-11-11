@@ -176,10 +176,10 @@
 				<slot name="actions">
 					{#if channel}
 						{#if onProgress}
-							<Tooltip content={$i18n.t('Project progress')}>
+							<Tooltip content={$i18n.t('Work progress')}>
 								<button
 									class=" flex size-7 items-center justify-center cursor-pointer rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-50/60 dark:hover:bg-gray-800/60 transition-colors"
-									aria-label={$i18n.t('Project progress')}
+									aria-label={$i18n.t('Work progress')}
 									type="button"
 									on:click={onProgress}
 								>

@@ -1,0 +1,26 @@
+# Chế độ phát triển: backend chạy thẳng từ source trên ổ đĩa, tự khởi động lại khi lưu file Python.
+# Không cần build image cho mỗi lần sửa backend. Frontend: chạy `npm run dev` (xem dev.ps1).
+#
+#   Bật:  docker compose -f docker-compose.yaml -f compose.dev.yaml up -d open-webui
+#   Tắt (về bản build):  docker compose up -d open-webui
+#
+# Image vẫn phải được build ít nhất một lần (update.ps1); sau đó chỉ cần build lại khi
+# requirements.txt hoặc Dockerfile thay đổi, hoặc khi chốt bản cuối.
+services:
+  open-webui:
+    volumes:
+      - ../open-webui/backend/open_webui:/app/backend/open_webui
+    environment:
+      # Startup copies the built static assets into STATIC_DIR and deletes files there; point it at
+      # a copy so the mounted source tree is never modified.
+      - STATIC_DIR=/tmp/owui-static
+      # File events from Windows bind mounts do not reach the container; poll instead.
+      - WATCHFILES_FORCE_POLLING=true
+      - UVICORN_WORKERS=1
+    command:
+      - bash
+      - -c
+      - >-
+        rm -rf /tmp/owui-static && cp -r /app/backend/open_webui/static /tmp/owui-static &&
+        exec uvicorn open_webui.main:app --host 0.0.0.0 --port 8080 --forwarded-allow-ips '*'
+        --reload --reload-dir /app/backend/open_webui

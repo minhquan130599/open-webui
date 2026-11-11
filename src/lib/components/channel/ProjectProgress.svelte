@@ -32,6 +32,30 @@
 	let showHistory = false;
 	let timer: ReturnType<typeof setInterval> | null = null;
 
+	// Collapsed sections and the "hide completed" toggle are a per-browser view preference.
+	const VIEW_KEY = 'projectProgressView';
+	const readView = () => {
+		try {
+			return JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}');
+		} catch {
+			return {};
+		}
+	};
+	let collapsed: Record<string, boolean> = readView().collapsed ?? {};
+	let hideCompleted: boolean = readView().hideCompleted ?? false;
+	$: try {
+		localStorage.setItem(VIEW_KEY, JSON.stringify({ collapsed, hideCompleted }));
+	} catch {}
+
+	const toggleSection = (key: string) => (collapsed = { ...collapsed, [key]: !collapsed[key] });
+
+	$: completedCount = (tracker?.state?.hang_muc ?? []).filter(
+		(item) => item.trang_thai === 'hoan_thanh'
+	).length;
+	$: visibleItems = (tracker?.state?.hang_muc ?? []).filter(
+		(item) => !hideCompleted || item.trang_thai !== 'hoan_thanh'
+	);
+
 	const STATUS: Record<string, { label: string; className: string }> = {
 		chua_bat_dau: {
 			label: 'Not started',
@@ -105,7 +129,7 @@
 	<div class="flex items-center justify-between px-4 pt-3 pb-2 shrink-0">
 		<div class="min-w-0">
 			<div class="text-sm font-medium text-gray-900 dark:text-gray-100">
-				{$i18n.t('Project progress')}
+				{$i18n.t('Work progress')}
 			</div>
 			<div class="text-xs text-gray-500 dark:text-gray-400 truncate">
 				{#if tracker?.processed_at}
@@ -153,15 +177,49 @@
 		{:else}
 			{@const state = tracker.state}
 			{#if state.tong_quan}
-				<p class="text-gray-700 dark:text-gray-300 mb-3 leading-relaxed">{state.tong_quan}</p>
+				<button
+					type="button"
+					class="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 mb-1.5"
+					aria-expanded={!collapsed.tong_quan}
+					on:click={() => toggleSection('tong_quan')}
+				>
+					<span class="w-2.5">{collapsed.tong_quan ? '▸' : '▾'}</span>
+					{$i18n.t('Overview')}
+				</button>
+				{#if !collapsed.tong_quan}
+					<p class="text-gray-700 dark:text-gray-300 mb-3 leading-relaxed">{state.tong_quan}</p>
+				{/if}
 			{/if}
 
 			{#if state.hang_muc?.length}
-				<div class="text-xs font-medium uppercase tracking-wide text-gray-500 mb-1.5">
-					{$i18n.t('Work items')}
+				<div class="flex items-center justify-between gap-2 mb-1.5">
+					<button
+						type="button"
+						class="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+						aria-expanded={!collapsed.hang_muc}
+						on:click={() => toggleSection('hang_muc')}
+					>
+						<span class="w-2.5">{collapsed.hang_muc ? '▸' : '▾'}</span>
+						{$i18n.t('Work items')}
+						<span class="normal-case tracking-normal font-normal">({state.hang_muc.length})</span>
+					</button>
+					{#if completedCount && !collapsed.hang_muc}
+						<button
+							type="button"
+							class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+							on:click={() => (hideCompleted = !hideCompleted)}
+						>
+							{hideCompleted
+								? $i18n.t('Show completed ({{count}})', { count: completedCount })
+								: $i18n.t('Hide completed ({{count}})', { count: completedCount })}
+						</button>
+					{/if}
 				</div>
+			{/if}
+
+			{#if state.hang_muc?.length && !collapsed.hang_muc}
 				<ul class="flex flex-col gap-2 mb-4">
-					{#each state.hang_muc as item}
+					{#each visibleItems as item}
 						<li class="rounded-xl border border-gray-100 dark:border-gray-800 px-3 py-2">
 							<div class="flex items-start justify-between gap-2">
 								<div class="font-medium text-gray-900 dark:text-gray-100 min-w-0 break-words">
@@ -224,9 +282,20 @@
 
 			{#each [{ key: 'viec_tiep_theo', title: 'Next steps' }, { key: 'rui_ro', title: 'Risks' }, { key: 'quyet_dinh', title: 'Decisions' }] as section}
 				{#if state[section.key]?.length}
-					<div class="text-xs font-medium uppercase tracking-wide text-gray-500 mb-1.5">
+					<button
+						type="button"
+						class="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 mb-1.5"
+						aria-expanded={!collapsed[section.key]}
+						on:click={() => toggleSection(section.key)}
+					>
+						<span class="w-2.5">{collapsed[section.key] ? '▸' : '▾'}</span>
 						{$i18n.t(section.title)}
-					</div>
+						<span class="normal-case tracking-normal font-normal"
+							>({state[section.key].length})</span
+						>
+					</button>
+				{/if}
+				{#if state[section.key]?.length && !collapsed[section.key]}
 					<ul class="mb-4 flex flex-col gap-1">
 						{#each state[section.key] as entry}
 							<li class="text-gray-700 dark:text-gray-300 leading-snug">

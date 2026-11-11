@@ -585,7 +585,7 @@
 			{:else if showProgress}
 				<Drawer
 					show={showProgress}
-					ariaLabel={$i18n.t('Project progress')}
+					ariaLabel={$i18n.t('Work progress')}
 					onClose={() => (showProgress = false)}
 				>
 					<div class="h-screen w-full">

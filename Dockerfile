@@ -42,19 +42,21 @@ RUN apk add --no-cache git
 
 COPY package.json package-lock.json ./
 # the frontend build never uses onnxruntime-node's CUDA binaries
-RUN ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm ci --force
+# The npm cache mount survives between builds, so a re-run (lockfile change, pruned layer cache)
+# reuses already-downloaded packages instead of fetching ~1100 of them again.
+RUN --mount=type=cache,target=/root/.npm ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm ci --force
 
-COPY . .
-ENV APP_BUILD_HASH=${BUILD_HASH}
+# Only the files the frontend build reads, so backend/docs/branding changes reuse the cached
+# frontend build instead of re-running `npm run build` (~10 min). The commit hash is not passed
+# in either: it only labels the About page and would invalidate the cache on every commit.
+COPY svelte.config.js vite.config.ts tsconfig.json tailwind.config.js postcss.config.js CHANGELOG.md ./
+COPY scripts ./scripts
+COPY crypto ./crypto
+COPY static ./static
+COPY src ./src
 ENV APP_BUILD_CHANNEL=${BUILD_CHANNEL}
 RUN npm run build && \
     if [ "$USE_SLIM" = "true" ]; then find build -type f -name '*.map' -delete; fi
-
-# Prepare backend ownership before the final copy so static assets occupy one layer.
-# Group 0 write access lets arbitrary OpenShift UIDs update these assets at startup.
-RUN chown -R $UID:$GID /app/backend && \
-    chgrp -R 0 /app/backend/open_webui/static && \
-    chmod -R g=u /app/backend/open_webui/static
 
 ######## WebUI backend ########
 FROM python:3.12-slim-trixie AS base
@@ -209,8 +211,11 @@ COPY --chown=$UID:$GID --from=build /app/build /app/build
 COPY --chown=$UID:$GID --from=build /app/CHANGELOG.md /app/CHANGELOG.md
 COPY --chown=$UID:$GID --from=build /app/package.json /app/package.json
 
-# copy backend files with the ownership and static permissions prepared above
-COPY --from=build /app/backend .
+# copy backend files straight from the build context (a backend-only change rebuilds from here).
+# Group 0 write access lets arbitrary OpenShift UIDs update the static assets at startup.
+COPY --chown=$UID:$GID ./backend .
+RUN chgrp -R 0 /app/backend/open_webui/static && \
+    chmod -R g=u /app/backend/open_webui/static
 
 # Rebrand: logos/favicons/splash and the visible name (see branding/rebrand.py).
 # This deployment is covered by an Open WebUI enterprise license / written permission
