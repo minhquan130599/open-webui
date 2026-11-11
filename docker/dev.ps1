@@ -10,6 +10,10 @@ Set-Location $PSScriptRoot
 $repo = Resolve-Path (Join-Path $PSScriptRoot "..\open-webui")
 $port = (Get-Content (Join-Path $PSScriptRoot ".env") | Where-Object { $_ -match '^WEBUI_PORT=' }) -replace '^WEBUI_PORT=', ''
 if (-not $port) { $port = "8000" }
+# Keep Google/Microsoft sign-in in dev mode when .env enables docker-compose.oauth.yaml via COMPOSE_FILE.
+$files = @("-f", "docker-compose.yaml")
+if ((Get-Content (Join-Path $PSScriptRoot ".env")) -match '^COMPOSE_FILE=.*docker-compose\.oauth\.yaml') { $files += @("-f", "docker-compose.oauth.yaml") }
+$files += @("-f", "compose.dev.yaml")
 
 if ($Off) {
     docker compose up -d open-webui
@@ -17,11 +21,11 @@ if ($Off) {
     exit 0
 }
 if ($Logs) {
-    docker compose -f docker-compose.yaml -f compose.dev.yaml logs -f --tail 100 open-webui
+    docker compose @files logs -f --tail 100 open-webui
     exit 0
 }
 
-docker compose -f docker-compose.yaml -f compose.dev.yaml up -d open-webui
+docker compose @files up -d open-webui
 if ($LASTEXITCODE -ne 0) { Write-Host "LOI: khong bat duoc che do dev" -ForegroundColor Red; exit 1 }
 Write-Host "Backend dev: http://localhost:$port  (sua file .py -> tu reload sau vai giay; xem log: .\dev.ps1 -Logs)" -ForegroundColor Green
 

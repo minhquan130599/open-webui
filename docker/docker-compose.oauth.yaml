@@ -1,0 +1,35 @@
+# Bổ sung đăng nhập bằng Google (Gmail / Google Workspace) và Microsoft (Teams / Microsoft 365).
+# File này chỉ thêm biến môi trường cho service open-webui, dùng KÈM file compose chính:
+#
+#   docker compose -f docker-compose.yaml -f docker-compose.oauth.yaml up -d
+#
+# Hoặc đặt trong .env để mọi lệnh `docker compose` (kể cả update.ps1) tự dùng cả hai file:
+#   COMPOSE_PATH_SEPARATOR=;
+#   COMPOSE_FILE=docker-compose.yaml;docker-compose.oauth.yaml
+#
+# Dùng được với cả docker-compose.yaml (bản build) và deploy/docker-compose.yaml (bản dùng image có sẵn).
+# Hướng dẫn đăng ký ứng dụng Google/Microsoft: HUONG-DAN-DANG-NHAP-GOOGLE-MICROSOFT.md
+services:
+  open-webui:
+    environment:
+      # --- Địa chỉ công khai (HTTPS) của hệ thống, không có dấu / ở cuối ---
+      - WEBUI_URL=${PUBLIC_URL}
+
+      # --- Quy tắc tài khoản ---
+      - ENABLE_OAUTH_SIGNUP=true                                  # tự tạo tài khoản ở lần đăng nhập đầu
+      - OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true                        # trùng email -> vào tài khoản đã có
+      - OAUTH_ALLOWED_DOMAINS=${OAUTH_ALLOWED_DOMAINS:-*}         # vd congty.vn,congty.com ; * = mọi email
+      - DEFAULT_USER_ROLE=${DEFAULT_USER_ROLE:-pending}           # pending = admin phải duyệt người mới
+      - ENABLE_LOGIN_FORM=${ENABLE_LOGIN_FORM:-true}              # false = ẩn ô email/mật khẩu
+      - WEBUI_SESSION_COOKIE_SECURE=true                          # cookie chỉ gửi qua HTTPS
+
+      # --- Google ---
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_REDIRECT_URI=${PUBLIC_URL}/oauth/google/login/callback
+
+      # --- Microsoft (Entra ID) ---
+      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID:-}
+      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
+      - MICROSOFT_CLIENT_TENANT_ID=${MICROSOFT_CLIENT_TENANT_ID:-}
+      - MICROSOFT_REDIRECT_URI=${PUBLIC_URL}/oauth/microsoft/login/callback
