@@ -17,7 +17,9 @@
 	import { getContext, tick } from 'svelte';
 	const i18n = getContext<Writable<i18nType>>('i18n');
 
-	import { formatDate } from '$lib/utils';
+	import { toast } from 'svelte-sonner';
+
+	import { copyToClipboard, formatDate, removeAllDetails } from '$lib/utils';
 
 	import { settings, user, shortCodesToEmojis } from '$lib/stores';
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
@@ -47,6 +49,7 @@
 	import ArrowUpLeftAlt from '$lib/components/icons/ArrowUpLeftAlt.svelte';
 	import PinSlash from '$lib/components/icons/PinSlash.svelte';
 	import Pin from '$lib/components/icons/Pin.svelte';
+	import CopyIcon from '$lib/components/layout/Sidebar/icons/Copy.svelte';
 
 	export let className = '';
 
@@ -69,6 +72,16 @@
 	export let onReaction: Function = () => {};
 
 	let showButtons = false;
+
+	// Model replies carry tool-call <details> blocks; app messages keep their text in embeds.
+	const copyMessage = async () => {
+		const text = message?.app_id
+			? getAppMessageText(message)
+			: removeAllDetails(message?.content ?? '').trim();
+		if (await copyToClipboard(text, null, $settings?.copyFormatted ?? false)) {
+			toast.success($i18n.t('Copying to clipboard was successful!'));
+		}
+	};
 
 	const trackActions = (node: HTMLElement, keepOpen: boolean) => {
 		const anchor = node.parentElement!;
@@ -298,6 +311,16 @@
 									</button>
 								</Tooltip>
 							{/if}
+
+							<Tooltip content={$i18n.t('Copy')}>
+								<button
+									aria-label={$i18n.t('Copy')}
+									class="hover:bg-gray-100 dark:hover:bg-gray-800 transition rounded-lg p-1"
+									on:click={copyMessage}
+								>
+									<CopyIcon className="size-4" />
+								</button>
+							</Tooltip>
 
 							<Tooltip content={message?.is_pinned ? $i18n.t('Unpin') : $i18n.t('Pin')}>
 								<button
