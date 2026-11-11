@@ -445,6 +445,101 @@ async def generate_image(
         return JSONCodec.dumps({'error': str(e)})
 
 
+# Terminal deliverables
+
+ATTACH_TERMINAL_FILE_MAX_BYTES = 100 * 1024 * 1024
+
+
+async def attach_terminal_file(
+    path: str,
+    __request__: Request = None,
+    __user__: dict = None,
+    __event_emitter__: callable = None,
+    __chat_id__: str = None,
+    __message_id__: str = None,
+    __metadata__: dict = None,
+) -> str:
+    """
+    Deliver a file you created in the terminal (PDF, DOCX, XLSX, PPTX, CSV, image, ZIP...) to the user as a
+    downloadable attachment on your reply; it is saved in Open WebUI and stays available after the terminal changes.
+    Create the file with terminal commands first. To make a PDF from an office file, run
+    `soffice --headless --convert-to pdf --outdir <dir> <file.docx>`. Call once per file you deliver,
+    then tell the user the file is attached instead of pasting its content or a terminal path.
+
+    :param path: Path of the file in the terminal (absolute, or relative to the current working directory)
+    :return: JSON with the saved file id, name, size and download URL
+    """
+    if __request__ is None or not __user__:
+        return JSONCodec.dumps({'error': 'Request context not available'})
+
+    try:
+        import io
+        import mimetypes
+        import posixpath
+
+        from fastapi import UploadFile
+
+        from open_webui.routers.files import upload_file_handler
+
+        user = UserModel(**__user__)
+        data = await get_terminal_file(
+            __request__, user, __metadata__ or {}, path, max_bytes=ATTACH_TERMINAL_FILE_MAX_BYTES
+        )
+        name = posixpath.basename(path.rstrip('/')) or 'file'
+        content_type = mimetypes.guess_type(name)[0] or 'application/octet-stream'
+
+        in_channel = isinstance(__chat_id__, str) and __chat_id__.startswith(CHANNEL_CHAT_ID_PREFIX)
+        # channel_id links the file to the channel so every member can open it; chat_id/message_id to the chat.
+        if in_channel:
+            upload_metadata = {'channel_id': __chat_id__.removeprefix(CHANNEL_CHAT_ID_PREFIX), 'message_id': __message_id__}
+        else:
+            upload_metadata = {}
+        file_item = await upload_file_handler(
+            __request__,
+            file=UploadFile(file=io.BytesIO(data), filename=name, headers={'content-type': content_type}),
+            metadata=upload_metadata,
+            process=False,
+            user=user,
+        )
+        if not file_item:
+            return JSONCodec.dumps({'error': f'Could not save {name}'})
+
+        url = __request__.app.url_path_for('get_file_content_by_id', id=file_item.id)
+        entry = {
+            'type': 'image' if content_type.startswith('image/') else 'file',
+            'id': file_item.id,
+            'url': url,
+            'name': name,
+            'size': len(data),
+            'content_type': content_type,
+        }
+
+        files = [entry]
+        if is_saved_chat_id(__chat_id__) and __message_id__:
+            await Chats.insert_chat_files(
+                chat_id=__chat_id__, message_id=__message_id__, file_ids=[file_item.id], user_id=user.id
+            )
+            # The UI replaces the message's file list with this event, so send the full list.
+            db_files = await Chats.add_message_files_by_id_and_message_id(__chat_id__, __message_id__, files)
+            if db_files is not None:
+                files = db_files
+
+        if __event_emitter__:
+            await __event_emitter__({'type': 'chat:message:files', 'data': {'files': files}})
+
+        return JSONCodec.dumps(
+            {
+                'status': 'success',
+                'message': f'{name} is attached to your reply; do not repeat its content or paste a link.',
+                'file': {k: entry[k] for k in ('id', 'name', 'size', 'content_type', 'url')},
+            },
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        log.exception(f'attach_terminal_file error: {e}')
+        return JSONCodec.dumps({'error': str(e)})
+
+
 async def edit_image(
     prompt: str,
     image_urls: list[str],

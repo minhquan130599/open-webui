@@ -48,6 +48,7 @@ from open_webui.models.users import UserModel
 from open_webui.tools.builtin import (
     add_memory,
     ask_user,
+    attach_terminal_file,
     calculate_timestamp,
     create_automation,
     create_calendar_event,
@@ -854,6 +855,10 @@ async def get_builtin_tools(
         and await has_user_permission('image_generation')
     ):
         builtin_functions.append(edit_image)
+
+    # Deliver files created in the selected terminal as attachments saved in Open WebUI storage.
+    if is_builtin_tool_enabled('terminal') and metadata.get('terminal_id'):
+        builtin_functions.append(attach_terminal_file)
 
     # Add code interpreter tool if builtin category enabled,
     # globally enabled, and allowed by model capability.

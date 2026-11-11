@@ -94,6 +94,18 @@ services:
             raise SystemExit(1)
     restart: "no"
 
+  # Máy chạy lệnh cho AI (Open Terminal): tạo file Word/Excel/PowerPoint/PDF, đổi docx -> pdf bằng LibreOffice.
+  # Chỉ trong mạng Docker (không mở cổng). Kết nối trong Admin > Cài đặt > Tích hợp > Terminal:
+  #   URL http://open-terminal:8000, xác thực Bearer = TERMINAL_API_KEY, ID = ncs-terminal.
+  open-terminal:
+    image: ghcr.io/open-webui/open-terminal:latest
+    container_name: owui-terminal
+    environment:
+      - OPEN_TERMINAL_API_KEY=${TERMINAL_API_KEY}
+    volumes:
+      - terminal-home:/home/user
+    restart: unless-stopped
+
   open-webui:
     build: *owui-build
     image: open-webui-local:latest
@@ -154,6 +166,8 @@ services:
       - CHANNEL_MODEL_DEFAULT_TIMEZONE=Asia/Ho_Chi_Minh   # khi trình duyệt chưa gửi múi giờ người dùng
       - CHANNEL_MODEL_HISTORY_LIMIT=50                    # số tin gần nhất của kênh đưa cho AI (0 = tắt)
       - CHANNEL_MODEL_MAX_FILES=5                         # số file trong kênh đưa cho AI
+      # Terminal cho AI khi được @mention trong kênh (ID kết nối trong Admin > Tích hợp > Terminal; trống = tắt)
+      - CHANNEL_MODEL_TERMINAL_ID=${CHANNEL_MODEL_TERMINAL_ID:-}
 
       # --- Project tracker: tự tổng hợp tiến độ dự án theo kênh ---
       # Dùng kết nối OpenAI đầu tiên đang bật trong Admin > Cài đặt > Kết nối (sửa ở đó là áp dụng ngay).
@@ -170,3 +184,4 @@ volumes:
   postgres: {}
   s3data: {}
   open-webui: {}
+  terminal-home: {}

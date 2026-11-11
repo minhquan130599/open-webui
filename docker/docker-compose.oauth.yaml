@@ -32,4 +32,5 @@ services:
       - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID:-}
       - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
       - MICROSOFT_CLIENT_TENANT_ID=${MICROSOFT_CLIENT_TENANT_ID:-}
-      - MICROSOFT_REDIRECT_URI=${PUBLIC_URL}/oauth/microsoft/login/callback
+      # Mặc định <PUBLIC_URL>/oauth/microsoft/login/callback; đặt MICROSOFT_REDIRECT_URI trong .env để dùng URI đã đăng ký sẵn
+      - MICROSOFT_REDIRECT_URI=${MICROSOFT_REDIRECT_URI:-${PUBLIC_URL}/oauth/microsoft/login/callback}

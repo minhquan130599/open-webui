@@ -14,6 +14,7 @@ from open_webui.env import (
     CHANNEL_MODEL_DEFAULT_TIMEZONE,
     CHANNEL_MODEL_HISTORY_LIMIT,
     CHANNEL_MODEL_MAX_FILES,
+    CHANNEL_MODEL_TERMINAL_ID,
     ENABLE_PROFILE_IMAGE_URL_FORWARDING,
     STATIC_DIR,
 )
@@ -1418,6 +1419,17 @@ async def _add_model_file(file: dict, images: list, files: list, seen: set, user
         files.append(file)
 
 
+async def _can_use_terminal(user, terminal_id: str) -> bool:
+    """The channel's terminal is offered only to users granted that connection (empty grants = admins only)."""
+    from open_webui.utils.access_control import has_connection_access
+    from open_webui.utils.tether import get_terminal_connections
+
+    connection = next(
+        (item for item in await get_terminal_connections(user) if item.get('id') == terminal_id), None
+    )
+    return bool(connection and connection.get('enabled', True) and await has_connection_access(user, connection))
+
+
 async def model_response_handler(request, channel, message, user, db=None):
     if not await get_verified_user_by_id(user.id):
         return
@@ -1628,6 +1640,8 @@ async def model_response_handler(request, channel, message, user, db=None):
                 }
                 if files:
                     form_data['files'] = files
+                if CHANNEL_MODEL_TERMINAL_ID and await _can_use_terminal(user, CHANNEL_MODEL_TERMINAL_ID):
+                    form_data['terminal_id'] = CHANNEL_MODEL_TERMINAL_ID
 
                 # Run the chat pipeline as a task; the channel emitter streams progress over socket events.
                 await request.app.state.CHAT_COMPLETION_HANDLER(request, form_data, user=user)

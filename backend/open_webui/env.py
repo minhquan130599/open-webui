@@ -1002,6 +1002,11 @@ try:
 except ValueError:
     CHANNEL_MODEL_MAX_FILES = 5
 
+# Terminal connection (its id in Admin > Settings > Terminal) given to models mentioned in a channel, so they can
+# run commands and deliver created files (attach_terminal_file). Empty = channel models get no terminal.
+# Only used for users who have access to that connection.
+CHANNEL_MODEL_TERMINAL_ID = os.getenv('CHANNEL_MODEL_TERMINAL_ID', '').strip()
+
 ENABLE_PROFILE_IMAGE_URL_FORWARDING = os.getenv('ENABLE_PROFILE_IMAGE_URL_FORWARDING', 'True').lower() == 'true'
 PROFILE_IMAGE_ALLOWED_MIME_TYPES = frozenset(
     t.strip()
