@@ -20,6 +20,10 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     container_name: owui-postgres
+    ports:
+      # Cho DBeaver/pgAdmin trên chính server. Kết nối từ máy khác: dùng SSH tunnel, hoặc đổi thành
+      # "5432:5432" và giới hạn IP trên firewall (database chứa toàn bộ dữ liệu chat).
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: openwebui
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
