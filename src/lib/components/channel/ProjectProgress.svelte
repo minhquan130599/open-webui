@@ -59,7 +59,6 @@
 	// Pending confirmation: cancel one item, or close every completed item.
 	let confirm: { kind: 'cancel'; item: TrackerWorkItem } | { kind: 'close-done' } | null = null;
 	let showConfirm = false;
-	$: if (!showConfirm) confirm = null;
 
 	const toggleSection = (key: string) => (collapsed = { ...collapsed, [key]: !collapsed[key] });
 
@@ -559,7 +558,11 @@
 				{ count: completedCount }
 			)}
 	onConfirm={() => {
-		if (confirm?.kind === 'cancel') cancelItem(confirm.item);
-		else if (confirm?.kind === 'close-done') closeDone();
+		// The dialog closes before calling this, so read the pending action here, then clear it.
+		const pending = confirm;
+		confirm = null;
+		if (pending?.kind === 'cancel') cancelItem(pending.item);
+		else if (pending?.kind === 'close-done') closeDone();
 	}}
+	on:cancel={() => (confirm = null)}
 />
