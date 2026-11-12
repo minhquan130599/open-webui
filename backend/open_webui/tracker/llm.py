@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 
 import aiohttp
 from pydantic import ValidationError
@@ -29,9 +30,9 @@ class TrackerLLMError(Exception):
     pass
 
 
-def is_configured() -> bool:
-    """The endpoint can come from the admin connections at call time, so only the model is required here."""
-    return bool(TRACKER_MODEL)
+# Resolved model per endpoint, refreshed periodically so a pod or model swap is picked up without a restart.
+_MODEL_CACHE_SECONDS = 300
+_model_cache: dict[str, tuple[str, float]] = {}
 
 
 async def _connection() -> tuple[str, str]:
@@ -61,8 +62,50 @@ def extract_json(text: str) -> dict:
     return JSONCodec.loads(text[start : end + 1])
 
 
+async def _list_models(session: aiohttp.ClientSession, base_url: str, api_key: str) -> list[str]:
+    headers = {'Authorization': f'Bearer {api_key}'} if api_key else {}
+    async with session.get(f'{base_url}/models', headers=headers) as response:
+        if response.status != 200:
+            raise TrackerLLMError(f'GET {base_url}/models failed ({response.status})')
+        body = await response.json(content_type=None)
+    data = body.get('data', []) if isinstance(body, dict) else []
+    return [item['id'] for item in data if isinstance(item, dict) and item.get('id')]
+
+
+async def _resolve_model(session: aiohttp.ClientSession, base_url: str, api_key: str) -> str:
+    """TRACKER_MODEL when the endpoint serves it; otherwise the first model the endpoint lists."""
+    cached = _model_cache.get(base_url)
+    if cached and cached[1] > time.monotonic():
+        return cached[0]
+
+    try:
+        model_ids = await _list_models(session, base_url, api_key)
+    except Exception as e:
+        if TRACKER_MODEL:
+            return TRACKER_MODEL  # cannot verify it; try the configured name
+        raise TrackerLLMError(f'TRACKER_MODEL is not set and the model list is unavailable: {e}') from e
+
+    if TRACKER_MODEL and TRACKER_MODEL in model_ids:
+        model = TRACKER_MODEL
+    elif model_ids:
+        model = model_ids[0]
+    elif TRACKER_MODEL:
+        model = TRACKER_MODEL
+    else:
+        raise TrackerLLMError(f'TRACKER_MODEL is not set and {base_url}/models lists no models')
+
+    if not cached or cached[0] != model:
+        if TRACKER_MODEL and model != TRACKER_MODEL:
+            log.warning('Tracker model %r is not served by %s; using %r', TRACKER_MODEL, base_url, model)
+        else:
+            log.info('Tracker using model %r from %s', model, base_url)
+    _model_cache[base_url] = (model, time.monotonic() + _MODEL_CACHE_SECONDS)
+    return model
+
+
 async def _post(session: aiohttp.ClientSession, payload: dict) -> tuple[int, dict | str]:
     base_url, api_key = await _connection()
+    payload = {**payload, 'model': await _resolve_model(session, base_url, api_key)}
     headers = {'Content-Type': 'application/json'}
     if api_key:
         headers['Authorization'] = f'Bearer {api_key}'
@@ -76,7 +119,6 @@ async def _post(session: aiohttp.ClientSession, payload: dict) -> tuple[int, dic
 
 def _payload(messages: list[dict], max_tokens: int) -> dict:
     payload = {
-        'model': TRACKER_MODEL,
         'messages': messages,
         'temperature': 0.1,
         'max_tokens': max_tokens,
@@ -96,14 +138,8 @@ def _content(status: int, body) -> str:
         raise TrackerLLMError(f'Unexpected LLM response: {str(body)[:500]}')
 
 
-def _require_config() -> None:
-    if not is_configured():
-        raise TrackerLLMError('TRACKER_MODEL must be set')
-
-
 async def generate_text(messages: list[dict], max_tokens: int = 1024) -> str:
     """Plain completion, used for file and image summaries."""
-    _require_config()
     timeout = aiohttp.ClientTimeout(total=TRACKER_LLM_TIMEOUT)
     async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
         return _content(*await _post(session, _payload(messages, max_tokens)))
@@ -113,7 +149,6 @@ async def generate_state_update(messages: list[dict]) -> StateUpdate:
     """One chat completion returning a validated StateUpdate; retries once with the validation error."""
     global _guided_json_supported
 
-    _require_config()
     timeout = aiohttp.ClientTimeout(total=TRACKER_LLM_TIMEOUT)
     conversation = list(messages)
     last_error = ''

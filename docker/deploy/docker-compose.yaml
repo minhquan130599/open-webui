@@ -1,7 +1,7 @@
 # Triển khai NCS ChatUI trên server khác bằng image đã build sẵn (KHÔNG build lại).
 # Image được tạo trên máy build bằng update.ps1, đóng gói bằng export-image.ps1, rồi nạp ở đây:
 #
-#   docker load -i ncs-chatui-<phiên bản>.tar
+#   docker load -i ncs-chatui-<phiên bản>.tar     (đóng gói kèm Terminal: export-image.ps1 -WithTerminal)
 #   copy .env.example .env      (điền mật khẩu, khóa API)
 #   docker compose up -d
 #
@@ -17,6 +17,9 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     container_name: owui-postgres
+    ports:
+      # Chỉ chính server kết nối được (DBeaver/psql trên server, hoặc qua SSH tunnel)
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: openwebui
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -88,7 +91,9 @@ services:
   # Chỉ trong mạng Docker (không mở cổng). Kết nối trong Admin > Cài đặt > Tích hợp > Terminal:
   #   URL http://open-terminal:8000, xác thực Bearer = TERMINAL_API_KEY, ID = ncs-terminal.
   open-terminal:
-    image: ghcr.io/open-webui/open-terminal:latest
+    # Image nạp từ file .tar (export-image.ps1 -WithTerminal); chỉ tải từ ghcr.io khi server chưa có
+    image: ${TERMINAL_IMAGE:-ghcr.io/open-webui/open-terminal:latest}
+    pull_policy: missing
     container_name: owui-terminal
     environment:
       - OPEN_TERMINAL_API_KEY=${TERMINAL_API_KEY}
@@ -163,7 +168,7 @@ services:
 
       # --- Project tracker: tự tổng hợp tiến độ công việc theo kênh ---
       - ENABLE_PROJECT_TRACKER=true
-      - TRACKER_MODEL=${TRACKER_MODEL}
+      - TRACKER_MODEL=${TRACKER_MODEL:-}             # trống/sai tên = lấy model đầu tiên từ GET <URL>/models
       - TRACKER_MAX_CONCURRENCY=${TRACKER_MAX_CONCURRENCY:-2}
       - TRACKER_TIMEZONE=Asia/Ho_Chi_Minh
       - TRACKER_IDLE_SECONDS=90

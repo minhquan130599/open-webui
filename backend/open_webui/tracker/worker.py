@@ -9,7 +9,6 @@ import logging
 import random
 import time
 
-from open_webui.tracker import llm
 from open_webui.tracker.config import (
     ENABLE_PROJECT_TRACKER,
     TRACKER_BATCH_SIZE,
@@ -25,10 +24,6 @@ log = logging.getLogger(__name__)
 
 
 async def tracker_worker_loop() -> None:
-    if not llm.is_configured():
-        log.warning('Project tracker enabled but TRACKER_MODEL is not set; worker idle')
-        return
-
     log.info('Project tracker worker started (max concurrency %s)', TRACKER_MAX_CONCURRENCY)
     running: set[asyncio.Task] = set()
 

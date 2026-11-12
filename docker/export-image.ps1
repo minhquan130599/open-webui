@@ -1,8 +1,10 @@
 ﻿# Đóng gói image đã build (open-webui-local:latest từ update.ps1) thành file .tar để mang sang server khác.
 #   .\export-image.ps1             chỉ image NCS ChatUI (server đích tự tải postgres/redis/rustfs từ Docker Hub)
 #   .\export-image.ps1 -WithDeps   kèm cả postgres/redis/rustfs (server đích không có internet)
+#   .\export-image.ps1 -WithTerminal   kèm image Open Terminal (AI tạo file Word/Excel/PDF)
+#   Dùng chung được:  .\export-image.ps1 -WithTerminal -WithDeps   (đủ mọi image, server đích không cần internet)
 # Server đích:  docker load -i <file>.tar  rồi dùng deploy\docker-compose.yaml
-param([switch]$WithDeps)
+param([switch]$WithDeps, [switch]$WithTerminal)
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
@@ -19,6 +21,13 @@ if (-not $version) { $version = Get-Date -Format yyyyMMdd_HHmm }
 docker tag $source "ncs-chatui:$version"
 docker tag $source "ncs-chatui:latest"
 $images = @("ncs-chatui:$version", "ncs-chatui:latest")
+if ($WithTerminal) {
+    # Đúng bản Terminal đang chạy trên máy này (chỉ tải về nếu máy chưa có)
+    $terminal = "ghcr.io/open-webui/open-terminal:latest"
+    docker image inspect $terminal *> $null
+    if ($LASTEXITCODE -ne 0) { docker pull $terminal; if ($LASTEXITCODE -ne 0) { exit 1 } }
+    $images += $terminal
+}
 if ($WithDeps) {
     $deps = @("pgvector/pgvector:pg17", "redis:7-alpine", "rustfs/rustfs:latest")
     foreach ($image in $deps) { docker pull $image; if ($LASTEXITCODE -ne 0) { exit 1 } }
@@ -27,7 +36,8 @@ if ($WithDeps) {
 
 $outDir = Join-Path $PSScriptRoot "images"
 New-Item -ItemType Directory -Force $outDir | Out-Null
-$file = Join-Path $outDir ("ncs-chatui-$version" + $(if ($WithDeps) { "-full" } else { "" }) + ".tar")
+$suffix = $(if ($WithTerminal) { "-terminal" } else { "" }) + $(if ($WithDeps) { "-full" } else { "" })
+$file = Join-Path $outDir "ncs-chatui-$version$suffix.tar"
 Write-Host "Dong goi $($images -join ', ') -> $file"
 docker save -o $file @images
 if ($LASTEXITCODE -ne 0) { Write-Host "LOI: docker save that bai" -ForegroundColor Red; exit 1 }
