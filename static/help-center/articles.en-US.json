@@ -151,7 +151,7 @@
 					"text": "The AI's answer appears in the thread of your message. Click the answer to open the thread on the right and see it in full."
 				}
 			],
-			"example": "@ai-assistant summarize my work reports",
+			"example": "@nai summarize my work reports",
 			"tip": "In a channel, the AI only reads and searches the current channel; reports from other channels are not mixed in. For the AI to see the full channel history, ask in a new message in the main channel view, not inside a thread or by editing an old message.",
 			"images": [
 				{
@@ -189,7 +189,7 @@
 					"text": "In a channel, click the Work progress button to have the AI summarize progress. Click Update now to have it summarize new messages and show the result right away."
 				}
 			],
-			"example": "@ai-assistant make a progress table: owner, work item, % complete, blockers",
+			"example": "@nai make a progress table: owner, work item, % complete, blockers",
 			"tip": "More examples: \"summarize my reports for 11/11\", \"who has not sent a report today?\", \"compare today's progress with yesterday\", \"summarize this week's reports as a table: Date | Person | Done | Pending\". To summarize several channels at once, use a chat outside the channel.",
 			"images": [
 				{
@@ -231,7 +231,7 @@
 					"text": "Keep typing in the thread that holds the reply. The AI remembers the original question and its earlier answers in the thread."
 				}
 			],
-			"example": "@ai-assistant what have I completed today?",
+			"example": "@nai what have I completed today?",
 			"tip": "The AI understands \"today\", \"yesterday\", \"this week\" and specific dates in day/month format.",
 			"images": [
 				{
@@ -265,7 +265,7 @@
 					"text": "The file is attached right below the AI's reply. Click it to preview or download."
 				}
 			],
-			"example": "@ai-assistant create this week's report for this channel as a PDF",
+			"example": "@nai create this week's report for this channel as a PDF",
 			"tip": "If the AI only replies with text and attaches no file, your account may not have Terminal access. Contact an administrator."
 		},
 		{
@@ -293,7 +293,7 @@
 					"text": "Mention the AI and name the file and the task. The AI picks files in this order: files attached to your request → files in the message you Reply to → files in the thread → otherwise the 5 newest files in the channel."
 				}
 			],
-			"example": "@ai-assistant summarize the PowerPoint presentation, one line per slide",
+			"example": "@nai summarize the PowerPoint presentation, one line per slide",
 			"tip": "When a channel has many files, the surest way is to Reply to the message that holds the file and mention the AI there. Save old formats (.doc, .xls, .ppt) as .docx, .xlsx, .pptx first. Reading images requires an assistant with Vision capability.",
 			"images": [
 				{
@@ -327,7 +327,7 @@
 					"text": "Use the channel's magnifying glass to find the original message by keyword, sender name or the file name the AI mentioned."
 				}
 			],
-			"example": "@ai-assistant summarize my progress today, with the time and file name for each point",
+			"example": "@nai summarize my progress today, with the time and file name for each point",
 			"images": [
 				{
 					"src": "/help-center/images/truy-vet.png",
@@ -401,7 +401,7 @@
 					"text": "Click the sources shown below the answer to see the original passage."
 				}
 			],
-			"example": "@ai-assistant according to the procedure, how long are residential proxies issued for?",
+			"example": "@nai according to the procedure, how long are residential proxies issued for?",
 			"tip": "Be specific and use keywords from the documents (procedure name, form code, project name). To summarize a whole long document, send the file in the chat instead. If # does not show the knowledge base you need, you do not have access yet; contact an administrator."
 		},
 		{
@@ -662,7 +662,7 @@
 					"text": "Click Save & Update. From then on the assistant consults the knowledge base whenever it answers, including in channels, and users do not need to type #."
 				}
 			],
-			"example": "@ai-assistant according to the procedure, how long are residential proxies issued for, and can they be extended?",
+			"example": "@nai according to the procedure, how long are residential proxies issued for, and can they be extended?",
 			"tip": "Everyone who can use the assistant can receive information from the knowledge bases attached to it; keep sensitive documents in a Private knowledge base searched only with #. To make the AI answer only from the documents, add to the System Prompt: \"Answer only from the knowledge base documents; if the information is not there, say so clearly.\""
 		}
 	]
