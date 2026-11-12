@@ -220,7 +220,7 @@ RUN chgrp -R 0 /app/backend/open_webui/static && \
 # This deployment is covered by an Open WebUI enterprise license / written permission
 # (LICENSE exception (ii)/(iii)). Placed last so changing the brand only rebuilds these layers.
 ARG ENABLE_REBRAND=true
-ARG BRAND_NAME="NCS ChatUI"
+ARG BRAND_NAME="NCS AI"
 ARG LOGO_STYLE=light
 COPY branding /tmp/branding
 RUN if [ "$ENABLE_REBRAND" = "true" ]; then \

@@ -1,4 +1,4 @@
-# Triển khai NCS ChatUI trên server khác bằng image đã build sẵn (KHÔNG build lại).
+# Triển khai NCS AI trên server khác bằng image đã build sẵn (KHÔNG build lại).
 # Image được tạo trên máy build bằng update.ps1, đóng gói bằng export-image.ps1, rồi nạp ở đây:
 #
 #   docker load -i ncs-chatui-<phiên bản>.tar     (đóng gói kèm Terminal: export-image.ps1 -WithTerminal)
@@ -57,7 +57,7 @@ services:
       - s3data:/data
     restart: unless-stopped
 
-  # Tạo bucket "openwebui" một lần rồi thoát (dùng boto3 có sẵn trong image NCS ChatUI).
+  # Tạo bucket "openwebui" một lần rồi thoát (dùng boto3 có sẵn trong image NCS AI).
   bucket-init:
     image: *owui-image
     container_name: owui-bucket-init
@@ -114,7 +114,7 @@ services:
       - open-webui:/app/backend/data
     environment:
       # --- Thương hiệu (tên hiển thị trên giao diện, tiêu đề tab, email...) ---
-      - WEBUI_NAME=${BRAND_NAME:-NCS ChatUI}
+      - WEBUI_NAME=${BRAND_NAME:-NCS AI}
 
       # --- Bảo mật ---
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}

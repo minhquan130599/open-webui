@@ -1,8 +1,8 @@
-# Đăng nhập bằng Google và Microsoft (Teams) cho NCS ChatUI
+# Đăng nhập bằng Google và Microsoft (Teams) cho NCS AI
 
 Sau khi làm xong, trang đăng nhập có thêm nút **Tiếp tục với Google** và **Tiếp tục với Microsoft**.
 Người dùng đăng nhập bằng Gmail / Google Workspace hoặc tài khoản Microsoft 365 (tài khoản dùng cho Teams)
-mà không cần mật khẩu riêng của NCS ChatUI.
+mà không cần mật khẩu riêng của NCS AI.
 
 Các file liên quan (cùng thư mục với `docker-compose.yaml` trên server):
 
@@ -53,7 +53,7 @@ Nếu dùng nginx hoặc IIS, nhớ bật chuyển tiếp WebSocket (`Upgrade` /
      - *Internal* nếu công ty dùng Google Workspace và chỉ cho email công ty đăng nhập.
      - *External* nếu cho cả Gmail cá nhân. Sau khi cấu hình xong, bấm **Publish app**; nếu để ở chế độ
        *Testing* thì chỉ những email trong danh sách *Test users* mới đăng nhập được.
-   - App name: `NCS ChatUI`; điền email hỗ trợ; Authorized domain: `congty.vn`.
+   - App name: `NCS AI`; điền email hỗ trợ; Authorized domain: `congty.vn`.
    - Scopes: chỉ cần `openid`, `email`, `profile` (mặc định).
 3. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
    - Application type: **Web application**
@@ -70,7 +70,7 @@ Nếu dùng nginx hoặc IIS, nhớ bật chuyển tiếp WebSocket (`Upgrade` /
 
 1. Vào <https://entra.microsoft.com> (hoặc Azure Portal → Microsoft Entra ID) bằng tài khoản quản trị.
 2. **App registrations → New registration**:
-   - Name: `NCS ChatUI`
+   - Name: `NCS AI`
    - Supported account types: **Accounts in this organizational directory only** (chỉ tài khoản công ty).
    - Redirect URI: chọn **Web**, nhập:
      ```

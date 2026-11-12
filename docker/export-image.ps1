@@ -1,5 +1,5 @@
 ﻿# Đóng gói image đã build (open-webui-local:latest từ update.ps1) thành file .tar để mang sang server khác.
-#   .\export-image.ps1             chỉ image NCS ChatUI (server đích tự tải postgres/redis/rustfs từ Docker Hub)
+#   .\export-image.ps1             chỉ image NCS AI (server đích tự tải postgres/redis/rustfs từ Docker Hub)
 #   .\export-image.ps1 -WithDeps   kèm cả postgres/redis/rustfs (server đích không có internet)
 #   .\export-image.ps1 -WithTerminal   kèm image Open Terminal (AI tạo file Word/Excel/PDF)
 #   Dùng chung được:  .\export-image.ps1 -WithTerminal -WithDeps   (đủ mọi image, server đích không cần internet)
