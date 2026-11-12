@@ -112,16 +112,16 @@ def project_channels(channels: list) -> list:
 
 
 async def readable_channels(user) -> list:
-    if user.role == 'admin':
-        return project_channels(await Channels.get_channels())
+    """Channels the user is in (member or granted access). Admins get no bypass: a channel an admin has not
+    joined stays out of their work pages."""
     return project_channels(await Channels.get_channels_by_user_id(user.id))
 
 
 async def managed_channels(user) -> list:
-    """Channels whose members' work the user may see: every channel for an admin, else the ones they own."""
-    if user.role == 'admin':
-        return project_channels(await Channels.get_channels())
-    return [c for c in await readable_channels(user) if c.user_id == user.id]
+    """Channels whose members' work the user may see: for an admin every channel they are in, else the
+    channels they own."""
+    channels = await readable_channels(user)
+    return channels if user.role == 'admin' else [c for c in channels if c.user_id == user.id]
 
 
 async def work_of(viewer, target_id: str) -> Optional[list[WorkEntry]]:

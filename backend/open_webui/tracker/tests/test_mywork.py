@@ -19,7 +19,10 @@ async def _project(owner, members, items):
     from open_webui.tracker.models import Trackers
     from open_webui.tracker.schema import StateDelta
 
-    channel = await Channels.insert_new_channel(CreateChannelForm(name=f'mw-{uuid.uuid4().hex[:6]}'), owner.id)
+    channel = await Channels.insert_new_channel(
+        CreateChannelForm(name=f'mw-{uuid.uuid4().hex[:6]}', type='group'), owner.id
+    )
+    await Channels.add_members_to_channel(channel.id, owner.id, user_ids=[m.id for m in members])
     for member in members:
         await Messages.insert_new_message(MessageForm(content=f'{member.name} nhận việc'), channel.id, member.id)
     await Trackers.mark_dirty(channel.id)
@@ -77,6 +80,13 @@ async def test_my_work_team_and_reminders():
     assert seen_by_owner == ['Kiểm thử'] and (await mywork.work_of(owner, vy.id))[0].bucket == 'overdue'
     member = await Users.insert_new_user(str(uuid.uuid4()), 'Khách', f'{uuid.uuid4().hex}@t.local', role='user')
     assert await mywork.work_of(member, vy.id) is None
+
+    # An admin who has not joined the channel sees none of its work, for themselves or as a manager.
+    outsider = await Users.insert_new_user(str(uuid.uuid4()), 'Admin', f'{uuid.uuid4().hex}@t.local', role='admin')
+    assert all(e.channel_id != channel.id for e in await mywork.work_of(outsider, hai.id) or [])
+    assert channel.id not in [c['id'] for c in (await mywork.team_of(outsider))['channels']]
+    # An admin who is in the channel sees every member's work there.
+    assert [e.ten for e in await mywork.work_of(vy, hai.id) if e.channel_id == channel.id]
 
     team = await mywork.team_of(owner)
     counts = {p['id']: p['counts'] for p in team['people']}

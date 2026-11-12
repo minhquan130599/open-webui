@@ -259,7 +259,7 @@
 					</h1>
 					<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
 						{$user?.role === 'admin'
-							? $i18n.t('Work of everyone in every channel.')
+							? $i18n.t('Work of everyone in the channels you are in.')
 							: $i18n.t('Work of the members in the channels you own.')}
 					</p>
 				</div>
@@ -469,7 +469,7 @@
 													</span>
 												{/if}
 												{#if item.phu_trach.length > 1}
-													<span>{$i18n.t('Owner')}: {item.phu_trach.join(', ')}</span>
+													<span>{$i18n.t('Assignee')}: {item.phu_trach.join(', ')}</span>
 												{/if}
 											</div>
 											{#if item.vuong_mac}

@@ -374,7 +374,7 @@
 									class="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-gray-500 dark:text-gray-400"
 								>
 									{#if item.phu_trach?.length}
-										<span>{$i18n.t('Owner')}: {item.phu_trach.join(', ')}</span>
+										<span>{$i18n.t('Assignee')}: {item.phu_trach.join(', ')}</span>
 									{/if}
 									{#if item.han}
 										<span

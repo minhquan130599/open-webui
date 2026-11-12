@@ -4714,7 +4714,6 @@
 	"Work item closed": "Đã đóng hạng mục",
 	"Work item reopened": "Đã mở lại hạng mục",
 	"Work items already reminded today are not sent again.": "Công việc đã được nhắc hôm nay sẽ không gửi lại.",
-	"Work of everyone in every channel.": "Công việc của mọi người trong tất cả các kênh.",
 	"Work of the members in the channels you own.": "Công việc của thành viên trong các kênh bạn làm chủ.",
 	"Work tracking is not enabled on this server.": "Máy chủ chưa bật theo dõi công việc.",
 	"in the channels you own": "trong các kênh bạn làm chủ",
@@ -4724,5 +4723,7 @@
 	"{{count}} days overdue": "quá hạn {{count}} ngày",
 	"{{count}} open work items": "{{count}} công việc đang mở",
 	"{{count}} open work items have no owner yet.": "{{count}} công việc đang mở chưa có người phụ trách.",
-	"{{count}} reminders sent": "Đã gửi {{count}} nhắc nhở"
+	"{{count}} reminders sent": "Đã gửi {{count}} nhắc nhở",
+	"Work of everyone in the channels you are in.": "Công việc của mọi người trong các kênh bạn tham gia.",
+	"Assignee": "Phụ trách"
 }
