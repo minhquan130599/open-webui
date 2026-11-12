@@ -12,7 +12,7 @@
 	import HelpCircle from '$lib/components/layout/Sidebar/icons/HelpCircle.svelte';
 	import CopyIcon from '$lib/components/layout/Sidebar/icons/Copy.svelte';
 
-	const i18n = getContext('i18n');
+	const i18n: any = getContext('i18n');
 
 	// Content lives in static/help-center/ so it can be edited without touching code:
 	// articles.json is the Vietnamese default, articles.<language>.json (e.g. articles.en-US.json) a translation.
@@ -82,7 +82,7 @@
 		? results.slice(0, 3)
 		: ((role === 'admin' ? content?.featuredAdmin : content?.featured) ?? [])
 				.map((id) => articles.find((article) => article.id === id))
-				.filter(Boolean);
+				.filter((article): article is Article => Boolean(article));
 	$: if (results.length && !results.some((article) => article.id === selectedId)) {
 		selectedId = results[0].id;
 	}
@@ -132,7 +132,7 @@
 		const text = await res.text();
 		try {
 			return JSON.parse(text);
-		} catch (e) {
+		} catch (e: any) {
 			throw new Error(`${file} không hợp lệ: ${e.message}`);
 		}
 	};
@@ -148,7 +148,7 @@
 		}
 		try {
 			loaded = loaded ?? (await fetchContent(DEFAULT_FILE));
-		} catch (e) {
+		} catch (e: any) {
 			error = `${e.message ?? e}`;
 			return;
 		}
@@ -440,8 +440,6 @@
 									{/if}
 								</figure>
 							{/each}
-								</figure>
-							{/if}
 
 							<div
 								class="mt-8 pt-4 border-t border-gray-100 dark:border-gray-850 flex items-center justify-between text-xs text-gray-500"
