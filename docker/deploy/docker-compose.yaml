@@ -144,6 +144,8 @@ services:
       - ENABLE_OLLAMA_API=false
       - OPENAI_API_BASE_URL=${OPENAI_API_BASE_URL}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # Model của kết nối đầu tiên (OPENAI_API_BASE_URL) tự công khai cho mọi người dùng; admin vẫn đổi quyền được
+      - DEFAULT_MODEL_ACCESS=${DEFAULT_MODEL_ACCESS:-public}
 
       # --- Upload nhanh ---
       - BYPASS_EMBEDDING_AND_RETRIEVAL=true

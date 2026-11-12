@@ -8,15 +8,21 @@ from open_webui.config import (
     BYPASS_ADMIN_ACCESS_CONTROL,
     DEFAULT_ARENA_MODEL,
 )
-from open_webui.env import BYPASS_MODEL_ACCESS_CONTROL, ENABLE_FUNCTIONS, GLOBAL_LOG_LEVEL, REDIS_KEY_PREFIX
+from open_webui.env import (
+    BYPASS_MODEL_ACCESS_CONTROL,
+    DEFAULT_MODEL_ACCESS,
+    ENABLE_FUNCTIONS,
+    GLOBAL_LOG_LEVEL,
+    REDIS_KEY_PREFIX,
+)
 from open_webui.events import EVENTS, publish_event
 from open_webui.functions import get_function_models
 from open_webui.models.access_grants import AccessGrants
 from open_webui.models.config import Config
 from open_webui.models.functions import Functions
 from open_webui.models.groups import Groups
-from open_webui.models.models import Models
-from open_webui.models.users import UserModel
+from open_webui.models.models import ModelForm, ModelMeta, ModelParams, Models
+from open_webui.models.users import UserModel, Users
 from open_webui.routers import ollama, openai
 from open_webui.socket.utils import RedisDict
 from open_webui.utils.access_control import has_access, has_base_model_access
@@ -116,6 +122,54 @@ async def publish_model_availability_events(request: Request, base_models: list[
             source='system',
             data={'name': previous_models[model_id]},
         )
+
+
+PUBLIC_READ_GRANT = {'principal_type': 'user', 'principal_id': '*', 'permission': 'read'}
+
+
+async def register_default_public_models(models: list[dict], custom_models: list) -> bool:
+    """Register unconfigured models of the first OpenAI connection with public read access.
+
+    Only models without a row are touched, so an admin's later access changes stick. Returns True when rows
+    were added.
+    """
+    configured_ids = {model.id for model in custom_models}
+    new_models = [
+        model
+        for model in models
+        if model.get('owned_by') == 'openai'
+        and model.get('urlIdx') == 0
+        and not model.get('direct')
+        and model.get('id')
+        and model['id'] not in configured_ids
+    ]
+    if not new_models:
+        return False
+
+    owner = await Users.get_super_admin_user()
+    if not owner:
+        return False  # before the first admin exists; registered on a later call
+
+    added = False
+    for model in new_models:
+        try:
+            await Models.insert_new_model(
+                ModelForm(
+                    id=model['id'],
+                    base_model_id=None,
+                    name=model.get('name') or model['id'],
+                    meta=ModelMeta(),
+                    params=ModelParams(),
+                    access_grants=[PUBLIC_READ_GRANT],
+                ),
+                owner.id,
+            )
+            added = True
+            log.info('Registered model %s as public (DEFAULT_MODEL_ACCESS=public)', model['id'])
+        except Exception as e:
+            # Another worker registered it first, or the id is not a valid model id.
+            log.debug('Could not register default public model %s: %s', model['id'], e)
+    return added
 
 
 async def get_all_models(request, refresh: bool = False, user: UserModel = None):
@@ -219,6 +273,8 @@ async def get_all_models(request, refresh: bool = False, user: UserModel = None)
         enabled_filter_ids = set()
 
     custom_models = await Models.get_all_models()
+    if DEFAULT_MODEL_ACCESS == 'public' and await register_default_public_models(models, custom_models):
+        custom_models = await Models.get_all_models()
 
     # Single O(1) lookup: Ollama base names first, then exact IDs (exact wins).
     base_model_lookup = {}

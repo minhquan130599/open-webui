@@ -840,6 +840,11 @@ PASSWORD_VALIDATION_HINT = os.getenv('PASSWORD_VALIDATION_HINT', '')
 
 
 BYPASS_MODEL_ACCESS_CONTROL = os.getenv('BYPASS_MODEL_ACCESS_CONTROL', 'False').lower() == 'true'
+
+# 'public': models served by the first OpenAI connection (the one OPENAI_API_BASE_URL creates, even after its URL
+# is edited in Admin > Connections) are registered as public the first time they appear, so every user can use
+# them. Admins can still change a model's access afterwards; models of other connections stay admin-only.
+DEFAULT_MODEL_ACCESS = os.getenv('DEFAULT_MODEL_ACCESS', '').strip().lower()
 BYPASS_RETRIEVAL_ACCESS_CONTROL = os.getenv('BYPASS_RETRIEVAL_ACCESS_CONTROL', 'False').lower() == 'true'
 
 # When True, collection names that do not match any known file-*, user-memory-*,
