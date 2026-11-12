@@ -22,7 +22,7 @@
 				"admin"
 			],
 			"title": "Bắt đầu sử dụng {{name}}",
-			"desc": "Đăng nhập và làm quen với các khu vực chính",
+			"desc": "Đăng nhập, đổi ngôn ngữ và làm quen với các khu vực chính",
 			"minutes": 2,
 			"icon": "🚀",
 			"steps": [
@@ -31,15 +31,19 @@
 					"text": "Mở đường dẫn {{name}} do quản trị viên cung cấp. Bấm \"Tiếp tục với Microsoft\" và đăng nhập bằng tài khoản công ty, hoặc dùng email và mật khẩu đã được cấp."
 				},
 				{
-					"title": "Làm quen với thanh bên",
-					"text": "Dùng Tạo chat mới để trò chuyện với AI; mục Kênh để trao đổi với nhóm; Tìm kiếm để tra cứu nội dung đã trao đổi."
+					"title": "Kiểm tra quyền truy cập",
+					"text": "Nếu tài khoản đang ở trạng thái chờ duyệt (pending), liên hệ quản trị viên để được kích hoạt."
 				},
 				{
-					"title": "Kiểm tra quyền truy cập",
-					"text": "Nếu tài khoản đang ở trạng thái chờ duyệt, liên hệ quản trị viên để kích hoạt."
+					"title": "Chọn ngôn ngữ",
+					"text": "Biểu tượng tài khoản (góc dưới bên trái) → Cài đặt (hoặc Ctrl + .) → Ngôn ngữ, chọn ngôn ngữ muốn dùng rồi bấm Lưu."
+				},
+				{
+					"title": "Làm quen với thanh bên",
+					"text": "Dùng Tạo chat mới để trò chuyện riêng với AI, mục Kênh để trao đổi với nhóm, Tìm kiếm để tra cứu nội dung đã trao đổi."
 				}
 			],
-			"tip": "Bạn có thể chuyển giao diện sang tiếng Việt tại menu tài khoản → Cài đặt → Ngôn ngữ.",
+			"tip": "Trong hướng dẫn, @ai-assistant là tên ví dụ của trợ lý AI; hãy thay bằng tên trợ lý mà quản trị viên đã tạo.",
 			"images": [
 				{
 					"src": "/help-center/images/dang-nhap.png",
@@ -54,29 +58,33 @@
 				"user",
 				"admin"
 			],
-			"title": "Làm quen và tạo kênh nhóm",
-			"desc": "Hiểu các loại kênh và cách tạo nhóm thảo luận",
+			"title": "Các loại kênh và tạo kênh nhóm",
+			"desc": "Hiểu ba loại kênh và cách tạo nhóm thảo luận",
 			"minutes": 3,
 			"icon": "👥",
 			"steps": [
 				{
+					"title": "Hiểu các loại kênh",
+					"text": "Kênh (Channel): chỉ quản trị viên tạo, dùng cho phòng ban hoặc thông báo. Kênh nhóm (Group Channel): thành viên được mời tham gia, phù hợp nhóm dự án, báo cáo hằng ngày. Tin nhắn trực tiếp (Direct Message): trao đổi riêng giữa vài người."
+				},
+				{
 					"title": "Mở danh sách Kênh",
-					"text": "Tại thanh bên trái, xem những kênh bạn là thành viên."
+					"text": "Các kênh bạn là thành viên hiện ở phần Kênh trên thanh bên trái; bấm vào tên kênh để mở."
 				},
 				{
-					"title": "Tạo cuộc trao đổi",
-					"text": "Nếu được hệ thống cho phép, bấm dấu + cạnh Kênh rồi chọn Kênh nhóm hoặc Tin nhắn trực tiếp."
+					"title": "Tạo kênh mới",
+					"text": "Nếu hệ thống cho phép, bấm dấu + cạnh tiêu đề Kênh rồi chọn Loại kênh: Kênh nhóm hoặc Tin nhắn trực tiếp."
 				},
 				{
-					"title": "Chọn thành viên",
-					"text": "Với Kênh nhóm, đặt tên, chọn người tham gia và cấu hình Riêng tư nếu cần."
+					"title": "Đặt tên và chọn thành viên",
+					"text": "Với Kênh nhóm, nhập Tên kênh (ví dụ du-an-a, bao-cao-ngay), chọn người tham gia và đặt chế độ Riêng tư nếu cần."
 				},
 				{
 					"title": "Hoàn tất",
-					"text": "Nhấn Tạo để bắt đầu trao đổi."
+					"text": "Bấm Tạo để bắt đầu trao đổi."
 				}
 			],
-			"tip": "Loại Kênh (Channel) chỉ quản trị viên tạo được. Nếu không thấy kênh, hãy nhờ quản trị viên thêm bạn vào.",
+			"tip": "Loại Kênh (Channel) chỉ quản trị viên tạo được. Nếu không thấy kênh cần tham gia, hãy nhờ quản trị viên thêm bạn vào.",
 			"images": [
 				{
 					"src": "/help-center/images/tao-kenh.png",
@@ -92,29 +100,37 @@
 				"admin"
 			],
 			"title": "Gửi tin nhắn và trả lời trong Luồng",
-			"desc": "Nhắc tên, trả lời, sao chép và tìm lại tin nhắn",
+			"desc": "Nhắc tên, trả lời, gửi tệp và tìm lại tin nhắn",
 			"minutes": 2,
 			"icon": "💬",
 			"steps": [
 				{
 					"title": "Gửi tin nhắn",
-					"text": "Nhập nội dung trong ô chat và nhấn Enter. Dùng Shift + Enter để xuống dòng."
+					"text": "Gõ vào ô Nhập tại đây… ở cuối kênh và nhấn Enter. Dùng Shift + Enter để xuống dòng."
 				},
 				{
 					"title": "Nhắc tên người khác",
 					"text": "Gõ @ rồi chọn đúng người trong danh sách gợi ý."
 				},
 				{
-					"title": "Trả lời trong Luồng",
-					"text": "Rê chuột lên tin nhắn → Trả lời trong Luồng để mở cuộc thảo luận ở khung bên phải."
+					"title": "Trả lời một tin nhắn",
+					"text": "Rê chuột lên tin nhắn → Trả lời (Reply). Tin trả lời sẽ trích dẫn tin gốc."
+				},
+				{
+					"title": "Thảo luận trong Luồng",
+					"text": "Rê chuột lên tin nhắn → Trả lời trong Luồng (Reply in Thread). Luồng mở ở khung bên phải."
 				},
 				{
 					"title": "Sao chép tin nhắn",
 					"text": "Rê chuột lên tin nhắn (kể cả câu trả lời của AI) → bấm biểu tượng Sao chép."
 				},
 				{
+					"title": "Gửi tệp",
+					"text": "Bấm + ở ô nhập rồi chọn tệp từ máy."
+				},
+				{
 					"title": "Tìm tin nhắn cũ",
-					"text": "Nhấn biểu tượng tìm kiếm trong kênh để tra cứu nội dung đã trao đổi."
+					"text": "Bấm biểu tượng kính lúp ở góc trên bên phải kênh."
 				}
 			]
 		},
@@ -136,15 +152,15 @@
 				},
 				{
 					"title": "Gọi trợ lý",
-					"text": "Trong ô nhập, gõ @, chọn trợ lý AI (ví dụ ai-assistant), sau đó nhập câu hỏi."
+					"text": "Trong ô nhập, gõ @, chọn trợ lý AI (ví dụ ai-assistant), sau đó viết yêu cầu và gửi."
 				},
 				{
 					"title": "Xem kết quả",
-					"text": "Gửi tin nhắn rồi bấm vào câu trả lời của AI để mở Luồng bên phải và xem báo cáo đầy đủ."
+					"text": "Câu trả lời của AI hiện trong Luồng của tin nhắn đó. Bấm vào câu trả lời để mở Luồng ở khung bên phải và xem đầy đủ."
 				}
 			],
 			"example": "@ai-assistant tổng hợp báo cáo công việc của tôi",
-			"tip": "Trong một kênh, AI chỉ đọc và tìm kiếm nội dung của kênh hiện tại. Để AI thấy toàn bộ lịch sử, hãy gọi bằng tin nhắn mới tại khung chat chính.",
+			"tip": "Trong một kênh, AI chỉ đọc và tìm kiếm nội dung của kênh hiện tại; báo cáo ở kênh khác không bị trộn vào. Để AI thấy toàn bộ lịch sử kênh, hãy gọi bằng tin nhắn mới ở khung chat chính, không gọi trong Luồng và không sửa lại tin nhắn cũ.",
 			"images": [
 				{
 					"src": "/help-center/images/goi-ai.png",
@@ -170,19 +186,19 @@
 			"steps": [
 				{
 					"title": "Chọn khoảng thời gian",
-					"text": "Có thể yêu cầu AI báo cáo hôm nay, tuần này, tháng này hoặc báo cáo tổng hợp toàn dự án."
+					"text": "AI hiểu \"hôm nay\", \"hôm qua\", \"tuần này\" và ngày cụ thể dạng ngày/tháng. AI chỉ lấy tin nhắn gửi trong khoảng thời gian được hỏi và bỏ qua tin tự ghi là báo cáo của ngày khác."
 				},
 				{
 					"title": "Nêu yêu cầu rõ ràng",
-					"text": "Hỏi theo người, đầu việc, tỷ lệ hoàn thành hoặc các vấn đề đang bị chặn."
+					"text": "Hỏi theo người, đầu việc, tỷ lệ hoàn thành, việc bị chặn, hoặc yêu cầu trình bày theo bảng với các cột bạn cần."
 				},
 				{
-					"title": "Xem Tiến độ công việc",
-					"text": "Trong kênh, bấm biểu tượng Tiến độ công việc để xem các hạng mục. Bấm Cập nhật ngay để AI tổng hợp các tin nhắn mới; có thể thu gọn từng phần hoặc ẩn việc đã xong."
+					"title": "Dùng Tiến độ công việc",
+					"text": "Trong kênh, bấm nút Tiến độ công việc để AI tự tóm tắt tiến độ. Bấm Cập nhật ngay để AI tổng hợp các tin nhắn mới và hiển thị kết quả ngay."
 				}
 			],
 			"example": "@ai-assistant lập bảng tiến độ: người phụ trách, đầu việc, % hoàn thành, vướng mắc",
-			"tip": "Nếu cần tổng hợp nhiều kênh, hãy sử dụng chat bên ngoài kênh.",
+			"tip": "Một số mẫu khác: \"tổng hợp báo cáo của tôi ngày 11/11\", \"hôm nay ai chưa gửi báo cáo?\", \"so sánh tiến độ hôm nay với hôm qua\", \"tổng hợp báo cáo tuần này thành bảng: Ngày | Người | Việc đã xong | Việc tồn\". Muốn tổng hợp nhiều kênh, hãy dùng chat bên ngoài kênh.",
 			"images": [
 				{
 					"src": "/help-center/images/bang-tien-do.png",
@@ -212,11 +228,11 @@
 			"steps": [
 				{
 					"title": "Hỏi về nội dung đã trao đổi",
-					"text": "Gọi @ai-assistant và hỏi về khoảng thời gian hoặc người cần tìm, ví dụ \"tôi đã báo cáo gì?\" hay \"tóm tắt thảo luận từ sáng đến giờ\"."
+					"text": "Gọi @ai-assistant và hỏi về khoảng thời gian hoặc nội dung cần tìm, ví dụ \"tôi đã báo cáo gì?\" hay \"tóm tắt thảo luận từ sáng đến giờ\"."
 				},
 				{
 					"title": "Tập trung vào một tin nhắn",
-					"text": "Bấm Trả lời vào tin nhắn đó rồi gọi @ai-assistant trong tin trả lời."
+					"text": "Bấm Trả lời (Reply) vào tin nhắn đó rồi gọi @ai-assistant trong tin trả lời."
 				},
 				{
 					"title": "Hỏi tiếp câu trả lời của AI",
@@ -274,19 +290,19 @@
 			"steps": [
 				{
 					"title": "Đính kèm tệp",
-					"text": "Nhấn nút + trong ô nhập tin nhắn và chọn tệp từ máy."
+					"text": "Bấm + trong ô nhập tin nhắn và chọn tệp. Hỗ trợ ảnh (PNG, JPG, WebP, GIF), PDF, Word (.docx), Excel (.xlsx, .csv), PowerPoint (.pptx) và văn bản (.txt, .md, .html)."
 				},
 				{
 					"title": "Đợi hệ thống xử lý",
-					"text": "Sau khi tải lên, đợi vài giây để nội dung tệp được đọc."
+					"text": "Sau khi tải lên, đợi vài giây để hệ thống đọc xong nội dung rồi mới hỏi AI."
 				},
 				{
 					"title": "Hỏi AI về tệp",
-					"text": "Gọi AI và nêu rõ tệp, tác vụ cần thực hiện. Nếu AI đọc nhầm, hãy Trả lời vào đúng tin nhắn chứa tệp rồi gọi AI."
+					"text": "Gọi AI và nêu rõ tệp, việc cần làm. AI đọc tệp theo thứ tự: tệp đính kèm trong tin gọi AI → tệp trong tin bạn Trả lời → tệp trong Luồng → nếu không có, 5 tệp mới nhất trong kênh."
 				}
 			],
-			"example": "@ai-assistant tóm tắt nội dung tệp abc.docx",
-			"tip": "Nếu xử lý ảnh, cần chọn model có khả năng thị giác. Hãy kiểm tra quyền truy cập model khi không thấy trợ lý AI.",
+			"example": "@ai-assistant tóm tắt bài trình bày PowerPoint, mỗi slide một dòng",
+			"tip": "Khi kênh có nhiều tệp, cách chắc chắn nhất là bấm Trả lời vào đúng tin nhắn chứa tệp rồi gọi AI. Tệp định dạng cũ (.doc, .xls, .ppt) nên lưu lại sang .docx, .xlsx, .pptx. Đọc ảnh cần trợ lý có khả năng Thị giác.",
 			"images": [
 				{
 					"src": "/help-center/images/gui-tep.png",
@@ -319,7 +335,7 @@
 					"text": "Dùng biểu tượng kính lúp của kênh để tìm lại tin nhắn gốc theo từ khóa, tên người gửi hoặc tên tệp mà AI đã nêu."
 				}
 			],
-			"example": "@ai-assistant tổng hợp tiến độ hôm nay của tôi, giờ gửi và tên tệp cho từng ý",
+			"example": "@ai-assistant tổng hợp tiến độ hôm nay của tôi, ghi rõ giờ gửi và tên tệp cho từng ý",
 			"images": [
 				{
 					"src": "/help-center/images/truy-vet.png",
@@ -341,18 +357,18 @@
 			"steps": [
 				{
 					"title": "Mở cuộc trò chuyện riêng",
-					"text": "Bấm Tạo chat mới ở menu bên trái."
+					"text": "Bấm Tạo chat mới ở thanh bên trái. Cuộc chat riêng chỉ bạn thấy và được lưu trong danh sách chat."
 				},
 				{
-					"title": "Chọn model",
-					"text": "Chọn trợ lý AI ở phía trên khung chat rồi nhập câu hỏi. Không cần gõ @ trong chat bên ngoài."
+					"title": "Chọn trợ lý",
+					"text": "Chọn trợ lý AI ở phía trên khung chat (ví dụ ai-assistant) rồi nhập câu hỏi. Không cần gõ @ khi chat bên ngoài kênh; có thể đính kèm tệp bằng nút +."
 				},
 				{
-					"title": "Tìm nội dung nhiều kênh",
-					"text": "Hỏi AI về các kênh mà bạn là thành viên để tìm kiếm hoặc tổng hợp nhiều nguồn."
+					"title": "Hỏi về nhiều kênh",
+					"text": "AI có thể tìm kiếm trong tất cả các kênh bạn là thành viên, phù hợp để tổng hợp nhiều kênh hoặc tìm lại một trao đổi mà không nhớ ở kênh nào."
 				}
 			],
-			"tip": "AI chỉ được tìm kiếm nội dung trong các kênh bạn có quyền truy cập.",
+			"tip": "Kết quả chỉ gồm các kênh bạn đang là thành viên. Nếu cần thông tin từ kênh khác, hãy nhờ quản trị viên thêm bạn vào kênh đó.",
 			"images": [
 				{
 					"src": "/help-center/images/chat-rieng.png",
@@ -365,6 +381,38 @@
 			]
 		},
 		{
+			"id": "knowledge",
+			"category": "Kho kiến thức",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Tra cứu kho kiến thức",
+			"desc": "Hỏi AI dựa trên tài liệu dùng chung của công ty",
+			"minutes": 3,
+			"icon": "📚",
+			"steps": [
+				{
+					"title": "Kho kiến thức là gì",
+					"text": "Nơi quản trị viên lưu tài liệu dùng chung như quy trình, quy chế, tài liệu kỹ thuật. Khi bạn hỏi, AI tìm các đoạn liên quan trong kho để trả lời và ghi kèm nguồn."
+				},
+				{
+					"title": "Hỏi trong chat riêng",
+					"text": "Bấm Tạo chat mới, gõ # trong ô nhập rồi chọn kho cần tra cứu, sau đó gõ câu hỏi và gửi."
+				},
+				{
+					"title": "Hỏi trong kênh",
+					"text": "Nếu quản trị viên đã gắn kho vào trợ lý AI, chỉ cần gọi @ai-assistant như bình thường; trợ lý tự tra cứu kho khi câu hỏi liên quan."
+				},
+				{
+					"title": "Kiểm tra nguồn",
+					"text": "Bấm vào phần nguồn hiển thị bên dưới câu trả lời để xem đoạn tài liệu gốc."
+				}
+			],
+			"example": "@ai-assistant theo quy trình, proxy dân cư được cấp bao lâu?",
+			"tip": "Hỏi cụ thể, nêu từ khóa có trong tài liệu (tên quy trình, mã biểu mẫu, tên dự án). Muốn tóm tắt trọn một tài liệu dài, hãy gửi thẳng tệp vào chat. Gõ # không thấy kho cần dùng nghĩa là bạn chưa được cấp quyền; liên hệ quản trị viên."
+		},
+		{
 			"id": "troubleshoot",
 			"category": "Hỗ trợ",
 			"roles": [
@@ -372,25 +420,45 @@
 				"admin"
 			],
 			"title": "Xử lý sự cố thường gặp",
-			"desc": "Không thấy kênh, model, lịch sử hoặc tệp",
+			"desc": "Không thấy kênh, trợ lý, lịch sử, tệp hoặc kho kiến thức",
 			"minutes": 4,
 			"icon": "🛠️",
 			"steps": [
 				{
-					"title": "Không thấy Kênh",
-					"text": "Tải lại trang bằng F5. Nếu chưa thấy, yêu cầu quản trị viên cấp quyền hoặc thêm bạn vào kênh."
+					"title": "Không thấy Kênh hoặc kênh cần dùng",
+					"text": "Tải lại trang (F5). Nếu vẫn không thấy, nhờ quản trị viên thêm bạn vào kênh."
 				},
 				{
 					"title": "Gõ @ không thấy trợ lý AI",
-					"text": "Bạn có thể chưa được cấp quyền dùng model. Liên hệ quản trị viên."
+					"text": "Có thể bạn chưa được cấp quyền dùng model này. Liên hệ quản trị viên."
 				},
 				{
-					"title": "AI trả lời thiếu lịch sử",
-					"text": "Hãy gọi AI bằng một tin nhắn mới ở khung chính, không gọi trong Luồng hoặc chỉnh sửa tin nhắn cũ."
+					"title": "AI không nhắc tới báo cáo ở kênh khác",
+					"text": "Trong kênh, AI chỉ đọc nội dung của kênh hiện tại. Muốn tổng hợp nhiều kênh, dùng chat bên ngoài kênh."
 				},
 				{
-					"title": "AI chưa đọc được tệp",
-					"text": "Đợi tệp xử lý xong; nếu tệp định dạng cũ, lưu lại thành .docx, .xlsx hoặc .pptx rồi gửi lại."
+					"title": "AI trả lời thiếu lịch sử kênh",
+					"text": "Gọi AI bằng một tin nhắn mới ở khung chat chính, không gọi trong Luồng và không sửa lại tin nhắn cũ."
+				},
+				{
+					"title": "AI đọc nhầm hoặc chưa đọc được tệp",
+					"text": "Đợi vài giây cho tệp xử lý xong, hoặc bấm Trả lời vào đúng tin nhắn chứa tệp rồi gọi AI. Tệp định dạng cũ: lưu lại thành .docx, .xlsx, .pptx rồi gửi lại."
+				},
+				{
+					"title": "AI không đọc được nội dung ảnh",
+					"text": "Cần trợ lý có khả năng Thị giác. Liên hệ quản trị viên nếu trợ lý hiện tại chưa hỗ trợ."
+				},
+				{
+					"title": "Gõ # không thấy kho kiến thức",
+					"text": "Bạn chưa được cấp quyền truy cập kho đó. Liên hệ quản trị viên."
+				},
+				{
+					"title": "AI trả lời theo tài liệu cũ",
+					"text": "Tài liệu trong kho chưa được cập nhật. Báo quản trị viên tải bản mới lên kho."
+				},
+				{
+					"title": "Quên mật khẩu",
+					"text": "Liên hệ quản trị viên để được cấp lại mật khẩu."
 				}
 			]
 		},
@@ -401,28 +469,28 @@
 				"admin"
 			],
 			"title": "Tạo tài khoản người dùng",
-			"desc": "Thêm tài khoản, phân vai trò và nhập CSV",
+			"desc": "Thêm tài khoản, phân vai trò, nhập CSV và duyệt tài khoản chờ",
 			"minutes": 4,
 			"icon": "🛡️",
 			"steps": [
 				{
 					"title": "Mở trang quản trị",
-					"text": "Tại menu tài khoản, chọn Bảng quản trị."
+					"text": "Biểu tượng tài khoản (góc dưới bên trái) → Trang Quản trị. Chỉ tài khoản quản trị viên mới thấy mục này."
 				},
 				{
-					"title": "Mở danh sách người dùng",
-					"text": "Chọn Người dùng → Thêm người dùng."
+					"title": "Thêm người dùng",
+					"text": "Vào Người sử dụng → bấm Thêm người dùng."
 				},
 				{
 					"title": "Nhập thông tin",
-					"text": "Chọn vai trò, nhập tên, email và mật khẩu tạm thời."
+					"text": "Ở thẻ Form, chọn Vai trò, nhập Tên, Email và Mật khẩu tạm thời. Vai trò: admin (toàn quyền), user (dùng chat, kênh và các model được cấp quyền), pending (chờ duyệt, chưa dùng được hệ thống)."
 				},
 				{
 					"title": "Lưu",
-					"text": "Nhấn Lưu. Để tạo nhiều người dùng, dùng thẻ Nhập CSV và tệp mẫu."
+					"text": "Bấm Lưu rồi gửi email và mật khẩu tạm thời cho người dùng. Để tạo nhiều tài khoản cùng lúc, dùng thẻ CSV Import: tải tệp mẫu, điền danh sách rồi tải lên."
 				}
 			],
-			"tip": "Người đăng nhập bằng Microsoft được tạo tài khoản tự động; nếu vai trò mặc định là pending, hãy duyệt họ trong danh sách người dùng.",
+			"tip": "Tài khoản tự đăng ký hoặc đăng nhập bằng Microsoft mặc định có thể ở trạng thái pending. Duyệt bằng cách bấm vào vai trò của người đó trong danh sách Người sử dụng và đổi thành user.",
 			"images": [
 				{
 					"src": "/help-center/images/trang-quan-tri.png",
@@ -441,17 +509,17 @@
 				"admin"
 			],
 			"title": "Cấu hình trợ lý AI và System Prompt",
-			"desc": "Định nghĩa nhiệm vụ và quy tắc trả lời",
+			"desc": "Định nghĩa nhiệm vụ, quy tắc trả lời và quyền dùng trợ lý",
 			"minutes": 5,
 			"icon": "⚙️",
 			"steps": [
 				{
 					"title": "Vào cấu hình model",
-					"text": "Không gian làm việc → Mô hình → chọn trợ lý (ví dụ ai-assistant)."
+					"text": "Trang Quản trị → Cài đặt → Mô hình, chọn trợ lý cần cấu hình (ví dụ ai-assistant)."
 				},
 				{
-					"title": "Nhập Prompt Hệ thống",
-					"text": "Mô tả nhiệm vụ, định dạng trả lời, phạm vi dữ liệu và yêu cầu trích nguồn."
+					"title": "Viết Prompt Hệ thống",
+					"text": "System prompt là \"bản mô tả công việc\" của trợ lý, áp dụng cho mọi câu hỏi. Nêu nhiệm vụ (tổng hợp báo cáo, theo dõi tiến độ, rà soát tệp) và quy tắc: trả lời tiếng Việt, ngắn gọn, ghi rõ người gửi và thời điểm, không suy đoán số liệu, nêu tên người còn thiếu báo cáo, cuối bản tổng hợp liệt kê \"Việc cần chú ý\"."
 				},
 				{
 					"title": "Phân quyền",
@@ -462,7 +530,7 @@
 					"text": "Bấm Lưu & Cập nhật để áp dụng."
 				}
 			],
-			"tip": "Nên ghi rõ trong prompt: không tự nhận là model khác, và không nói đã tạo file nếu công cụ chưa báo thành công.",
+			"tip": "Có thể thêm định dạng báo cáo mong muốn vào system prompt, ví dụ: \"Trình bày theo bảng gồm các cột: Người phụ trách | Đầu việc | Trạng thái | Ghi chú\". Nên ghi rõ thêm: không tự nhận là model khác, và không nói đã tạo file nếu công cụ chưa báo thành công.",
 			"images": [
 				{
 					"src": "/help-center/images/system-prompt.png",
@@ -477,28 +545,28 @@
 				"admin"
 			],
 			"title": "Bật Kênh và quản lý thành viên",
-			"desc": "Cấu hình Kênh, tạo kênh và phân quyền",
+			"desc": "Bật tính năng Kênh, tạo kênh và thêm, bớt thành viên",
 			"minutes": 5,
 			"icon": "🔒",
 			"steps": [
 				{
 					"title": "Bật tính năng Kênh",
-					"text": "Bảng quản trị → Cài đặt → Chung → Kênh → Lưu."
+					"text": "Trang Quản trị → Cài đặt, ở nhóm Quản trị chọn Hệ thống → Cài đặt chung, bật Kênh rồi bấm Lưu. Nếu thanh bên chưa có phần Kênh, tải lại trang (F5)."
 				},
 				{
 					"title": "Tạo kênh mới",
-					"text": "Ở thanh bên bấm dấu + tại Kênh, chọn loại, tên và quyền truy cập."
+					"text": "Ở thanh bên bấm dấu + cạnh Kênh, chọn Loại kênh, nhập Tên kênh (ví dụ du-an-a, bao-cao-ngay), đặt Công khai hoặc Riêng tư hoặc chọn thành viên tùy loại kênh, rồi bấm Tạo."
 				},
 				{
 					"title": "Thêm hoặc bớt thành viên",
-					"text": "Trong kênh, mở biểu tượng thành viên hoặc menu ⋯ → Chỉnh sửa Kênh."
+					"text": "Mở kênh, bấm biểu tượng thành viên ở góc trên bên phải (hình người kèm số lượng) hoặc menu ⋯ → Chỉnh sửa Kênh."
 				},
 				{
 					"title": "Cập nhật",
-					"text": "Chỉnh danh sách thành viên/quyền và nhấn Cập nhật."
+					"text": "Thêm người dùng hoặc nhóm, gỡ người không còn tham gia, rồi bấm Cập nhật."
 				}
 			],
-			"tip": "Kiểm tra chế độ Công khai / Riêng tư trước khi tạo kênh có dữ liệu nội bộ.",
+			"tip": "Loại Kênh (Channel) chỉ quản trị viên tạo được. Kiểm tra chế độ Công khai / Riêng tư trước khi tạo kênh có dữ liệu nội bộ.",
 			"images": [
 				{
 					"src": "/help-center/images/bat-kenh.png",
@@ -517,6 +585,93 @@
 					"caption": "Thêm hoặc bớt thành viên rồi bấm Cập nhật"
 				}
 			]
+		},
+		{
+			"id": "admin_knowledge",
+			"category": "Quản trị hệ thống",
+			"roles": [
+				"admin"
+			],
+			"title": "Tạo kho kiến thức và thêm tài liệu",
+			"desc": "Tạo kho trong Không gian làm việc và tải tài liệu lên",
+			"minutes": 5,
+			"icon": "📚",
+			"steps": [
+				{
+					"title": "Mở Kiến thức",
+					"text": "Ở thanh bên trái, bấm Không gian làm việc rồi chọn thẻ Kiến thức (Knowledge)."
+				},
+				{
+					"title": "Tạo kho mới",
+					"text": "Bấm +. Ở ô \"Bạn đang làm gì vậy?\" nhập tên kho; ở ô \"Bạn đang cố gắng đạt được điều gì?\" mô tả ngắn mục đích. Chọn chế độ Hiển thị ban đầu rồi bấm Tạo Kiến thức."
+				},
+				{
+					"title": "Thêm tài liệu",
+					"text": "Trong trang của kho, bấm Thêm nội dung rồi chọn: Tải lên các tệp, Thư mục tải lên, Đồng bộ thư mục (cập nhật tệp mới hoặc đã thay đổi), Thêm nội dung văn bản hoặc Thêm trang web."
+				},
+				{
+					"title": "Kiểm tra",
+					"text": "Đợi các tệp xử lý xong, sau đó dùng ô Truy vấn thử trong trang của kho để hỏi thử một câu."
+				}
+			],
+			"tip": "Nên tạo nhiều kho nhỏ theo chủ đề thay vì một kho lớn chứa tất cả. Khi tài liệu thay đổi, xóa tệp cũ và tải bản mới (hoặc dùng Đồng bộ thư mục), nếu không AI vẫn trả lời theo nội dung cũ. Tệp .doc, .xls, .ppt nên lưu lại sang định dạng mới trước khi tải lên."
+		},
+		{
+			"id": "admin_knowledge_access",
+			"category": "Quản trị hệ thống",
+			"roles": [
+				"admin"
+			],
+			"title": "Phân quyền kho kiến thức",
+			"desc": "Chọn Công khai hoặc Riêng tư và cấp quyền Đọc, Viết",
+			"minutes": 3,
+			"icon": "🔐",
+			"steps": [
+				{
+					"title": "Mở phân quyền",
+					"text": "Trong trang của kho, bấm nút Truy cập ở góc trên bên phải."
+				},
+				{
+					"title": "Chọn chế độ Hiển thị",
+					"text": "Công khai: mọi người dùng tra cứu được. Riêng tư: chỉ người tạo và những người dùng hoặc nhóm trong Danh sách quyền truy cập."
+				},
+				{
+					"title": "Cấp quyền",
+					"text": "Với chế độ Riêng tư, bấm Thêm quyền truy cập, chọn người dùng hoặc nhóm, rồi chọn Đọc (tra cứu kho) hoặc Viết (tra cứu và thêm, xóa tài liệu)."
+				},
+				{
+					"title": "Lưu",
+					"text": "Thay đổi được lưu ngay, hệ thống hiện thông báo đã lưu."
+				}
+			],
+			"tip": "Nên cấp quyền theo nhóm. Khi nhân sự thay đổi, chỉ cần sửa nhóm một lần."
+		},
+		{
+			"id": "admin_knowledge_use",
+			"category": "Quản trị hệ thống",
+			"roles": [
+				"admin"
+			],
+			"title": "Sử dụng kho kiến thức với trợ lý AI",
+			"desc": "Gọi kho bằng # hoặc gắn cố định vào trợ lý",
+			"minutes": 3,
+			"icon": "🧠",
+			"steps": [
+				{
+					"title": "Gọi kho khi cần",
+					"text": "Trong ô chat riêng, gõ # rồi chọn kho kiến thức, sau đó đặt câu hỏi."
+				},
+				{
+					"title": "Gắn cố định vào trợ lý",
+					"text": "Trang Quản trị → Cài đặt → Mô hình, chọn trợ lý (ví dụ ai-assistant). Ở mục Kiến thức, bấm Chọn Kiến thức và chọn kho cần gắn."
+				},
+				{
+					"title": "Lưu",
+					"text": "Bấm Lưu & Cập nhật. Từ đó trợ lý tự tra cứu kho mỗi khi trả lời, kể cả khi được gọi trong kênh, người dùng không cần gõ #."
+				}
+			],
+			"example": "@ai-assistant theo quy trình, proxy dân cư được cấp bao lâu và có gia hạn được không?",
+			"tip": "Mọi người được dùng trợ lý đều có thể nhận thông tin từ kho đã gắn vào trợ lý đó; tài liệu nhạy cảm nên để trong kho Riêng tư và chỉ tra cứu qua #. Muốn AI chỉ trả lời theo tài liệu, thêm vào System Prompt: \"Chỉ trả lời dựa trên tài liệu trong kho kiến thức; nếu không có thông tin thì nói rõ là không có.\""
 		}
 	]
 }

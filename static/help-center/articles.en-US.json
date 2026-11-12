@@ -3,15 +3,26 @@
 	"subheading": "Find user guides, learn how to work with the AI assistant and manage the system's features.",
 	"searchPlaceholder": "Search the guide... (e.g. create a channel, ask the AI)",
 	"updated": "November 2026",
-	"featured": ["ai", "progress", "create_files"],
-	"featuredAdmin": ["admin_users", "admin_prompt", "admin_channels"],
+	"featured": [
+		"ai",
+		"progress",
+		"create_files"
+	],
+	"featuredAdmin": [
+		"admin_users",
+		"admin_prompt",
+		"admin_channels"
+	],
 	"articles": [
 		{
 			"id": "start",
 			"category": "Getting started",
-			"roles": ["user", "admin"],
+			"roles": [
+				"user",
+				"admin"
+			],
 			"title": "Getting started with {{name}}",
-			"desc": "Sign in and get to know the main areas",
+			"desc": "Sign in, choose your language and get to know the main areas",
 			"minutes": 2,
 			"icon": "🚀",
 			"steps": [
@@ -20,74 +31,116 @@
 					"text": "Open the {{name}} link provided by your administrator. Click \"Continue with Microsoft\" and sign in with your company account, or use the email and password you were given."
 				},
 				{
-					"title": "Get to know the sidebar",
-					"text": "Use New Chat to talk with the AI, Channels to work with your team, and Search to find earlier conversations."
-				},
-				{
 					"title": "Check your access",
 					"text": "If your account is pending approval, ask an administrator to activate it."
+				},
+				{
+					"title": "Choose your language",
+					"text": "Account icon (bottom left) → Settings (or Ctrl + .) → Language, pick a language and click Save."
+				},
+				{
+					"title": "Get to know the sidebar",
+					"text": "Use New Chat to talk privately with the AI, Channels to work with your team, and Search to find earlier conversations."
 				}
 			],
-			"tip": "You can change the interface language in the account menu → Settings → General → Language.",
-			"images": [{ "src": "/help-center/images/dang-nhap.png", "caption": "Sign-in screen" }]
+			"tip": "In these guides, @ai-assistant is an example name for the AI assistant; use the name of the assistant your administrator created.",
+			"images": [
+				{
+					"src": "/help-center/images/dang-nhap.png",
+					"caption": "Sign-in screen"
+				}
+			]
 		},
 		{
 			"id": "channels",
 			"category": "Channels & messaging",
-			"roles": ["user", "admin"],
-			"title": "Channels and creating group channels",
-			"desc": "Understand channel types and how to start a group discussion",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Channel types and creating group channels",
+			"desc": "Understand the three channel types and how to start a group discussion",
 			"minutes": 3,
 			"icon": "👥",
 			"steps": [
-				{ "title": "Open the channel list", "text": "In the left sidebar, see the channels you are a member of." },
 				{
-					"title": "Start a conversation",
-					"text": "If allowed, click + next to Channels and choose Group channel or Direct message."
+					"title": "Know the channel types",
+					"text": "Channel: created by administrators only, for departments or announcements. Group Channel: members are invited, suited to project teams and daily reports. Direct Message: a private conversation between a few people."
 				},
 				{
-					"title": "Choose members",
-					"text": "For a group channel, enter a name, pick the participants and make it Private if needed."
+					"title": "Open the channel list",
+					"text": "The channels you belong to appear under Channels in the left sidebar; click a channel name to open it."
 				},
-				{ "title": "Finish", "text": "Click Create to start the conversation." }
+				{
+					"title": "Create a channel",
+					"text": "If allowed, click + next to the Channels heading and choose the Channel Type: Group Channel or Direct Message."
+				},
+				{
+					"title": "Name it and choose members",
+					"text": "For a group channel, enter a Channel Name (for example project-a, daily-reports), pick the participants and make it Private if needed."
+				},
+				{
+					"title": "Finish",
+					"text": "Click Create to start the conversation."
+				}
 			],
-			"tip": "Only administrators can create the Channel type. If you cannot see a channel, ask an administrator to add you.",
+			"tip": "Only administrators can create the Channel type. If you cannot see a channel you need, ask an administrator to add you.",
 			"images": [
-				{ "src": "/help-center/images/tao-kenh.png", "caption": "Creating a group channel or direct message" }
+				{
+					"src": "/help-center/images/tao-kenh.png",
+					"caption": "Creating a group channel or direct message"
+				}
 			]
 		},
 		{
 			"id": "messaging",
 			"category": "Channels & messaging",
-			"roles": ["user", "admin"],
+			"roles": [
+				"user",
+				"admin"
+			],
 			"title": "Sending messages and replying in threads",
-			"desc": "Mention, reply, copy and find messages",
+			"desc": "Mention, reply, send files and find messages",
 			"minutes": 2,
 			"icon": "💬",
 			"steps": [
 				{
 					"title": "Send a message",
-					"text": "Type in the message box and press Enter. Use Shift + Enter for a new line."
+					"text": "Type in the message box at the bottom of the channel and press Enter. Use Shift + Enter for a new line."
 				},
-				{ "title": "Mention someone", "text": "Type @ and pick the right person from the suggestions." },
 				{
-					"title": "Reply in a thread",
-					"text": "Hover over a message → Reply in Thread to open the discussion in the right panel."
+					"title": "Mention someone",
+					"text": "Type @ and pick the right person from the suggestions."
+				},
+				{
+					"title": "Reply to a message",
+					"text": "Hover over a message → Reply. Your reply quotes the original message."
+				},
+				{
+					"title": "Discuss in a thread",
+					"text": "Hover over a message → Reply in Thread. The thread opens in the right panel."
 				},
 				{
 					"title": "Copy a message",
 					"text": "Hover over a message (including AI replies) → click the Copy icon."
 				},
 				{
+					"title": "Send a file",
+					"text": "Click + in the message box and choose a file from your computer."
+				},
+				{
 					"title": "Find older messages",
-					"text": "Click the search icon in the channel to look up earlier messages."
+					"text": "Click the magnifying glass at the top right of the channel."
 				}
 			]
 		},
 		{
 			"id": "ai",
 			"category": "AI assistant",
-			"roles": ["user", "admin"],
+			"roles": [
+				"user",
+				"admin"
+			],
 			"title": "Asking the AI assistant in a channel",
 			"desc": "How to mention @ai-assistant and read the result",
 			"minutes": 3,
@@ -99,17 +152,20 @@
 				},
 				{
 					"title": "Mention the assistant",
-					"text": "In the message box, type @, choose the AI assistant (for example ai-assistant), then write your request."
+					"text": "In the message box, type @, choose the AI assistant (for example ai-assistant), then write your request and send it."
 				},
 				{
 					"title": "Read the result",
-					"text": "Send the message, then click the AI's reply to open the thread on the right and see the full report."
+					"text": "The AI's answer appears in the thread of your message. Click the answer to open the thread on the right and see it in full."
 				}
 			],
 			"example": "@ai-assistant summarize my work reports",
-			"tip": "In a channel, the AI only reads and searches the current channel. For the AI to see the full history, ask in a new message in the main channel view.",
+			"tip": "In a channel, the AI only reads and searches the current channel; reports from other channels are not mixed in. For the AI to see the full channel history, ask in a new message in the main channel view, not inside a thread or by editing an old message.",
 			"images": [
-				{ "src": "/help-center/images/goi-ai.png", "caption": "Type @ and choose the AI assistant" },
+				{
+					"src": "/help-center/images/goi-ai.png",
+					"caption": "Type @ and choose the AI assistant"
+				},
 				{
 					"src": "/help-center/images/ai-tra-loi-luong.png",
 					"caption": "Click the AI's reply to see it in full in the thread"
@@ -119,7 +175,10 @@
 		{
 			"id": "progress",
 			"category": "AI assistant",
-			"roles": ["user", "admin"],
+			"roles": [
+				"user",
+				"admin"
+			],
 			"title": "Report summaries and progress tracking",
 			"desc": "Summaries by day, person and work item",
 			"minutes": 4,
@@ -127,32 +186,41 @@
 			"steps": [
 				{
 					"title": "Choose a time range",
-					"text": "Ask the AI for a report for today, this week, this month, or an overall project summary."
+					"text": "The AI understands \"today\", \"yesterday\", \"this week\" and specific dates in day/month format. It only uses messages sent in the requested period and skips messages that say they report on another day."
 				},
 				{
 					"title": "Be specific",
-					"text": "Ask by person, work item, completion rate or blocked issues."
+					"text": "Ask by person, work item, completion rate or blocked issues, or ask for a table with the columns you need."
 				},
 				{
-					"title": "Open Work progress",
-					"text": "In a channel, click the Work progress icon to see the work items. Click Update now to have the AI summarize new messages; you can collapse each section or hide completed items."
+					"title": "Use Work progress",
+					"text": "In a channel, click the Work progress button to have the AI summarize progress. Click Update now to have it summarize new messages and show the result right away."
 				}
 			],
 			"example": "@ai-assistant make a progress table: owner, work item, % complete, blockers",
-			"tip": "To summarize several channels at once, use a chat outside the channel.",
+			"tip": "More examples: \"summarize my reports for 11/11\", \"who has not sent a report today?\", \"compare today's progress with yesterday\", \"summarize this week's reports as a table: Date | Person | Done | Pending\". To summarize several channels at once, use a chat outside the channel.",
 			"images": [
-				{ "src": "/help-center/images/bang-tien-do.png", "caption": "A weekly report summarized as a table" },
+				{
+					"src": "/help-center/images/bang-tien-do.png",
+					"caption": "A weekly report summarized as a table"
+				},
 				{
 					"src": "/help-center/images/nut-cap-nhat-tien-do.png",
 					"caption": "The Update now button in the Work progress panel"
 				},
-				{ "src": "/help-center/images/panel-tien-do.png", "caption": "The Work progress panel in a channel" }
+				{
+					"src": "/help-center/images/panel-tien-do.png",
+					"caption": "The Work progress panel in a channel"
+				}
 			]
 		},
 		{
 			"id": "history",
 			"category": "AI assistant",
-			"roles": ["user", "admin"],
+			"roles": [
+				"user",
+				"admin"
+			],
 			"title": "Asking about earlier messages",
 			"desc": "Summarize, recall and follow up on past discussions",
 			"minutes": 2,
@@ -160,7 +228,7 @@
 			"steps": [
 				{
 					"title": "Ask about past discussions",
-					"text": "Mention @ai-assistant and ask about a time range or a person, for example \"what did I report?\" or \"summarize the discussion since this morning\"."
+					"text": "Mention @ai-assistant and ask about a time range or topic, for example \"what did I report?\" or \"summarize the discussion since this morning\"."
 				},
 				{
 					"title": "Focus on one message",
@@ -183,7 +251,10 @@
 		{
 			"id": "create_files",
 			"category": "AI assistant",
-			"roles": ["user", "admin"],
+			"roles": [
+				"user",
+				"admin"
+			],
 			"title": "Exporting reports as PDF, Word or Excel",
 			"desc": "Have the AI create a file you can download right in the conversation",
 			"minutes": 3,
@@ -208,7 +279,10 @@
 		{
 			"id": "files",
 			"category": "AI assistant",
-			"roles": ["user", "admin"],
+			"roles": [
+				"user",
+				"admin"
+			],
 			"title": "Sending files for the AI to review",
 			"desc": "Review PDF, Word, Excel, PowerPoint files and images",
 			"minutes": 3,
@@ -216,28 +290,37 @@
 			"steps": [
 				{
 					"title": "Attach a file",
-					"text": "Click the + button in the message box and choose a file from your computer."
+					"text": "Click + in the message box and choose a file. Supported: images (PNG, JPG, WebP, GIF), PDF, Word (.docx), Excel (.xlsx, .csv), PowerPoint (.pptx) and text (.txt, .md, .html)."
 				},
 				{
 					"title": "Wait for processing",
-					"text": "After uploading, wait a few seconds while the file content is read."
+					"text": "After uploading, wait a few seconds until the content has been read before asking the AI."
 				},
 				{
 					"title": "Ask the AI about the file",
-					"text": "Mention the AI and name the file and the task. If the AI reads the wrong file, Reply to the message that holds the file and mention the AI there."
+					"text": "Mention the AI and name the file and the task. The AI picks files in this order: files attached to your request → files in the message you Reply to → files in the thread → otherwise the 5 newest files in the channel."
 				}
 			],
-			"example": "@ai-assistant summarize the file abc.docx",
-			"tip": "For images, use a model with vision capability. If you cannot find the AI assistant, check your model access.",
+			"example": "@ai-assistant summarize the PowerPoint presentation, one line per slide",
+			"tip": "When a channel has many files, the surest way is to Reply to the message that holds the file and mention the AI there. Save old formats (.doc, .xls, .ppt) as .docx, .xlsx, .pptx first. Reading images requires an assistant with Vision capability.",
 			"images": [
-				{ "src": "/help-center/images/gui-tep.png", "caption": "Attaching a file and asking the AI" },
-				{ "src": "/help-center/images/ai-ra-soat-tep.png", "caption": "The AI summarizes the file" }
+				{
+					"src": "/help-center/images/gui-tep.png",
+					"caption": "Attaching a file and asking the AI"
+				},
+				{
+					"src": "/help-center/images/ai-ra-soat-tep.png",
+					"caption": "The AI summarizes the file"
+				}
 			]
 		},
 		{
 			"id": "trace",
 			"category": "AI assistant",
-			"roles": ["user", "admin"],
+			"roles": [
+				"user",
+				"admin"
+			],
 			"title": "Tracing sources",
 			"desc": "Check where information in an AI answer came from",
 			"minutes": 2,
@@ -249,7 +332,7 @@
 				},
 				{
 					"title": "Verify in the channel",
-					"text": "Use the channel's search (magnifying glass) to find the original message by keyword, sender name or the file name the AI mentioned."
+					"text": "Use the channel's magnifying glass to find the original message by keyword, sender name or the file name the AI mentioned."
 				}
 			],
 			"example": "@ai-assistant summarize my progress today, with the time and file name for each point",
@@ -263,25 +346,34 @@
 		{
 			"id": "private",
 			"category": "AI assistant",
-			"roles": ["user", "admin"],
+			"roles": [
+				"user",
+				"admin"
+			],
 			"title": "Private chat and asking across channels",
 			"desc": "Using the AI outside channels",
 			"minutes": 2,
 			"icon": "🗨️",
 			"steps": [
-				{ "title": "Start a private chat", "text": "Click New Chat in the left menu." },
 				{
-					"title": "Choose a model",
-					"text": "Select the AI assistant at the top of the chat and type your question. No @ is needed outside channels."
+					"title": "Start a private chat",
+					"text": "Click New Chat in the left sidebar. A private chat is visible only to you and is saved in your chat list."
 				},
 				{
-					"title": "Search several channels",
-					"text": "Ask the AI about the channels you are a member of to search or combine several sources."
+					"title": "Choose the assistant",
+					"text": "Select the AI assistant at the top of the chat (for example ai-assistant) and type your question. No @ is needed outside channels; attach files with the + button."
+				},
+				{
+					"title": "Ask across channels",
+					"text": "The AI can search all channels you are a member of, which helps to summarize several channels or find a discussion when you don't remember where it was."
 				}
 			],
-			"tip": "The AI only searches channels you have access to.",
+			"tip": "Results only include channels you are a member of. If you need information from another channel, ask an administrator to add you to it.",
 			"images": [
-				{ "src": "/help-center/images/chat-rieng.png", "caption": "Private chat with the AI" },
+				{
+					"src": "/help-center/images/chat-rieng.png",
+					"caption": "Private chat with the AI"
+				},
 				{
 					"src": "/help-center/images/hoi-nhieu-kenh.png",
 					"caption": "Asking the AI about the channels you belong to"
@@ -289,113 +381,297 @@
 			]
 		},
 		{
+			"id": "knowledge",
+			"category": "Knowledge base",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Searching the knowledge base",
+			"desc": "Ask the AI based on the company's shared documents",
+			"minutes": 3,
+			"icon": "📚",
+			"steps": [
+				{
+					"title": "What a knowledge base is",
+					"text": "A place where administrators keep shared documents such as procedures, policies and technical documents. When you ask, the AI finds the relevant passages and answers with the sources."
+				},
+				{
+					"title": "Ask in a private chat",
+					"text": "Click New Chat, type # in the message box and choose the knowledge base, then type your question and send it."
+				},
+				{
+					"title": "Ask in a channel",
+					"text": "If an administrator has attached the knowledge base to the AI assistant, just mention @ai-assistant as usual; the assistant looks it up when the question is related."
+				},
+				{
+					"title": "Check the sources",
+					"text": "Click the sources shown below the answer to see the original passage."
+				}
+			],
+			"example": "@ai-assistant according to the procedure, how long are residential proxies issued for?",
+			"tip": "Be specific and use keywords from the documents (procedure name, form code, project name). To summarize a whole long document, send the file in the chat instead. If # does not show the knowledge base you need, you do not have access yet; contact an administrator."
+		},
+		{
 			"id": "troubleshoot",
 			"category": "Help",
-			"roles": ["user", "admin"],
+			"roles": [
+				"user",
+				"admin"
+			],
 			"title": "Troubleshooting",
-			"desc": "Missing channels, models, history or files",
+			"desc": "Missing channels, assistant, history, files or knowledge bases",
 			"minutes": 4,
 			"icon": "🛠️",
 			"steps": [
 				{
 					"title": "A channel is missing",
-					"text": "Reload the page with F5. If it is still missing, ask an administrator for access or to add you to the channel."
+					"text": "Reload the page (F5). If it is still missing, ask an administrator to add you to the channel."
 				},
 				{
 					"title": "The AI assistant does not appear after @",
-					"text": "You may not have access to the model yet. Contact an administrator."
+					"text": "You may not have access to this model yet. Contact an administrator."
 				},
 				{
-					"title": "The AI answer misses history",
+					"title": "The AI ignores reports from other channels",
+					"text": "In a channel, the AI only reads the current channel. To summarize several channels, use a chat outside the channel."
+				},
+				{
+					"title": "The AI answer misses channel history",
 					"text": "Ask the AI in a new message in the main channel view, not inside a thread or by editing an old message."
 				},
 				{
-					"title": "The AI cannot read a file",
-					"text": "Wait until the file has been processed; for old file formats, save it as .docx, .xlsx or .pptx and send it again."
+					"title": "The AI reads the wrong file or none",
+					"text": "Wait a few seconds until the file is processed, or Reply to the message that holds the file and mention the AI there. For old formats, save as .docx, .xlsx, .pptx and send again."
+				},
+				{
+					"title": "The AI cannot read an image",
+					"text": "This needs an assistant with Vision capability. Contact an administrator if the current one does not support it."
+				},
+				{
+					"title": "# does not show a knowledge base",
+					"text": "You do not have access to that knowledge base yet. Contact an administrator."
+				},
+				{
+					"title": "The AI answers from outdated documents",
+					"text": "The documents in the knowledge base have not been updated. Ask an administrator to upload the new version."
+				},
+				{
+					"title": "Forgot your password",
+					"text": "Contact an administrator to have your password reset."
 				}
 			]
 		},
 		{
 			"id": "admin_users",
 			"category": "Administration",
-			"roles": ["admin"],
+			"roles": [
+				"admin"
+			],
 			"title": "Creating user accounts",
-			"desc": "Add accounts, assign roles and import from CSV",
+			"desc": "Add accounts, assign roles, import from CSV and approve pending users",
 			"minutes": 4,
 			"icon": "🛡️",
 			"steps": [
-				{ "title": "Open the admin area", "text": "In the account menu, choose Admin Panel." },
-				{ "title": "Open the user list", "text": "Choose Users → Add User." },
-				{ "title": "Enter the details", "text": "Choose a role and enter the name, email and a temporary password." },
+				{
+					"title": "Open the admin area",
+					"text": "Account icon (bottom left) → Admin Panel. Only administrator accounts see this item."
+				},
+				{
+					"title": "Add a user",
+					"text": "Go to Users → click Add User."
+				},
+				{
+					"title": "Enter the details",
+					"text": "On the Form tab, choose the Role and enter the Name, Email and a temporary Password. Roles: admin (full access), user (chat, channels and permitted models), pending (awaiting approval, cannot use the system yet)."
+				},
 				{
 					"title": "Save",
-					"text": "Click Save. To create many users at once, use the CSV Import tab and the sample file."
+					"text": "Click Save, then send the email and temporary password to the user. To create many accounts at once, use the CSV Import tab: download the template, fill in the list and upload it."
 				}
 			],
-			"tip": "Users who sign in with Microsoft get an account automatically; if the default role is pending, approve them in the user list.",
+			"tip": "Self-registered accounts and users signing in with Microsoft may start as pending. Approve them by clicking their role in the Users list and changing it to user.",
 			"images": [
-				{ "src": "/help-center/images/trang-quan-tri.png", "caption": "Admin Panel → Users" },
-				{ "src": "/help-center/images/them-nguoi-dung.png", "caption": "The add-user form" }
+				{
+					"src": "/help-center/images/trang-quan-tri.png",
+					"caption": "Admin Panel → Users"
+				},
+				{
+					"src": "/help-center/images/them-nguoi-dung.png",
+					"caption": "The add-user form"
+				}
 			]
 		},
 		{
 			"id": "admin_prompt",
 			"category": "Administration",
-			"roles": ["admin"],
+			"roles": [
+				"admin"
+			],
 			"title": "Configuring the AI assistant and its system prompt",
-			"desc": "Define its tasks and answer rules",
+			"desc": "Define its tasks, answer rules and who can use it",
 			"minutes": 5,
 			"icon": "⚙️",
 			"steps": [
 				{
 					"title": "Open the model settings",
-					"text": "Workspace → Models → choose the assistant (for example ai-assistant)."
+					"text": "Admin Panel → Settings → Models, and choose the assistant to configure (for example ai-assistant)."
 				},
 				{
-					"title": "Write the system prompt",
-					"text": "Describe its tasks, answer format, data scope and source citation requirements."
+					"title": "Write the System Prompt",
+					"text": "The system prompt is the assistant's \"job description\" and applies to every question. State its tasks (summarize reports, track progress, review files) and rules: answer concisely, name the sender and time, never guess figures, name people whose reports are missing, and end each summary with \"Points to watch\"."
 				},
 				{
 					"title": "Set access",
 					"text": "Set Access to Public or choose groups so users can call the assistant."
 				},
-				{ "title": "Save", "text": "Click Save & Update to apply." }
+				{
+					"title": "Save",
+					"text": "Click Save & Update to apply."
+				}
 			],
-			"tip": "State in the prompt that it must not claim to be another model, and must not say a file was created unless the tool reported success.",
+			"tip": "You can add the report format you want to the system prompt, for example: \"Present it as a table with the columns: Owner | Work item | Status | Notes\". Also state that it must not claim to be another model, and must not say a file was created unless the tool reported success.",
 			"images": [
-				{ "src": "/help-center/images/system-prompt.png", "caption": "Configuring the AI assistant's system prompt" }
+				{
+					"src": "/help-center/images/system-prompt.png",
+					"caption": "Configuring the AI assistant's system prompt"
+				}
 			]
 		},
 		{
 			"id": "admin_channels",
 			"category": "Administration",
-			"roles": ["admin"],
+			"roles": [
+				"admin"
+			],
 			"title": "Enabling channels and managing members",
-			"desc": "Configure channels, create channels and set access",
+			"desc": "Turn on channels, create channels and add or remove members",
 			"minutes": 5,
 			"icon": "🔒",
 			"steps": [
-				{ "title": "Enable channels", "text": "Admin Panel → Settings → General → Channels → Save." },
+				{
+					"title": "Enable channels",
+					"text": "Admin Panel → Settings, under Admin choose System → General settings, turn on Channels and click Save. If Channels does not appear in the sidebar, reload the page (F5)."
+				},
 				{
 					"title": "Create a channel",
-					"text": "In the sidebar click + next to Channels, then choose the type, name and access."
+					"text": "In the sidebar click + next to Channels, choose the Channel Type, enter a Channel Name (for example project-a, daily-reports), set Public or Private or pick members depending on the type, then click Create."
 				},
 				{
 					"title": "Add or remove members",
-					"text": "In the channel, open the members icon or the ⋯ menu → Edit Channel."
+					"text": "Open the channel and click the members icon at the top right (a person with the member count) or the ⋯ menu → Edit Channel."
 				},
-				{ "title": "Update", "text": "Adjust the member list or access and click Update." }
+				{
+					"title": "Update",
+					"text": "Add users or groups, remove people who left, then click Update."
+				}
 			],
-			"tip": "Check the Public / Private setting before creating a channel for internal data.",
+			"tip": "Only administrators can create the Channel type. Check the Public / Private setting before creating a channel for internal data.",
 			"images": [
-				{ "src": "/help-center/images/bat-kenh.png", "caption": "Enabling channels in General settings" },
-				{ "src": "/help-center/images/tao-kenh-admin.png", "caption": "Creating a channel" },
-				{ "src": "/help-center/images/thanh-vien-kenh.png", "caption": "The members icon at the top of a channel" },
+				{
+					"src": "/help-center/images/bat-kenh.png",
+					"caption": "Enabling channels in General settings"
+				},
+				{
+					"src": "/help-center/images/tao-kenh-admin.png",
+					"caption": "Creating a channel"
+				},
+				{
+					"src": "/help-center/images/thanh-vien-kenh.png",
+					"caption": "The members icon at the top of a channel"
+				},
 				{
 					"src": "/help-center/images/sua-thanh-vien.png",
 					"caption": "Add or remove members, then click Update"
 				}
 			]
+		},
+		{
+			"id": "admin_knowledge",
+			"category": "Administration",
+			"roles": [
+				"admin"
+			],
+			"title": "Creating a knowledge base and adding documents",
+			"desc": "Create a knowledge base in the Workspace and upload documents",
+			"minutes": 5,
+			"icon": "📚",
+			"steps": [
+				{
+					"title": "Open Knowledge",
+					"text": "In the left sidebar, click Workspace and choose the Knowledge tab."
+				},
+				{
+					"title": "Create a knowledge base",
+					"text": "Click +. In \"What are you working on?\" enter the name; in \"What are you trying to achieve?\" briefly describe its purpose. Choose the initial Visibility and click Create Knowledge."
+				},
+				{
+					"title": "Add documents",
+					"text": "On the knowledge base page, click Add Content and choose: Upload files, Upload directory, Sync directory (updates new or changed files), Add text content or Add webpage."
+				},
+				{
+					"title": "Test it",
+					"text": "Wait until the files are processed, then use Test Query on the knowledge base page to ask a sample question."
+				}
+			],
+			"tip": "Prefer several small knowledge bases by topic over one large one. When a document changes, delete the old file and upload the new one (or use Sync directory); otherwise the AI keeps answering from the old content. Save .doc, .xls, .ppt files in the newer formats before uploading."
+		},
+		{
+			"id": "admin_knowledge_access",
+			"category": "Administration",
+			"roles": [
+				"admin"
+			],
+			"title": "Knowledge base access",
+			"desc": "Choose Public or Private and grant Read or Write access",
+			"minutes": 3,
+			"icon": "🔐",
+			"steps": [
+				{
+					"title": "Open access settings",
+					"text": "On the knowledge base page, click the Access button at the top right."
+				},
+				{
+					"title": "Choose the Visibility",
+					"text": "Public: every user can search it. Private: only the creator and the users or groups in the access list."
+				},
+				{
+					"title": "Grant access",
+					"text": "For Private, click Add Access, choose users or groups, then choose Read (search the knowledge base) or Write (search and add or remove documents)."
+				},
+				{
+					"title": "Save",
+					"text": "Changes are saved immediately and a confirmation appears."
+				}
+			],
+			"tip": "Grant access by group, so staff changes only need one update to the group."
+		},
+		{
+			"id": "admin_knowledge_use",
+			"category": "Administration",
+			"roles": [
+				"admin"
+			],
+			"title": "Using knowledge bases with the AI assistant",
+			"desc": "Call a knowledge base with # or attach it to the assistant",
+			"minutes": 3,
+			"icon": "🧠",
+			"steps": [
+				{
+					"title": "Call it when needed",
+					"text": "In a private chat, type # and choose the knowledge base, then ask your question."
+				},
+				{
+					"title": "Attach it to the assistant",
+					"text": "Admin Panel → Settings → Models, choose the assistant (for example ai-assistant). Under Knowledge, click Select Knowledge and choose the knowledge base."
+				},
+				{
+					"title": "Save",
+					"text": "Click Save & Update. From then on the assistant consults the knowledge base whenever it answers, including in channels, and users do not need to type #."
+				}
+			],
+			"example": "@ai-assistant according to the procedure, how long are residential proxies issued for, and can they be extended?",
+			"tip": "Everyone who can use the assistant can receive information from the knowledge bases attached to it; keep sensitive documents in a Private knowledge base searched only with #. To make the AI answer only from the documents, add to the System Prompt: \"Answer only from the knowledge base documents; if the information is not there, say so clearly.\""
 		}
 	]
 }
