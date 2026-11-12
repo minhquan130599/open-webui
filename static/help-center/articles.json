@@ -22,18 +22,10 @@
 				"admin"
 			],
 			"title": "Bắt đầu sử dụng {{name}}",
-			"desc": "Đăng nhập, đổi ngôn ngữ và làm quen với các khu vực chính",
+			"desc": "Đổi ngôn ngữ và làm quen với các khu vực chính",
 			"minutes": 2,
 			"icon": "🚀",
 			"steps": [
-				{
-					"title": "Đăng nhập",
-					"text": "Mở đường dẫn {{name}} do quản trị viên cung cấp. Bấm \"Tiếp tục với Microsoft\" và đăng nhập bằng tài khoản công ty, hoặc dùng email và mật khẩu đã được cấp."
-				},
-				{
-					"title": "Kiểm tra quyền truy cập",
-					"text": "Nếu tài khoản đang ở trạng thái chờ duyệt (pending), liên hệ quản trị viên để được kích hoạt."
-				},
 				{
 					"title": "Chọn ngôn ngữ",
 					"text": "Biểu tượng tài khoản (góc dưới bên trái) → Cài đặt (hoặc Ctrl + .) → Ngôn ngữ, chọn ngôn ngữ muốn dùng rồi bấm Lưu."
@@ -43,7 +35,7 @@
 					"text": "Dùng Tạo chat mới để trò chuyện riêng với AI, mục Kênh để trao đổi với nhóm, Tìm kiếm để tra cứu nội dung đã trao đổi."
 				}
 			],
-			"tip": "Trong hướng dẫn, @ai-assistant là tên ví dụ của trợ lý AI; hãy thay bằng tên trợ lý mà quản trị viên đã tạo.",
+			"tip": "Trong hướng dẫn, @nai là tên ví dụ của trợ lý AI; hãy thay bằng tên trợ lý mà quản trị viên đã tạo.",
 			"images": [
 				{
 					"src": "/help-center/images/dang-nhap.png",
@@ -142,7 +134,7 @@
 				"admin"
 			],
 			"title": "Gọi trợ lý AI trong kênh",
-			"desc": "Cách nhắc @ai-assistant và nhận kết quả",
+			"desc": "Cách nhắc @nai và nhận kết quả",
 			"minutes": 3,
 			"icon": "✨",
 			"steps": [
@@ -228,11 +220,11 @@
 			"steps": [
 				{
 					"title": "Hỏi về nội dung đã trao đổi",
-					"text": "Gọi @ai-assistant và hỏi về khoảng thời gian hoặc nội dung cần tìm, ví dụ \"tôi đã báo cáo gì?\" hay \"tóm tắt thảo luận từ sáng đến giờ\"."
+					"text": "Gọi @nai và hỏi về khoảng thời gian hoặc nội dung cần tìm, ví dụ \"tôi đã báo cáo gì?\" hay \"tóm tắt thảo luận từ sáng đến giờ\"."
 				},
 				{
 					"title": "Tập trung vào một tin nhắn",
-					"text": "Bấm Trả lời (Reply) vào tin nhắn đó rồi gọi @ai-assistant trong tin trả lời."
+					"text": "Bấm Trả lời (Reply) vào tin nhắn đó rồi gọi @nai trong tin trả lời."
 				},
 				{
 					"title": "Hỏi tiếp câu trả lời của AI",
@@ -262,7 +254,7 @@
 			"steps": [
 				{
 					"title": "Trong kênh",
-					"text": "Gọi @ai-assistant và nêu rõ định dạng cần xuất. AI tự dùng Terminal nếu bạn được cấp quyền."
+					"text": "Gọi @nai và nêu rõ định dạng cần xuất. AI tự dùng Terminal nếu bạn được cấp quyền."
 				},
 				{
 					"title": "Trong chat riêng",
@@ -402,7 +394,7 @@
 				},
 				{
 					"title": "Hỏi trong kênh",
-					"text": "Nếu quản trị viên đã gắn kho vào trợ lý AI, chỉ cần gọi @ai-assistant như bình thường; trợ lý tự tra cứu kho khi câu hỏi liên quan."
+					"text": "Nếu quản trị viên đã gắn kho vào trợ lý AI, chỉ cần gọi @nai như bình thường; trợ lý tự tra cứu kho khi câu hỏi liên quan."
 				},
 				{
 					"title": "Kiểm tra nguồn",

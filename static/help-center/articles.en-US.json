@@ -22,19 +22,11 @@
 				"admin"
 			],
 			"title": "Getting started with {{name}}",
-			"desc": "Sign in, choose your language and get to know the main areas",
+			"desc": "Choose your language and get to know the main areas",
 			"minutes": 2,
 			"icon": "🚀",
 			"steps": [
-				{
-					"title": "Sign in",
-					"text": "Open the {{name}} link provided by your administrator. Click \"Continue with Microsoft\" and sign in with your company account, or use the email and password you were given."
-				},
-				{
-					"title": "Check your access",
-					"text": "If your account is pending approval, ask an administrator to activate it."
-				},
-				{
+								{
 					"title": "Choose your language",
 					"text": "Account icon (bottom left) → Settings (or Ctrl + .) → Language, pick a language and click Save."
 				},
@@ -43,7 +35,7 @@
 					"text": "Use New Chat to talk privately with the AI, Channels to work with your team, and Search to find earlier conversations."
 				}
 			],
-			"tip": "In these guides, @ai-assistant is an example name for the AI assistant; use the name of the assistant your administrator created.",
+			"tip": "In these guides, @nai is an example name for the AI assistant; use the name of the assistant your administrator created.",
 			"images": [
 				{
 					"src": "/help-center/images/dang-nhap.png",
@@ -142,7 +134,7 @@
 				"admin"
 			],
 			"title": "Asking the AI assistant in a channel",
-			"desc": "How to mention @ai-assistant and read the result",
+			"desc": "How to mention @nai and read the result",
 			"minutes": 3,
 			"icon": "✨",
 			"steps": [
@@ -228,11 +220,11 @@
 			"steps": [
 				{
 					"title": "Ask about past discussions",
-					"text": "Mention @ai-assistant and ask about a time range or topic, for example \"what did I report?\" or \"summarize the discussion since this morning\"."
+					"text": "Mention @nai and ask about a time range or topic, for example \"what did I report?\" or \"summarize the discussion since this morning\"."
 				},
 				{
 					"title": "Focus on one message",
-					"text": "Click Reply on that message, then mention @ai-assistant in your reply."
+					"text": "Click Reply on that message, then mention @nai in your reply."
 				},
 				{
 					"title": "Follow up on an AI reply",
@@ -262,7 +254,7 @@
 			"steps": [
 				{
 					"title": "In a channel",
-					"text": "Mention @ai-assistant and state the format you need. The AI uses the Terminal automatically if you have access to it."
+					"text": "Mention @nai and state the format you need. The AI uses the Terminal automatically if you have access to it."
 				},
 				{
 					"title": "In a private chat",
@@ -402,7 +394,7 @@
 				},
 				{
 					"title": "Ask in a channel",
-					"text": "If an administrator has attached the knowledge base to the AI assistant, just mention @ai-assistant as usual; the assistant looks it up when the question is related."
+					"text": "If an administrator has attached the knowledge base to the AI assistant, just mention @nai as usual; the assistant looks it up when the question is related."
 				},
 				{
 					"title": "Check the sources",
