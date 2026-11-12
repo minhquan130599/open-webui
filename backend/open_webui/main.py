@@ -450,6 +450,11 @@ async def lifespan(app: FastAPI):
 
     app.state.scheduler_worker_loop = asyncio.create_task(scheduler_worker_loop(app))
 
+    from open_webui.utils.seed_skills import seed_skills_loop
+
+    # Bundled skills (backend/open_webui/seed_skills) are installed once, after the first admin exists.
+    app.state.seed_skills_task = asyncio.create_task(seed_skills_loop())
+
     from open_webui.tracker.config import ENABLE_PROJECT_TRACKER, TRACKER_WORKER_MODE
 
     if ENABLE_PROJECT_TRACKER and TRACKER_WORKER_MODE == 'app':
