@@ -1,0 +1,522 @@
+{
+	"heading": "Bạn cần hỗ trợ điều gì?",
+	"subheading": "Tìm hướng dẫn sử dụng, cách làm việc với trợ lý AI và quản lý các tính năng của hệ thống.",
+	"searchPlaceholder": "Tìm kiếm hướng dẫn... (ví dụ: tạo kênh, gọi AI)",
+	"updated": "Tháng 11/2026",
+	"featured": [
+		"ai",
+		"progress",
+		"create_files"
+	],
+	"featuredAdmin": [
+		"admin_users",
+		"admin_prompt",
+		"admin_channels"
+	],
+	"articles": [
+		{
+			"id": "start",
+			"category": "Bắt đầu",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Bắt đầu sử dụng {{name}}",
+			"desc": "Đăng nhập và làm quen với các khu vực chính",
+			"minutes": 2,
+			"icon": "🚀",
+			"steps": [
+				{
+					"title": "Đăng nhập",
+					"text": "Mở đường dẫn {{name}} do quản trị viên cung cấp. Bấm \"Tiếp tục với Microsoft\" và đăng nhập bằng tài khoản công ty, hoặc dùng email và mật khẩu đã được cấp."
+				},
+				{
+					"title": "Làm quen với thanh bên",
+					"text": "Dùng Tạo chat mới để trò chuyện với AI; mục Kênh để trao đổi với nhóm; Tìm kiếm để tra cứu nội dung đã trao đổi."
+				},
+				{
+					"title": "Kiểm tra quyền truy cập",
+					"text": "Nếu tài khoản đang ở trạng thái chờ duyệt, liên hệ quản trị viên để kích hoạt."
+				}
+			],
+			"tip": "Bạn có thể chuyển giao diện sang tiếng Việt tại menu tài khoản → Cài đặt → Ngôn ngữ.",
+			"images": [
+				{
+					"src": "/help-center/images/dang-nhap.png",
+					"caption": "Màn hình đăng nhập"
+				}
+			]
+		},
+		{
+			"id": "channels",
+			"category": "Kênh & trao đổi",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Làm quen và tạo kênh nhóm",
+			"desc": "Hiểu các loại kênh và cách tạo nhóm thảo luận",
+			"minutes": 3,
+			"icon": "👥",
+			"steps": [
+				{
+					"title": "Mở danh sách Kênh",
+					"text": "Tại thanh bên trái, xem những kênh bạn là thành viên."
+				},
+				{
+					"title": "Tạo cuộc trao đổi",
+					"text": "Nếu được hệ thống cho phép, bấm dấu + cạnh Kênh rồi chọn Kênh nhóm hoặc Tin nhắn trực tiếp."
+				},
+				{
+					"title": "Chọn thành viên",
+					"text": "Với Kênh nhóm, đặt tên, chọn người tham gia và cấu hình Riêng tư nếu cần."
+				},
+				{
+					"title": "Hoàn tất",
+					"text": "Nhấn Tạo để bắt đầu trao đổi."
+				}
+			],
+			"tip": "Loại Kênh (Channel) chỉ quản trị viên tạo được. Nếu không thấy kênh, hãy nhờ quản trị viên thêm bạn vào.",
+			"images": [
+				{
+					"src": "/help-center/images/tao-kenh.png",
+					"caption": "Tạo kênh nhóm hoặc tin nhắn trực tiếp"
+				}
+			]
+		},
+		{
+			"id": "messaging",
+			"category": "Kênh & trao đổi",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Gửi tin nhắn và trả lời trong Luồng",
+			"desc": "Nhắc tên, trả lời, sao chép và tìm lại tin nhắn",
+			"minutes": 2,
+			"icon": "💬",
+			"steps": [
+				{
+					"title": "Gửi tin nhắn",
+					"text": "Nhập nội dung trong ô chat và nhấn Enter. Dùng Shift + Enter để xuống dòng."
+				},
+				{
+					"title": "Nhắc tên người khác",
+					"text": "Gõ @ rồi chọn đúng người trong danh sách gợi ý."
+				},
+				{
+					"title": "Trả lời trong Luồng",
+					"text": "Rê chuột lên tin nhắn → Trả lời trong Luồng để mở cuộc thảo luận ở khung bên phải."
+				},
+				{
+					"title": "Sao chép tin nhắn",
+					"text": "Rê chuột lên tin nhắn (kể cả câu trả lời của AI) → bấm biểu tượng Sao chép."
+				},
+				{
+					"title": "Tìm tin nhắn cũ",
+					"text": "Nhấn biểu tượng tìm kiếm trong kênh để tra cứu nội dung đã trao đổi."
+				}
+			]
+		},
+		{
+			"id": "ai",
+			"category": "Trợ lý AI",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Gọi trợ lý AI trong kênh",
+			"desc": "Cách nhắc @ai-assistant và nhận kết quả",
+			"minutes": 3,
+			"icon": "✨",
+			"steps": [
+				{
+					"title": "Mở đúng kênh",
+					"text": "Chọn kênh chứa những báo cáo hoặc thông tin bạn muốn AI xử lý."
+				},
+				{
+					"title": "Gọi trợ lý",
+					"text": "Trong ô nhập, gõ @, chọn trợ lý AI (ví dụ ai-assistant), sau đó nhập câu hỏi."
+				},
+				{
+					"title": "Xem kết quả",
+					"text": "Gửi tin nhắn rồi bấm vào câu trả lời của AI để mở Luồng bên phải và xem báo cáo đầy đủ."
+				}
+			],
+			"example": "@ai-assistant tổng hợp báo cáo công việc của tôi",
+			"tip": "Trong một kênh, AI chỉ đọc và tìm kiếm nội dung của kênh hiện tại. Để AI thấy toàn bộ lịch sử, hãy gọi bằng tin nhắn mới tại khung chat chính.",
+			"images": [
+				{
+					"src": "/help-center/images/goi-ai.png",
+					"caption": "Gõ @ và chọn trợ lý AI trong ô nhập"
+				},
+				{
+					"src": "/help-center/images/ai-tra-loi-luong.png",
+					"caption": "Bấm vào câu trả lời của AI để xem đầy đủ trong Luồng"
+				}
+			]
+		},
+		{
+			"id": "progress",
+			"category": "Trợ lý AI",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Tổng hợp báo cáo và theo dõi tiến độ",
+			"desc": "Tóm tắt theo ngày, theo người và đầu việc",
+			"minutes": 4,
+			"icon": "📊",
+			"steps": [
+				{
+					"title": "Chọn khoảng thời gian",
+					"text": "Có thể yêu cầu AI báo cáo hôm nay, tuần này, tháng này hoặc báo cáo tổng hợp toàn dự án."
+				},
+				{
+					"title": "Nêu yêu cầu rõ ràng",
+					"text": "Hỏi theo người, đầu việc, tỷ lệ hoàn thành hoặc các vấn đề đang bị chặn."
+				},
+				{
+					"title": "Xem Tiến độ công việc",
+					"text": "Trong kênh, bấm biểu tượng Tiến độ công việc để xem các hạng mục. Bấm Cập nhật ngay để AI tổng hợp các tin nhắn mới; có thể thu gọn từng phần hoặc ẩn việc đã xong."
+				}
+			],
+			"example": "@ai-assistant lập bảng tiến độ: người phụ trách, đầu việc, % hoàn thành, vướng mắc",
+			"tip": "Nếu cần tổng hợp nhiều kênh, hãy sử dụng chat bên ngoài kênh.",
+			"images": [
+				{
+					"src": "/help-center/images/bang-tien-do.png",
+					"caption": "Tổng hợp báo cáo tuần thành bảng"
+				},
+				{
+					"src": "/help-center/images/nut-cap-nhat-tien-do.png",
+					"caption": "Nút Cập nhật ngay trong panel Tiến độ công việc"
+				},
+				{
+					"src": "/help-center/images/panel-tien-do.png",
+					"caption": "Panel Tiến độ công việc trong kênh"
+				}
+			]
+		},
+		{
+			"id": "history",
+			"category": "Trợ lý AI",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Hỏi về nội dung tin nhắn trước",
+			"desc": "Tóm tắt, hỏi lại và hỏi tiếp những gì đã trao đổi",
+			"minutes": 2,
+			"icon": "🕘",
+			"steps": [
+				{
+					"title": "Hỏi về nội dung đã trao đổi",
+					"text": "Gọi @ai-assistant và hỏi về khoảng thời gian hoặc người cần tìm, ví dụ \"tôi đã báo cáo gì?\" hay \"tóm tắt thảo luận từ sáng đến giờ\"."
+				},
+				{
+					"title": "Tập trung vào một tin nhắn",
+					"text": "Bấm Trả lời vào tin nhắn đó rồi gọi @ai-assistant trong tin trả lời."
+				},
+				{
+					"title": "Hỏi tiếp câu trả lời của AI",
+					"text": "Gõ tiếp trong Luồng chứa câu trả lời. AI nhớ câu hỏi ban đầu và các câu trả lời trước đó trong luồng."
+				}
+			],
+			"example": "@ai-assistant tôi đã hoàn thành những gì trong hôm nay",
+			"tip": "AI hiểu các mốc \"hôm nay\", \"hôm qua\", \"tuần này\" và ngày cụ thể dạng ngày/tháng.",
+			"images": [
+				{
+					"src": "/help-center/images/hoi-tin-nhan-truoc.png",
+					"caption": "Hỏi AI về nội dung đã trao đổi trong kênh"
+				}
+			]
+		},
+		{
+			"id": "create_files",
+			"category": "Trợ lý AI",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Xuất báo cáo ra file PDF, Word, Excel",
+			"desc": "Nhờ AI tạo file và tải về ngay trong cuộc trò chuyện",
+			"minutes": 3,
+			"icon": "📄",
+			"steps": [
+				{
+					"title": "Trong kênh",
+					"text": "Gọi @ai-assistant và nêu rõ định dạng cần xuất. AI tự dùng Terminal nếu bạn được cấp quyền."
+				},
+				{
+					"title": "Trong chat riêng",
+					"text": "Chọn Terminal (ncs-terminal) ở ô nhập tin nhắn trước khi gửi yêu cầu."
+				},
+				{
+					"title": "Tải file",
+					"text": "File được đính kèm ngay dưới câu trả lời của AI. Bấm vào để xem hoặc tải về."
+				}
+			],
+			"example": "@ai-assistant tạo báo cáo tuần kênh này dạng PDF",
+			"tip": "Nếu AI chỉ trả lời bằng chữ mà không đính kèm file, có thể tài khoản chưa được cấp quyền Terminal. Liên hệ quản trị viên."
+		},
+		{
+			"id": "files",
+			"category": "Trợ lý AI",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Gửi tệp và yêu cầu AI rà soát",
+			"desc": "Rà soát PDF, Word, Excel, PowerPoint và ảnh",
+			"minutes": 3,
+			"icon": "📎",
+			"steps": [
+				{
+					"title": "Đính kèm tệp",
+					"text": "Nhấn nút + trong ô nhập tin nhắn và chọn tệp từ máy."
+				},
+				{
+					"title": "Đợi hệ thống xử lý",
+					"text": "Sau khi tải lên, đợi vài giây để nội dung tệp được đọc."
+				},
+				{
+					"title": "Hỏi AI về tệp",
+					"text": "Gọi AI và nêu rõ tệp, tác vụ cần thực hiện. Nếu AI đọc nhầm, hãy Trả lời vào đúng tin nhắn chứa tệp rồi gọi AI."
+				}
+			],
+			"example": "@ai-assistant tóm tắt nội dung tệp abc.docx",
+			"tip": "Nếu xử lý ảnh, cần chọn model có khả năng thị giác. Hãy kiểm tra quyền truy cập model khi không thấy trợ lý AI.",
+			"images": [
+				{
+					"src": "/help-center/images/gui-tep.png",
+					"caption": "Đính kèm tệp và gọi AI"
+				},
+				{
+					"src": "/help-center/images/ai-ra-soat-tep.png",
+					"caption": "AI tóm tắt nội dung tệp"
+				}
+			]
+		},
+		{
+			"id": "trace",
+			"category": "Trợ lý AI",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Truy vết nội dung",
+			"desc": "Kiểm tra thông tin trong câu trả lời của AI đến từ đâu",
+			"minutes": 2,
+			"icon": "🔎",
+			"steps": [
+				{
+					"title": "Yêu cầu AI ghi nguồn",
+					"text": "Khi gửi yêu cầu, đề nghị AI ghi rõ người gửi, giờ gửi và tên tệp cho từng ý."
+				},
+				{
+					"title": "Đối chiếu trong kênh",
+					"text": "Dùng biểu tượng kính lúp của kênh để tìm lại tin nhắn gốc theo từ khóa, tên người gửi hoặc tên tệp mà AI đã nêu."
+				}
+			],
+			"example": "@ai-assistant tổng hợp tiến độ hôm nay của tôi, giờ gửi và tên tệp cho từng ý",
+			"images": [
+				{
+					"src": "/help-center/images/truy-vet.png",
+					"caption": "AI ghi rõ người gửi, giờ gửi và tên tệp cho từng ý"
+				}
+			]
+		},
+		{
+			"id": "private",
+			"category": "Trợ lý AI",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Chat riêng và hỏi AI về nhiều kênh",
+			"desc": "Sử dụng AI bên ngoài kênh",
+			"minutes": 2,
+			"icon": "🗨️",
+			"steps": [
+				{
+					"title": "Mở cuộc trò chuyện riêng",
+					"text": "Bấm Tạo chat mới ở menu bên trái."
+				},
+				{
+					"title": "Chọn model",
+					"text": "Chọn trợ lý AI ở phía trên khung chat rồi nhập câu hỏi. Không cần gõ @ trong chat bên ngoài."
+				},
+				{
+					"title": "Tìm nội dung nhiều kênh",
+					"text": "Hỏi AI về các kênh mà bạn là thành viên để tìm kiếm hoặc tổng hợp nhiều nguồn."
+				}
+			],
+			"tip": "AI chỉ được tìm kiếm nội dung trong các kênh bạn có quyền truy cập.",
+			"images": [
+				{
+					"src": "/help-center/images/chat-rieng.png",
+					"caption": "Chat riêng với AI"
+				},
+				{
+					"src": "/help-center/images/hoi-nhieu-kenh.png",
+					"caption": "Hỏi AI về các kênh bạn là thành viên"
+				}
+			]
+		},
+		{
+			"id": "troubleshoot",
+			"category": "Hỗ trợ",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Xử lý sự cố thường gặp",
+			"desc": "Không thấy kênh, model, lịch sử hoặc tệp",
+			"minutes": 4,
+			"icon": "🛠️",
+			"steps": [
+				{
+					"title": "Không thấy Kênh",
+					"text": "Tải lại trang bằng F5. Nếu chưa thấy, yêu cầu quản trị viên cấp quyền hoặc thêm bạn vào kênh."
+				},
+				{
+					"title": "Gõ @ không thấy trợ lý AI",
+					"text": "Bạn có thể chưa được cấp quyền dùng model. Liên hệ quản trị viên."
+				},
+				{
+					"title": "AI trả lời thiếu lịch sử",
+					"text": "Hãy gọi AI bằng một tin nhắn mới ở khung chính, không gọi trong Luồng hoặc chỉnh sửa tin nhắn cũ."
+				},
+				{
+					"title": "AI chưa đọc được tệp",
+					"text": "Đợi tệp xử lý xong; nếu tệp định dạng cũ, lưu lại thành .docx, .xlsx hoặc .pptx rồi gửi lại."
+				}
+			]
+		},
+		{
+			"id": "admin_users",
+			"category": "Quản trị hệ thống",
+			"roles": [
+				"admin"
+			],
+			"title": "Tạo tài khoản người dùng",
+			"desc": "Thêm tài khoản, phân vai trò và nhập CSV",
+			"minutes": 4,
+			"icon": "🛡️",
+			"steps": [
+				{
+					"title": "Mở trang quản trị",
+					"text": "Tại menu tài khoản, chọn Bảng quản trị."
+				},
+				{
+					"title": "Mở danh sách người dùng",
+					"text": "Chọn Người dùng → Thêm người dùng."
+				},
+				{
+					"title": "Nhập thông tin",
+					"text": "Chọn vai trò, nhập tên, email và mật khẩu tạm thời."
+				},
+				{
+					"title": "Lưu",
+					"text": "Nhấn Lưu. Để tạo nhiều người dùng, dùng thẻ Nhập CSV và tệp mẫu."
+				}
+			],
+			"tip": "Người đăng nhập bằng Microsoft được tạo tài khoản tự động; nếu vai trò mặc định là pending, hãy duyệt họ trong danh sách người dùng.",
+			"images": [
+				{
+					"src": "/help-center/images/trang-quan-tri.png",
+					"caption": "Trang quản trị → Người dùng"
+				},
+				{
+					"src": "/help-center/images/them-nguoi-dung.png",
+					"caption": "Biểu mẫu thêm người dùng"
+				}
+			]
+		},
+		{
+			"id": "admin_prompt",
+			"category": "Quản trị hệ thống",
+			"roles": [
+				"admin"
+			],
+			"title": "Cấu hình trợ lý AI và System Prompt",
+			"desc": "Định nghĩa nhiệm vụ và quy tắc trả lời",
+			"minutes": 5,
+			"icon": "⚙️",
+			"steps": [
+				{
+					"title": "Vào cấu hình model",
+					"text": "Không gian làm việc → Mô hình → chọn trợ lý (ví dụ ai-assistant)."
+				},
+				{
+					"title": "Nhập Prompt Hệ thống",
+					"text": "Mô tả nhiệm vụ, định dạng trả lời, phạm vi dữ liệu và yêu cầu trích nguồn."
+				},
+				{
+					"title": "Phân quyền",
+					"text": "Đặt Truy cập là Công khai hoặc chọn nhóm để người dùng gọi được trợ lý."
+				},
+				{
+					"title": "Lưu cấu hình",
+					"text": "Bấm Lưu & Cập nhật để áp dụng."
+				}
+			],
+			"tip": "Nên ghi rõ trong prompt: không tự nhận là model khác, và không nói đã tạo file nếu công cụ chưa báo thành công.",
+			"images": [
+				{
+					"src": "/help-center/images/system-prompt.png",
+					"caption": "Cấu hình System Prompt cho trợ lý AI"
+				}
+			]
+		},
+		{
+			"id": "admin_channels",
+			"category": "Quản trị hệ thống",
+			"roles": [
+				"admin"
+			],
+			"title": "Bật Kênh và quản lý thành viên",
+			"desc": "Cấu hình Kênh, tạo kênh và phân quyền",
+			"minutes": 5,
+			"icon": "🔒",
+			"steps": [
+				{
+					"title": "Bật tính năng Kênh",
+					"text": "Bảng quản trị → Cài đặt → Chung → Kênh → Lưu."
+				},
+				{
+					"title": "Tạo kênh mới",
+					"text": "Ở thanh bên bấm dấu + tại Kênh, chọn loại, tên và quyền truy cập."
+				},
+				{
+					"title": "Thêm hoặc bớt thành viên",
+					"text": "Trong kênh, mở biểu tượng thành viên hoặc menu ⋯ → Chỉnh sửa Kênh."
+				},
+				{
+					"title": "Cập nhật",
+					"text": "Chỉnh danh sách thành viên/quyền và nhấn Cập nhật."
+				}
+			],
+			"tip": "Kiểm tra chế độ Công khai / Riêng tư trước khi tạo kênh có dữ liệu nội bộ.",
+			"images": [
+				{
+					"src": "/help-center/images/bat-kenh.png",
+					"caption": "Bật tính năng Kênh trong Cài đặt chung"
+				},
+				{
+					"src": "/help-center/images/tao-kenh-admin.png",
+					"caption": "Tạo kênh mới"
+				},
+				{
+					"src": "/help-center/images/thanh-vien-kenh.png",
+					"caption": "Biểu tượng thành viên ở góc trên kênh"
+				},
+				{
+					"src": "/help-center/images/sua-thanh-vien.png",
+					"caption": "Thêm hoặc bớt thành viên rồi bấm Cập nhật"
+				}
+			]
+		}
+	]
+}
