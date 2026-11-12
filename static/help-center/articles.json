@@ -144,7 +144,7 @@
 				},
 				{
 					"title": "Gọi trợ lý",
-					"text": "Trong ô nhập, gõ @, chọn trợ lý AI (ví dụ ai-assistant), sau đó viết yêu cầu và gửi."
+					"text": "Trong ô nhập, gõ @, chọn trợ lý AI (ví dụ nai), sau đó viết yêu cầu và gửi."
 				},
 				{
 					"title": "Xem kết quả",
@@ -353,7 +353,7 @@
 				},
 				{
 					"title": "Chọn trợ lý",
-					"text": "Chọn trợ lý AI ở phía trên khung chat (ví dụ ai-assistant) rồi nhập câu hỏi. Không cần gõ @ khi chat bên ngoài kênh; có thể đính kèm tệp bằng nút +."
+					"text": "Chọn trợ lý AI ở phía trên khung chat (ví dụ nai) rồi nhập câu hỏi. Không cần gõ @ khi chat bên ngoài kênh; có thể đính kèm tệp bằng nút +."
 				},
 				{
 					"title": "Hỏi về nhiều kênh",
@@ -507,7 +507,7 @@
 			"steps": [
 				{
 					"title": "Vào cấu hình model",
-					"text": "Trang Quản trị → Cài đặt → Mô hình, chọn trợ lý cần cấu hình (ví dụ ai-assistant)."
+					"text": "Trang Quản trị → Cài đặt → Mô hình, chọn trợ lý cần cấu hình (ví dụ nai)."
 				},
 				{
 					"title": "Viết Prompt Hệ thống",
@@ -655,7 +655,7 @@
 				},
 				{
 					"title": "Gắn cố định vào trợ lý",
-					"text": "Trang Quản trị → Cài đặt → Mô hình, chọn trợ lý (ví dụ ai-assistant). Ở mục Kiến thức, bấm Chọn Kiến thức và chọn kho cần gắn."
+					"text": "Trang Quản trị → Cài đặt → Mô hình, chọn trợ lý (ví dụ nai). Ở mục Kiến thức, bấm Chọn Kiến thức và chọn kho cần gắn."
 				},
 				{
 					"title": "Lưu",

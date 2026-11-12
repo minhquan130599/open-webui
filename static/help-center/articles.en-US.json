@@ -144,7 +144,7 @@
 				},
 				{
 					"title": "Mention the assistant",
-					"text": "In the message box, type @, choose the AI assistant (for example ai-assistant), then write your request and send it."
+					"text": "In the message box, type @, choose the AI assistant (for example nai), then write your request and send it."
 				},
 				{
 					"title": "Read the result",
@@ -353,7 +353,7 @@
 				},
 				{
 					"title": "Choose the assistant",
-					"text": "Select the AI assistant at the top of the chat (for example ai-assistant) and type your question. No @ is needed outside channels; attach files with the + button."
+					"text": "Select the AI assistant at the top of the chat (for example nai) and type your question. No @ is needed outside channels; attach files with the + button."
 				},
 				{
 					"title": "Ask across channels",
@@ -507,7 +507,7 @@
 			"steps": [
 				{
 					"title": "Open the model settings",
-					"text": "Admin Panel → Settings → Models, and choose the assistant to configure (for example ai-assistant)."
+					"text": "Admin Panel → Settings → Models, and choose the assistant to configure (for example nai)."
 				},
 				{
 					"title": "Write the System Prompt",
@@ -655,7 +655,7 @@
 				},
 				{
 					"title": "Attach it to the assistant",
-					"text": "Admin Panel → Settings → Models, choose the assistant (for example ai-assistant). Under Knowledge, click Select Knowledge and choose the knowledge base."
+					"text": "Admin Panel → Settings → Models, choose the assistant (for example nai). Under Knowledge, click Select Knowledge and choose the knowledge base."
 				},
 				{
 					"title": "Save",
