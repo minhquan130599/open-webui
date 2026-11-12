@@ -232,3 +232,156 @@ async def list_my_projects(
     except Exception as e:
         log.exception(f'list_my_projects error: {e}')
         return JSONCodec.dumps({'error': str(e)})
+
+
+REPORT_GUIDE = """HƯỚNG DẪN VIẾT (không hiển thị phần này cho người dùng):
+- Viết theo đúng yêu cầu của người dùng, tự chọn bố cục, giọng văn và mức chi tiết. Mặc định ngắn gọn: nêu điều cần chú ý trước (quá hạn, bị chặn, sắp đến hạn, rủi ro), việc bình thường thì gộp gọn.
+- Bắt buộc nhắc tới MỌI hạng mục trong dữ liệu ít nhất một lần, dùng đúng tên hạng mục. Được gộp nhiều việc vào một dòng, ví dụ "Đúng tiến độ (5 việc): A, B, C, D, E". Không cần ghi mã R1, R2.
+- Chỉ dùng số liệu có trong dữ liệu. Có thể gọi search_project_evidence hoặc view_channel_message để xem chi tiết hoặc trích nguồn.
+- Đánh giá, nhận xét, so sánh, xếp hạng... (ví dụ hiệu suất từng người) là phần bạn tự phân tích từ dữ liệu và thống kê theo người; nêu rõ căn cứ.
+- Người dùng muốn file (PDF, Word, Excel) hoặc báo cáo chi tiết dài: viết phần nhận xét rồi gọi export_project_report với report_id này; bảng đầy đủ mọi hạng mục được tự thêm vào file, nên câu trả lời trong chat chỉ cần tóm tắt và báo đã gửi file."""
+
+
+async def build_project_report(
+    project: str = '',
+    period: str = 'week',
+    person: str = '',
+    include_closed: bool = False,
+    purpose: str = 'report',
+    part: int = 1,
+    report_id: str = '',
+    __request__: Request = None,
+    __user__: dict = None,
+    __chat_id__: str = None,
+    __message_id__: str = None,
+) -> str:
+    """
+    Get the complete data for a project report (one channel = one project) or a cross-project report:
+    every open work item with owner, status, progress, due date, blocker and dates, the day-by-day activity
+    of the period, decisions, risks, next steps and per-person statistics. Use it for any work report or
+    progress summary (daily, weekly, monthly, overall, per person, several projects), and for analysis such
+    as evaluating each member's performance. Then write the answer yourself following the guide it returns.
+    Closed and cancelled items are left out unless include_closed is true.
+
+    :param project: Channel ID or name of the project; empty for every project the user can access
+    :param period: day, week, month, quarter, all, or a number of days, for the activity timeline
+    :param person: Optional owner name to limit the report to that person's work
+    :param include_closed: Also include closed/cancelled items (use for performance evaluation and history)
+    :param purpose: "report" when writing a report that must mention every work item; "analysis" for evaluations, statistics or questions that do not list items
+    :param part: Part number when a large report is delivered in several parts (answer "tiếp" with the next part)
+    :param report_id: The report_id of an earlier call, to get its next part
+    :return: The report data as text, with a writing guide
+    """
+    if not __user__:
+        return JSONCodec.dumps({'error': 'User context not available'})
+    try:
+        import uuid
+
+        from open_webui.tracker import report as reports
+
+        existing = reports.get_report(report_id) if report_id else None
+        if existing:
+            data = existing
+        else:
+            if project and project.strip().lower() not in ('all', '*', 'tat ca', 'tất cả'):
+                match, error = await _resolve_project(project, __user__.get('id'), __chat_id__)
+                if error:
+                    return error
+                channels = [match]
+            else:
+                channels = await _accessible_channels(__user__.get('id'), __chat_id__)
+            if not channels:
+                return JSONCodec.dumps({'error': 'No accessible projects'})
+            data = await reports.build_report(
+                channels, period, bool(include_closed), (person or '').strip() or None, uuid.uuid4().hex[:10]
+            )
+
+        parts = reports.render_parts(data)
+        index = min(max(int(part or 1), 1), len(parts))
+        text, items = parts[index - 1]
+        if purpose != 'analysis':
+            reports.expect_coverage(__message_id__, items)
+
+        header = f'report_id: {data.id} | phần {index}/{len(parts)} | phạm vi: {data.period_label}'
+        if data.person:
+            header += f' | người: {data.person}'
+        guide = REPORT_GUIDE
+        if len(parts) > 1:
+            guide += f'\n- Dữ liệu lớn nên được chia làm {len(parts)} phần; đây là phần {index}. Chỉ viết phần này'
+            if index < len(parts):
+                guide += (
+                    f', và cuối câu trả lời mời người dùng gõ "tiếp" để xem phần {index + 1}/{len(parts)} '
+                    f'(khi đó gọi lại build_project_report với report_id="{data.id}", part={index + 1}). '
+                    'Nếu người dùng muốn nhận cả báo cáo một lần, dùng export_project_report.'
+                )
+            else:
+                guide += ' (phần cuối).'
+        return f'{header}\n\n{text}\n\n{guide}'
+    except Exception as e:
+        log.exception(f'build_project_report error: {e}')
+        return JSONCodec.dumps({'error': str(e)})
+
+
+async def export_project_report(
+    report_id: str,
+    content: str,
+    format: str = 'pdf',
+    __request__: Request = None,
+    __user__: dict = None,
+    __event_emitter__: callable = None,
+    __chat_id__: str = None,
+    __message_id__: str = None,
+) -> str:
+    """
+    Deliver a report built with build_project_report as a downloadable file attached to your reply. A complete
+    appendix (every work item and per-person statistics) is added automatically after your text, so the file
+    is complete even when your text is a summary.
+
+    :param report_id: The report_id returned by build_project_report
+    :param content: The report text you wrote, in Markdown (headings, bullet lists, tables, **bold**)
+    :param format: pdf, docx (Word), xlsx (Excel) or md
+    :return: JSON with the attached file name, or an error
+    """
+    if __request__ is None or not __user__:
+        return JSONCodec.dumps({'error': 'Request context not available'})
+    try:
+        from open_webui.models.users import UserModel
+        from open_webui.tools.builtin import attach_to_reply
+        from open_webui.tracker import report as reports
+        from open_webui.tracker.export import build_file
+
+        data = reports.get_report(report_id)
+        if not data:
+            return JSONCodec.dumps({'error': 'Report expired or unknown; call build_project_report again'})
+        note = ''
+        try:
+            name, payload, content_type = build_file(data, content or '', format)
+        except Exception as e:
+            if (format or '').lower() != 'pdf':
+                raise
+            log.warning('PDF export failed, sending Word instead: %s', e)
+            name, payload, content_type = build_file(data, content or '', 'docx')
+            note = ' PDF could not be created on this server, so a Word file was sent instead; tell the user.'
+        await attach_to_reply(
+            __request__,
+            UserModel(**__user__),
+            __chat_id__,
+            __message_id__,
+            __event_emitter__,
+            name,
+            payload,
+            content_type,
+        )
+        reports.waive_coverage(__message_id__)
+        return JSONCodec.dumps(
+            {
+                'status': 'success',
+                'file': name,
+                'message': f'{name} is attached to your reply with the full appendix. Summarize briefly; do not '
+                'paste the whole report or a link.' + note,
+            },
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        log.exception(f'export_project_report error: {e}')
+        return JSONCodec.dumps({'error': str(e)})

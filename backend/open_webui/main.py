@@ -461,6 +461,10 @@ async def lifespan(app: FastAPI):
         from open_webui.tracker.worker import tracker_worker_loop
 
         app.state.tracker_worker_loop = asyncio.create_task(tracker_worker_loop())
+    if ENABLE_PROJECT_TRACKER:
+        from open_webui.tracker.reminders import reminder_loop
+
+        app.state.tracker_reminder_loop = asyncio.create_task(reminder_loop())
 
     if await Config.get('models.base_models_cache'):
         try:
@@ -556,6 +560,8 @@ async def lifespan(app: FastAPI):
     app.state.scheduler_worker_loop.cancel()
     if hasattr(app.state, 'tracker_worker_loop'):
         app.state.tracker_worker_loop.cancel()
+    if hasattr(app.state, 'tracker_reminder_loop'):
+        app.state.tracker_reminder_loop.cancel()
 
     await publish_event(request, EVENTS.SYSTEM_SHUTDOWN_COMPLETED, source='system')
 
@@ -855,6 +861,7 @@ app.include_router(apps.router, prefix='/api/v1/apps', tags=['apps'])
 app.include_router(channels.router, prefix='/api/v1/channels', tags=['channels'])
 
 from open_webui.tracker import router as tracker_router
+from open_webui.tracker.config import ENABLE_PROJECT_TRACKER
 
 app.include_router(tracker_router.router, prefix='/api/v1/tracker', tags=['tracker'])
 app.include_router(chats.router, prefix='/api/v1/chats', tags=['chats'])
@@ -2532,6 +2539,7 @@ async def get_app_config(request: Request):
                     'enable_folders': config.get('folders.enable'),
                     'folder_max_file_count': config.get('folders.max_file_count'),
                     'enable_channels': config.get('channels.enable'),
+                    'enable_project_tracker': ENABLE_PROJECT_TRACKER and bool(config.get('channels.enable')),
                     'enable_encrypted_channels': config.get('channels.encryption.enable'),
                     'enable_apps': config.get('apps.enable'),
                     'enable_calendar': config.get('calendar.enable'),

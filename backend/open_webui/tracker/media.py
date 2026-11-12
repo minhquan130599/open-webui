@@ -53,14 +53,18 @@ DOC_SYSTEM = (
 )
 DOC_CHUNK_PROMPT = (
     'Tài liệu: {name} (phần {index}/{total})\n<tai_lieu>\n{chunk}\n</tai_lieu>\n\n'
-    'Liệt kê gạch đầu dòng, tối đa 12 dòng: hạng mục công việc, người phụ trách, tiến độ (%), ngày/hạn, '
-    'kết quả, vướng mắc, rủi ro, quyết định. Bỏ qua nội dung không liên quan tiến độ. '
+    'Liệt kê gạch đầu dòng: MỌI hạng mục công việc có trong phần này (mỗi việc một dòng, kèm người phụ trách, '
+    'tiến độ %, ngày/hạn, trạng thái, vướng mắc nếu có), rồi kết quả, rủi ro, quyết định. Không bỏ sót đầu việc nào, '
+    'kể cả khi danh sách dài. Bỏ qua nội dung không liên quan tiến độ. '
     'Nếu phần này không có thông tin tiến độ, chỉ trả lời: (không có)'
 )
 DOC_REDUCE_PROMPT = (
     'Tài liệu: {name}. Dưới đây là ghi chú trích từ từng phần của tài liệu.\n<tai_lieu>\n{notes}\n</tai_lieu>\n\n'
-    'Gộp thành một bản tóm tắt tiến độ, tối đa 12 dòng gạch đầu dòng, bỏ trùng lặp, giữ số liệu và ngày tháng.'
+    'Gộp thành một bản tóm tắt tiến độ dạng gạch đầu dòng. Giữ ĐẦY ĐỦ mọi hạng mục công việc (mỗi việc một dòng, '
+    'kèm người phụ trách, tiến độ, hạn); chỉ bỏ các dòng trùng nhau. Giữ số liệu và ngày tháng. Ngắn gọn từng dòng.'
 )
+# Notes are reduced in groups of about this size, then the group results again, until one summary remains.
+REDUCE_GROUP_CHARS = 16_000
 
 
 @dataclass
@@ -127,23 +131,46 @@ async def summarize_document(name: str, content: str) -> str:
     for index, chunk in enumerate(chunks, 1):
         prompt = DOC_CHUNK_PROMPT.format(name=name, index=index, total=len(chunks), chunk=chunk)
         note = await llm.generate_text(
-            [{'role': 'system', 'content': DOC_SYSTEM}, {'role': 'user', 'content': prompt}], max_tokens=800
+            [{'role': 'system', 'content': DOC_SYSTEM}, {'role': 'user', 'content': prompt}], max_tokens=2000
         )
         if note and '(không có)' not in note[:20]:
             notes.append(note)
 
     if not notes:
         return '(không có thông tin tiến độ)'
-    if len(notes) == 1:
-        summary = notes[0]
-    else:
-        prompt = DOC_REDUCE_PROMPT.format(name=name, notes='\n\n'.join(notes))
-        summary = await llm.generate_text(
-            [{'role': 'system', 'content': DOC_SYSTEM}, {'role': 'user', 'content': prompt}], max_tokens=1000
-        )
+    summary = await _reduce_notes(name, notes)
     if total > len(chunks):
-        summary = f'(Tài liệu dài, tóm tắt từ {len(chunks)}/{total} phần)\n{summary}'
+        summary = f'(Tài liệu rất dài, đã đọc {len(chunks)}/{total} phần)\n{summary}'
     return summary
+
+
+async def _reduce_notes(name: str, notes: list[str]) -> str:
+    """Merge chunk notes in bounded groups, repeatedly, so every work item survives into one summary."""
+    while len(notes) > 1 or len(notes[0]) > TRACKER_ATTACHMENT_SUMMARY_MAX_CHARS:
+        groups, current = [], []
+        for note in notes:
+            if current and sum(len(n) for n in current) + len(note) > REDUCE_GROUP_CHARS:
+                groups.append(current)
+                current = []
+            current.append(note)
+        groups.append(current)
+        if len(groups) == len(notes) and len(notes) > 1:
+            # Each note alone fills a group: pair them up so the loop always makes progress.
+            groups = [notes[i : i + 2] for i in range(0, len(notes), 2)]
+        reduced = []
+        for group in groups:
+            prompt = DOC_REDUCE_PROMPT.format(name=name, notes='\n\n'.join(group))
+            reduced.append(
+                await llm.generate_text(
+                    [{'role': 'system', 'content': DOC_SYSTEM}, {'role': 'user', 'content': prompt}],
+                    max_tokens=3000,
+                )
+            )
+        if len(reduced) == 1 and len(notes) == 1:
+            notes = reduced
+            break  # a single note that stays long after one reduce: keep it rather than loop
+        notes = reduced
+    return notes[0]
 
 
 async def describe_image(data_uri: str) -> str:

@@ -105,6 +105,7 @@ from open_webui.utils.filter import (
 from open_webui.utils.json_codec import JSONCodec, dumps_bytes
 from open_webui.utils.mcp.apps import MCPAppResult
 from open_webui.utils.memory import add_memory_context, recall_memories, review_memory_after_turn
+from open_webui.tracker.config import ENABLE_PROJECT_TRACKER
 from open_webui.utils.misc import (
     add_or_update_system_message,
     add_or_update_user_message,
@@ -6507,6 +6508,23 @@ async def streaming_chat_response_handler(response, ctx):
                         item['status'] = 'completed'
 
                 current_output = full_output()
+                if ENABLE_PROJECT_TRACKER:
+                    from open_webui.tracker.report import coverage_note
+
+                    # A project report must not silently drop work items: list the ones it never mentioned.
+                    note = coverage_note(metadata.get('message_id'), get_output_text(current_output))
+                    if note:
+                        current_output = [
+                            *current_output,
+                            {
+                                'type': 'message',
+                                'id': output_id('msg'),
+                                'status': 'completed',
+                                'role': 'assistant',
+                                'content': [{'type': 'output_text', 'text': note}],
+                            },
+                        ]
+                        content_parts.append(note)
                 title = await Chats.get_chat_title_by_id(metadata['chat_id']) if save_to_chat else ''
                 data = {
                     'done': True,

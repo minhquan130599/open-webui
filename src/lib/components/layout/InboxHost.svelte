@@ -61,6 +61,8 @@
 				resource_id: current.resource_id!,
 				comment_id: current.object_id!
 			};
+		} else if (current.event_type === 'tracker.due') {
+			await goto('/my-work', { state });
 		} else if (current.resource_type === 'channel') {
 			const query = new URLSearchParams({
 				message: current.object_id!,

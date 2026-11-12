@@ -1,13 +1,24 @@
 import { WEBUI_API_BASE_URL } from '$lib/constants';
 
 export type TrackerWorkItem = {
+	id: string;
 	ten: string;
 	phu_trach: string[];
+	phu_trach_ids?: string[]; // owner accounts, when the name matched exactly one person
 	trang_thai: 'chua_bat_dau' | 'dang_lam' | 'bi_chan' | 'tam_dung' | 'hoan_thanh';
 	tien_do: number | null;
 	han: string | null;
 	vuong_mac: string | null;
 	nguon: string[];
+	tao_luc?: string | null; // YYYY-MM-DD
+	cap_nhat_luc?: string | null;
+	hoan_thanh_luc?: string | null;
+};
+
+export type TrackerArchivedItem = TrackerWorkItem & {
+	archive_kind: 'dong' | 'huy'; // closed | cancelled
+	archived_at: number; // ns
+	archived_by: string;
 };
 
 export type TrackerEntry = {
@@ -37,6 +48,8 @@ export type TrackerState = {
 	processing: boolean;
 	next_attempt_at: number | null; // ns, set after a failed run
 	last_error: string | null; // admins only
+	archive: TrackerArchivedItem[]; // newest first
+	can_manage: boolean; // channel owner or admin: may close, cancel and reopen items
 };
 
 export type TrackerItem = {
@@ -49,13 +62,15 @@ export type TrackerItem = {
 	data: { attachments?: string[] } | null;
 };
 
-const request = async (token: string, path: string, method = 'GET') => {
+const request = async (token: string, path: string, method = 'GET', body?: unknown) => {
 	const res = await fetch(`${WEBUI_API_BASE_URL}/tracker${path}`, {
 		method,
 		headers: {
 			Accept: 'application/json',
-			authorization: `Bearer ${token}`
-		}
+			authorization: `Bearer ${token}`,
+			...(body === undefined ? {} : { 'Content-Type': 'application/json' })
+		},
+		...(body === undefined ? {} : { body: JSON.stringify(body) })
 	});
 	if (!res.ok) {
 		const body = await res.json().catch(() => ({}));
@@ -91,3 +106,91 @@ export const getTrackerItems = async (
 		`/channels/${encodeURIComponent(channelId)}/items?start=${start}&limit=${limit}`
 	);
 };
+
+const channelPath = (channelId: string) => `/channels/${encodeURIComponent(channelId)}`;
+
+// Close ('dong') or cancel ('huy') work items. Channel owner or admin only.
+export const archiveTrackerItems = async (
+	token: string,
+	channelId: string,
+	ids: string[],
+	kind: 'dong' | 'huy'
+): Promise<{ archived: number }> =>
+	request(token, `${channelPath(channelId)}/items/archive`, 'POST', { ids, kind });
+
+export const closeDoneTrackerItems = async (
+	token: string,
+	channelId: string
+): Promise<{ archived: number }> =>
+	request(token, `${channelPath(channelId)}/items/close-done`, 'POST');
+
+export const reopenTrackerItem = async (token: string, channelId: string, itemId: string) =>
+	request(token, `${channelPath(channelId)}/items/${encodeURIComponent(itemId)}/reopen`, 'POST');
+
+export type WorkBucket = 'overdue' | 'today' | 'week' | 'later' | 'no_due' | 'done';
+
+export type MyWorkItem = {
+	channel_id: string;
+	channel_name: string;
+	id: string;
+	ten: string;
+	phu_trach: string[];
+	owner_ids: string[];
+	trang_thai: string;
+	tien_do: number | null;
+	han: string | null;
+	vuong_mac: string | null;
+	cap_nhat_luc: string | null;
+	bucket: WorkBucket;
+	days_left: number | null;
+};
+
+export type MyWork = {
+	user: { id: string; name: string };
+	today: string;
+	items: MyWorkItem[];
+	can_view_team: boolean;
+};
+
+export type TeamMember = {
+	id: string;
+	name: string;
+	email: string;
+	counts: Record<WorkBucket, number>;
+};
+
+export type Team = {
+	channels: { id: string; name: string }[];
+	people: TeamMember[];
+	unassigned: number;
+};
+
+export type ReminderSettings = {
+	enable: boolean;
+	time: string;
+	day_before: boolean;
+	last_run?: string | null;
+	timezone?: string;
+};
+
+// Open work items of the user, or of a member of a channel the viewer owns (admins: anyone).
+export const getMyWork = async (token: string, userId?: string): Promise<MyWork> =>
+	request(token, `/my-work${userId ? `?user_id=${encodeURIComponent(userId)}` : ''}`);
+
+export const getTeam = async (token: string): Promise<Team> => request(token, '/team');
+
+export const getReminderSettings = async (token: string): Promise<ReminderSettings> =>
+	request(token, '/reminders/settings');
+
+export const updateReminderSettings = async (
+	token: string,
+	settings: ReminderSettings
+): Promise<ReminderSettings> =>
+	request(token, '/reminders/settings', 'POST', {
+		enable: settings.enable,
+		time: settings.time,
+		day_before: settings.day_before
+	});
+
+export const sendRemindersNow = async (token: string): Promise<{ created: number }> =>
+	request(token, '/reminders/send', 'POST');

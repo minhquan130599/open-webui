@@ -17,6 +17,9 @@ export type InboxItem = {
 		start_at?: number;
 		target_type?: string;
 		target_id?: string;
+		item?: string;
+		due?: string;
+		kind?: string;
 	};
 	created_at: string;
 	seen_at: string | null;
@@ -51,6 +54,7 @@ export async function inboxRequest<T>(path: string, method = 'GET'): Promise<T> 
 // t('Upcoming event')
 // t('Automation failed')
 // t('Announcement')
+// t('Work due')
 export const inboxLabels: Record<string, string> = {
 	'comment.created': '{{name}} commented',
 	'comment.replied': '{{name}} replied',
@@ -59,5 +63,6 @@ export const inboxLabels: Record<string, string> = {
 	'channel.replied': '{{name}} replied',
 	'calendar.alert': 'Upcoming event',
 	'automation.run_failed': 'Automation failed',
-	'system.announcement': 'Announcement'
+	'system.announcement': 'Announcement',
+	'tracker.due': 'Work due'
 };

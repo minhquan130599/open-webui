@@ -106,6 +106,7 @@
 	import Sidebar from '../icons/Sidebar.svelte';
 	import WorkspaceIcon from './Sidebar/icons/Workspace.svelte';
 	import HelpCircleIcon from './Sidebar/icons/HelpCircle.svelte';
+	import TaskListIcon from '../icons/TaskList.svelte';
 	import HotkeyHint from '../common/HotkeyHint.svelte';
 	import Dropdown from '../common/Dropdown.svelte';
 	import DropdownMenu from '../common/DropdownMenu.svelte';
@@ -1236,6 +1237,34 @@
 						{/if}
 					{/each}
 
+					{#if $config?.features?.enable_project_tracker ?? false}
+						<div class="">
+							<Tooltip content={$i18n.t('My work')} placement="right">
+								<a
+									class=" cursor-pointer flex size-8 items-center justify-center transition group"
+									href="/my-work"
+									on:click={async (e) => {
+										e.stopImmediatePropagation();
+										e.preventDefault();
+										goto('/my-work');
+										itemClickHandler();
+									}}
+									draggable="false"
+									aria-label={$i18n.t('My work')}
+								>
+									<div
+										class="self-center flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition {$page
+											.url.pathname === '/my-work'
+											? 'bg-black/[0.035] dark:bg-white/[0.045]'
+											: 'group-hover:bg-gray-100 dark:group-hover:bg-gray-900'}"
+									>
+										<TaskListIcon className="size-4" />
+									</div>
+								</a>
+							</Tooltip>
+						</div>
+					{/if}
+
 					<div class="">
 						<Tooltip content={$i18n.t('User Guide')} placement="right">
 							<a
@@ -1512,6 +1541,33 @@
 								{/if}
 							{/each}
 						</div>
+
+						{#if $config?.features?.enable_project_tracker ?? false}
+							<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
+								<a
+									id="sidebar-my-work-button"
+									class="grow flex items-center space-x-2 rounded-xl px-2 py-1.5 transition {$page
+										.url.pathname === '/my-work'
+										? ($settings?.highContrastMode ?? false)
+											? 'bg-black/[0.035] dark:bg-white/[0.06]'
+											: 'bg-black/[0.035] dark:bg-white/[0.045]'
+										: 'hover:bg-gray-100 dark:hover:bg-gray-900'}"
+									href="/my-work"
+									on:click={itemClickHandler}
+									draggable="false"
+									aria-label={$i18n.t('My work')}
+								>
+									<div class="self-center flex size-4 shrink-0 items-center justify-center">
+										<TaskListIcon className="size-4" />
+									</div>
+									<div class="flex self-center translate-y-[0.5px]">
+										<div class=" self-center text-[0.8125rem] leading-5">
+											{$i18n.t('My work')}
+										</div>
+									</div>
+								</a>
+							</div>
+						{/if}
 
 						<!-- User guide: always shown under the pinned items (content: static/help-center/articles.json) -->
 						<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">

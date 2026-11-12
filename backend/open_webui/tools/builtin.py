@@ -450,6 +450,60 @@ async def generate_image(
 ATTACH_TERMINAL_FILE_MAX_BYTES = 100 * 1024 * 1024
 
 
+async def attach_to_reply(
+    request: Request,
+    user: UserModel,
+    chat_id: Optional[str],
+    message_id: Optional[str],
+    event_emitter,
+    name: str,
+    data: bytes,
+    content_type: str,
+) -> dict:
+    """Save bytes as an Open WebUI file and attach it to the assistant reply (chat or channel message).
+
+    Returns the attachment entry. In a channel the file is linked to the channel so every member can open it.
+    """
+    import io
+
+    from fastapi import UploadFile
+
+    from open_webui.routers.files import upload_file_handler
+
+    in_channel = isinstance(chat_id, str) and chat_id.startswith(CHANNEL_CHAT_ID_PREFIX)
+    upload_metadata = (
+        {'channel_id': chat_id.removeprefix(CHANNEL_CHAT_ID_PREFIX), 'message_id': message_id} if in_channel else {}
+    )
+    file_item = await upload_file_handler(
+        request,
+        file=UploadFile(file=io.BytesIO(data), filename=name, headers={'content-type': content_type}),
+        metadata=upload_metadata,
+        process=False,
+        user=user,
+    )
+    if not file_item:
+        raise ValueError(f'Could not save {name}')
+
+    entry = {
+        'type': 'image' if content_type.startswith('image/') else 'file',
+        'id': file_item.id,
+        'url': request.app.url_path_for('get_file_content_by_id', id=file_item.id),
+        'name': name,
+        'size': len(data),
+        'content_type': content_type,
+    }
+    files = [entry]
+    if is_saved_chat_id(chat_id) and message_id:
+        await Chats.insert_chat_files(chat_id=chat_id, message_id=message_id, file_ids=[file_item.id], user_id=user.id)
+        # The UI replaces the message's file list with this event, so send the full list.
+        db_files = await Chats.add_message_files_by_id_and_message_id(chat_id, message_id, files)
+        if db_files is not None:
+            files = db_files
+    if event_emitter:
+        await event_emitter({'type': 'chat:message:files', 'data': {'files': files}})
+    return entry
+
+
 async def attach_terminal_file(
     path: str,
     __request__: Request = None,
@@ -473,13 +527,8 @@ async def attach_terminal_file(
         return JSONCodec.dumps({'error': 'Request context not available'})
 
     try:
-        import io
         import mimetypes
         import posixpath
-
-        from fastapi import UploadFile
-
-        from open_webui.routers.files import upload_file_handler
 
         user = UserModel(**__user__)
         data = await get_terminal_file(
@@ -487,46 +536,9 @@ async def attach_terminal_file(
         )
         name = posixpath.basename(path.rstrip('/')) or 'file'
         content_type = mimetypes.guess_type(name)[0] or 'application/octet-stream'
-
-        in_channel = isinstance(__chat_id__, str) and __chat_id__.startswith(CHANNEL_CHAT_ID_PREFIX)
-        # channel_id links the file to the channel so every member can open it; chat_id/message_id to the chat.
-        if in_channel:
-            upload_metadata = {'channel_id': __chat_id__.removeprefix(CHANNEL_CHAT_ID_PREFIX), 'message_id': __message_id__}
-        else:
-            upload_metadata = {}
-        file_item = await upload_file_handler(
-            __request__,
-            file=UploadFile(file=io.BytesIO(data), filename=name, headers={'content-type': content_type}),
-            metadata=upload_metadata,
-            process=False,
-            user=user,
+        entry = await attach_to_reply(
+            __request__, user, __chat_id__, __message_id__, __event_emitter__, name, data, content_type
         )
-        if not file_item:
-            return JSONCodec.dumps({'error': f'Could not save {name}'})
-
-        url = __request__.app.url_path_for('get_file_content_by_id', id=file_item.id)
-        entry = {
-            'type': 'image' if content_type.startswith('image/') else 'file',
-            'id': file_item.id,
-            'url': url,
-            'name': name,
-            'size': len(data),
-            'content_type': content_type,
-        }
-
-        files = [entry]
-        if is_saved_chat_id(__chat_id__) and __message_id__:
-            await Chats.insert_chat_files(
-                chat_id=__chat_id__, message_id=__message_id__, file_ids=[file_item.id], user_id=user.id
-            )
-            # The UI replaces the message's file list with this event, so send the full list.
-            db_files = await Chats.add_message_files_by_id_and_message_id(__chat_id__, __message_id__, files)
-            if db_files is not None:
-                files = db_files
-
-        if __event_emitter__:
-            await __event_emitter__({'type': 'chat:message:files', 'data': {'files': files}})
-
         return JSONCodec.dumps(
             {
                 'status': 'success',

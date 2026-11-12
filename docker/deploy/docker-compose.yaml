@@ -170,7 +170,8 @@ services:
 
       # --- Project tracker: tự tổng hợp tiến độ công việc theo kênh ---
       - ENABLE_PROJECT_TRACKER=true
-      - TRACKER_MODEL=${TRACKER_MODEL:-}             # trống/sai tên = lấy model đầu tiên từ GET <URL>/models
+      - TRACKER_MODEL=${TRACKER_MODEL:-}             # vd: nai hoặc nai,gpt-4o-mini (ưu tiên theo thứ tự); dùng kết nối nào có model này
+      - TRACKER_LLM_FAILOVER=${TRACKER_LLM_FAILOVER:-true}   # kết nối lỗi thì tự chuyển sang kết nối tiếp theo
       - TRACKER_MAX_CONCURRENCY=${TRACKER_MAX_CONCURRENCY:-2}
       - TRACKER_TIMEZONE=Asia/Ho_Chi_Minh
       - TRACKER_IDLE_SECONDS=90

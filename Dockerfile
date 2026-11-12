@@ -146,7 +146,7 @@ RUN if [ "$USE_SLIM" = "true" ] && { [ "$USE_CUDA" = "true" ] || [ "$USE_OLLAMA"
 # Git-based tool requirements require the standard image.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    curl jq ca-certificates \
+    curl jq ca-certificates fonts-dejavu-core \
     && if [ "$USE_SLIM" != "true" ]; then \
     apt-get install -y --no-install-recommends \
     git build-essential pandoc gcc libmariadb-dev ffmpeg libsm6 libxext6; \

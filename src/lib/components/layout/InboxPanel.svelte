@@ -219,9 +219,11 @@
 					{/if}
 					{#if item.preview || item.data.message}
 						<div
-							class="mt-0.5 {item.resource_type
-								? 'line-clamp-1'
-								: ''} whitespace-pre-wrap break-words text-xs leading-[1.125rem] text-gray-500 dark:text-gray-400"
+							class="mt-0.5 {item.event_type === 'tracker.due'
+								? 'line-clamp-3'
+								: item.resource_type
+									? 'line-clamp-1'
+									: ''} whitespace-pre-wrap break-words text-xs leading-[1.125rem] text-gray-500 dark:text-gray-400"
 						>
 							{item.preview || item.data.message}
 						</div>

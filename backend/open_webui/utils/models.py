@@ -168,7 +168,7 @@ async def register_default_public_models(models: list[dict], custom_models: list
             log.info('Registered model %s as public (DEFAULT_MODEL_ACCESS=public)', model['id'])
         except Exception as e:
             # Another worker registered it first, or the id is not a valid model id.
-            log.debug('Could not register default public model %s: %s', model['id'], e)
+            log.warning('Could not register default public model %s: %s', model['id'], e)
     return added
 
 

@@ -2,10 +2,12 @@
 
 Each folder in SEED_SKILLS_DIR is one skill: the folder name is the skill id, SKILL.md is its content and any
 other UTF-8 files are supporting files. A skill is created public, owned by the first admin, the first time
-it is seen. Installed ids are recorded, so a skill an admin edits or deletes is left alone afterwards.
+it is seen. Installed ids are recorded, so a skill an admin deletes is not reinstalled. When the bundled
+SKILL.md changes, an installed copy that nobody edited is upgraded; an edited copy is left alone.
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -21,6 +23,11 @@ log = logging.getLogger(__name__)
 SEED_SKILLS_DIR = Path(os.getenv('SEED_SKILLS_DIR') or Path(__file__).resolve().parent.parent / 'seed_skills')
 ENABLE_SEED_SKILLS = os.getenv('ENABLE_SEED_SKILLS', 'True').lower() == 'true'
 SEEDED_KEY = 'seed.skills'
+VERSIONS_KEY = 'seed.skill_versions'  # skill id -> hash of the SKILL.md this deployment installed
+# SKILL.md hashes shipped before versions were recorded, so those installs can still be upgraded.
+_EARLIER_RELEASES = {
+    'project-reports': {'d621350b83fdbe49ef8524c3d6f85a57233ce0a0b268c7beee4066e4270c4e79'},
+}
 PUBLIC_READ_GRANT = {'principal_type': 'user', 'principal_id': '*', 'permission': 'read'}
 RETRY_SECONDS = 60
 
@@ -40,11 +47,57 @@ def _read_skill(folder: Path) -> tuple[str, list[dict]]:
     return content, files
 
 
+def _hash(content: str) -> str:
+    return hashlib.sha256(content.encode('utf-8')).hexdigest()
+
+
+async def _upgrade_skills(seeded: set[str]) -> None:
+    """Bring installed, unedited bundled skills up to the bundled version."""
+    versions = dict(await Config.get(VERSIONS_KEY, {}) or {})
+    changed = False
+    for skill_id in sorted(seeded):
+        folder = SEED_SKILLS_DIR / skill_id
+        if not (folder / 'SKILL.md').is_file():
+            continue
+        try:
+            content, files = _read_skill(folder)
+            bundled = _hash(content)
+            if versions.get(skill_id) == bundled:
+                continue
+            skill = await Skills.get_skill_by_id(skill_id)
+            if not skill:
+                continue
+            installed = _hash(skill.content or '')
+            known = {versions.get(skill_id)} | _EARLIER_RELEASES.get(skill_id, set())
+            if installed == bundled:
+                pass
+            elif installed in known:
+                await Skills.update_skill_by_id(
+                    skill_id,
+                    {
+                        'files': files,
+                        'description': str(frontmatter(content).get('description', '')),
+                        'expected_version_id': skill.version_id,
+                        'commit_message': 'Updated with the deployment',
+                    },
+                )
+                log.info('Upgraded seed skill %s', skill_id)
+            else:
+                log.info('Seed skill %s was edited; not upgrading it', skill_id)
+            versions[skill_id] = bundled
+            changed = True
+        except Exception as e:
+            log.warning('Could not upgrade seed skill %s: %s', skill_id, e)
+    if changed:
+        await Config.upsert({VERSIONS_KEY: versions})
+
+
 async def seed_skills() -> bool:
     """Install pending skills. Returns False when it must retry later (no admin account yet)."""
     if not SEED_SKILLS_DIR.is_dir():
         return True
     seeded = set(await Config.get(SEEDED_KEY, []) or [])
+    await _upgrade_skills(seeded)
     pending = [
         folder
         for folder in sorted(SEED_SKILLS_DIR.iterdir())
@@ -77,6 +130,9 @@ async def seed_skills() -> bool:
                     ),
                 )
                 log.info('Installed seed skill %s', skill_id)
+                await Config.upsert(
+                    {VERSIONS_KEY: {**(await Config.get(VERSIONS_KEY, {}) or {}), skill_id: _hash(content)}}
+                )
             seeded.add(skill_id)
         except Exception as e:
             # Another worker may have inserted it at the same moment; the next start records it.

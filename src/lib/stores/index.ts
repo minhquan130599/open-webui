@@ -418,6 +418,7 @@ type Config = {
 	default_prompt_suggestions_i18n?: Record<string, { suggestion_prompts: PromptSuggestion[] }>;
 	features: {
 		enable_encrypted_channels?: boolean;
+		enable_project_tracker?: boolean;
 		slim?: boolean;
 		auth: boolean;
 		auth_trusted_header: boolean;

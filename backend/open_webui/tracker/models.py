@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from open_webui.internal.db import Base, get_async_db_context
 from open_webui.models.messages import Message
+from open_webui.tracker.schema import SCHEMA_VERSION, WorkItem, ensure_item_ids, load_state, reconcile
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,9 @@ class TrackerState(Base):
     edit_watermark = Column(BigInteger, nullable=False, default=0)
     # Already-processed messages deleted since the last run: [{id, user_name, content, created_at}].
     pending_deletions = Column(JSON, nullable=True)
+    # Work items closed or cancelled by the channel owner/admin, kept out of the LLM's view:
+    # [{...work item, archive_kind: 'dong'|'huy', archived_at: ns, archived_by: user_id}].
+    archive = Column(JSON, nullable=True)
 
     dirty_at = Column(BigInteger, nullable=True)
     last_activity_at = Column(BigInteger, nullable=True)
@@ -88,6 +92,7 @@ class TrackerStateModel(BaseModel):
     watermark: int = 0
     edit_watermark: int = 0
     pending_deletions: Optional[list[dict]] = None
+    archive: Optional[list[dict]] = None
     dirty_at: Optional[int] = None
     pending_count: int = 0
     force: bool = False
@@ -268,6 +273,14 @@ class TrackerTable:
             )
             return list(reversed(result.scalars().all()))
 
+    async def get_author_ids(self, channel_id: str, db: Optional[AsyncSession] = None) -> list[str]:
+        """Users who have posted in the channel (candidates when resolving work item owners)."""
+        async with get_async_db_context(db) as db:
+            result = await db.execute(
+                select(Message.user_id).where(Message.channel_id == channel_id, Message.user_id.is_not(None)).distinct()
+            )
+            return [row[0] for row in result.all()]
+
     async def complete(
         self,
         channel_id: str,
@@ -279,6 +292,7 @@ class TrackerTable:
         item: Optional[dict] = None,
         deletions_done: int = 0,
         retry_after_ns: int = 0,
+        merged_away: Optional[set[str]] = None,
         db: Optional[AsyncSession] = None,
     ) -> bool:
         """Store a processed batch if the lease is still ours, and requeue if messages remain.
@@ -307,7 +321,8 @@ class TrackerTable:
             ).scalar() or 0
 
             if state is not None:
-                row.state = state
+                # Closes/reopens by the channel owner may have happened while the LLM was running.
+                row.state = reconcile(state, row.state, row.archive, merged_away or set())
                 row.version = (row.version or 0) + 1
                 row.processed_at = now
             row.watermark = watermark
@@ -328,6 +343,72 @@ class TrackerTable:
 
             if item:
                 db.add(TrackerItem(id=str(uuid.uuid4()), channel_id=channel_id, created_at=now, **item))
+            await db.commit()
+            return True
+
+    async def _locked_row(self, db: AsyncSession, channel_id: str) -> Optional[TrackerState]:
+        stmt = select(TrackerState).where(TrackerState.channel_id == channel_id)
+        if db.bind.dialect.name == 'postgresql':
+            stmt = stmt.with_for_update()
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+    @staticmethod
+    def _save_state(row: TrackerState, state, now: int) -> None:
+        row.state = {**state.model_dump(), 'schema_version': SCHEMA_VERSION}
+        row.version = (row.version or 0) + 1
+        row.updated_at = now
+
+    async def ensure_item_ids(self, channel_id: str, db: Optional[AsyncSession] = None) -> None:
+        """Give items stored before ids existed an id, so they can be closed or cancelled."""
+        async with get_async_db_context(db) as db:
+            row = await self._locked_row(db, channel_id)
+            if not row or not row.state:
+                return
+            state = load_state(row.state)
+            if ensure_item_ids(state):
+                self._save_state(row, state, time.time_ns())
+                await db.commit()
+
+    async def archive_items(
+        self, channel_id: str, item_ids: list[str], kind: str, user_id: str, db: Optional[AsyncSession] = None
+    ) -> int:
+        """Move open items to the archive (kind 'dong' = closed, 'huy' = cancelled). Returns how many moved."""
+        now = time.time_ns()
+        wanted = set(item_ids)
+        async with get_async_db_context(db) as db:
+            row = await self._locked_row(db, channel_id)
+            if not row or not row.state:
+                return 0
+            state = load_state(row.state)
+            ensure_item_ids(state)
+            moved = [item for item in state.hang_muc if item.id in wanted]
+            if not moved:
+                return 0
+            state.hang_muc = [item for item in state.hang_muc if item.id not in wanted]
+            archived = [
+                {**item.model_dump(), 'archive_kind': kind, 'archived_at': now, 'archived_by': user_id}
+                for item in moved
+            ]
+            row.archive = [*(row.archive or []), *archived]
+            self._save_state(row, state, now)
+            await db.commit()
+            return len(moved)
+
+    async def reopen_item(self, channel_id: str, item_id: str, db: Optional[AsyncSession] = None) -> bool:
+        """Move an archived item back into the open list."""
+        now = time.time_ns()
+        async with get_async_db_context(db) as db:
+            row = await self._locked_row(db, channel_id)
+            if not row:
+                return False
+            entry = next((e for e in row.archive or [] if e.get('id') == item_id), None)
+            if not entry:
+                return False
+            state = load_state(row.state)
+            restored = {k: v for k, v in entry.items() if k not in ('archive_kind', 'archived_at', 'archived_by')}
+            state.hang_muc.append(WorkItem.model_validate(restored))
+            row.archive = [e for e in row.archive or [] if e.get('id') != item_id] or None
+            self._save_state(row, state, now)
             await db.commit()
             return True
 

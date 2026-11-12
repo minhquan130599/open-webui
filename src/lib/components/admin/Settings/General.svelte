@@ -24,12 +24,15 @@
 	import AdminSettingSection from './AdminSettingSection.svelte';
 	import Plus from '$lib/components/icons/Plus.svelte';
 	import I18nSettings from './I18nSettings.svelte';
+	import TrackerReminderSettings from './TrackerReminderSettings.svelte';
 	import { updateI18n } from '$lib/i18n';
 	import { entriesToI18n, i18nToEntries, type I18nEntry } from '$lib/utils/translationDictionary';
 
 	const i18n: any = getContext('i18n');
 
 	export let saveHandler: Function;
+
+	let trackerReminders: TrackerReminderSettings;
 
 	let updateAvailable: boolean | null = null;
 	let version = {
@@ -96,6 +99,7 @@
 				window.location.href = '/auth?state=logout&form=signin';
 				return;
 			}
+			await trackerReminders?.save();
 			await updateI18n(res.I18N ?? cleaned);
 			await updateBanners();
 			await config.set(await getBackendConfig());
@@ -445,6 +449,9 @@
 							<option value="channel">{$i18n.t('Channel')}</option>
 						</SettingsSelect>
 					</AdminSettingRow>
+					{#if $config?.features?.enable_project_tracker ?? false}
+						<TrackerReminderSettings bind:this={trackerReminders} />
+					{/if}
 				{/if}
 				<AdminSettingRow
 					label={$i18n.t('settings.admin.general.apps.label')}

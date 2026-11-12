@@ -11,14 +11,18 @@ import pytest_asyncio
 
 from open_webui.tracker import llm, service
 from open_webui.tracker.prompts import is_trivial
+from open_webui.tracker.people import Person, match_person
+from open_webui.tracker.prompts import PromptMessage
 from open_webui.tracker.schema import (
     ProjectState,
-    StateUpdate,
+    StateDelta,
     WorkItem,
+    apply_delta,
     load_state,
-    merge_sources,
     normalize_key,
+    reconcile,
     render_state_markdown,
+    state_for_prompt,
 )
 
 # Pure logic
@@ -59,17 +63,92 @@ def test_unnamed_entries_are_dropped_and_text_stripped():
     assert len(state.rui_ro) == 1
 
 
-def test_merge_sources_maps_refs_and_keeps_old_sources():
-    old = ProjectState(hang_muc=[WorkItem(ten='Module đăng nhập', nguon=['msg:old'])])
-    new = ProjectState(
-        hang_muc=[
-            WorkItem(ten='module dang nhap', nguon=['m1', 'm9']),  # same item, accents differ; m9 is not in batch
-            WorkItem(ten='Báo cáo', nguon=['m2']),
-        ]
+TODAY = '2026-11-12'
+
+
+def _state(*items):
+    return ProjectState(hang_muc=[WorkItem(**item) for item in items])
+
+
+def test_apply_delta_updates_by_id_and_keeps_unmentioned_items():
+    old = _state(
+        {'id': 'a1', 'ten': 'Module đăng nhập', 'tien_do': 30, 'nguon': ['msg:old']},
+        {'id': 'b2', 'ten': 'Báo cáo tuần', 'tien_do': 10},
     )
-    merged = merge_sources(new, old, {'m1': 'msg:a', 'm2': 'msg:b'})
-    assert merged.hang_muc[0].nguon == ['msg:old', 'msg:a']
-    assert merged.hang_muc[1].nguon == ['msg:b']
+    delta = StateDelta.model_validate(
+        {
+            'cap_nhat': [{'id': '#a1', 'tien_do': '80%', 'nguon': ['m1', 'm9']}, {'id': 'zz', 'tien_do': 5}],
+            'hang_muc_moi': [{'ten': 'Thiết kế database', 'phu_trach': ['Lan'], 'nguon': ['m2']}],
+            'tom_tat_lo': 'x',
+        }
+    )
+    state, merged = apply_delta(old, delta, {'m1': 'msg:a', 'm2': 'msg:b'}, TODAY)
+    items = {i.ten: i for i in state.hang_muc}
+    assert items['Module đăng nhập'].tien_do == 80
+    assert items['Module đăng nhập'].nguon == ['msg:old', 'msg:a'], 'm9 is not in the batch'
+    assert items['Báo cáo tuần'].tien_do == 10, 'an item the delta does not mention is kept'
+    new = items['Thiết kế database']
+    assert new.id and new.id not in ('a1', 'b2') and new.tao_luc == TODAY and new.nguon == ['msg:b']
+    assert len(state.hang_muc) == 3 and not merged, 'unknown id zz is ignored'
+
+
+def test_apply_delta_dedupes_merges_and_respects_archive():
+    old = _state({'id': 'a1', 'ten': 'API login'}, {'id': 'b2', 'ten': 'Đăng nhập API'})
+    delta = StateDelta.model_validate(
+        {
+            'hang_muc_moi': [
+                {'ten': 'api LOGIN', 'trang_thai': 'done'},  # same as a1: updates it, no duplicate
+                {'ten': 'Màn hình cũ'},  # closed by the owner: not resurrected
+            ],
+            'gop': [{'vao': 'a1', 'tu': ['b2']}],
+        }
+    )
+    state, merged = apply_delta(old, delta, {}, TODAY, frozenset({normalize_key('Màn hình cũ')}))
+    assert [i.id for i in state.hang_muc] == ['a1'] and merged == {'b2'}
+    assert state.hang_muc[0].trang_thai == 'hoan_thanh' and state.hang_muc[0].hoan_thanh_luc == TODAY
+
+
+def test_apply_delta_handles_many_items():
+    old = _state(*({'id': f'i{n}', 'ten': f'Việc {n}'} for n in range(150)))
+    state, _ = apply_delta(old, StateDelta.model_validate({'cap_nhat': [{'id': 'i149', 'tien_do': 5}]}), {}, TODAY)
+    assert len(state.hang_muc) == 150 and state.hang_muc[-1].tien_do == 5
+    assert '#i0 |' in state_for_prompt(state) and '#i149 |' in state_for_prompt(state)
+
+
+def test_reconcile_keeps_open_items_and_archive_wins():
+    computed = {'hang_muc': [{'id': 'a', 'ten': 'A'}, {'id': 'b', 'ten': 'B'}]}
+    current = {'hang_muc': [{'id': 'a', 'ten': 'A'}, {'id': 'c', 'ten': 'C reopened'}, {'id': 'd', 'ten': 'D'}]}
+    result = reconcile(computed, current, [{'id': 'b', 'ten': 'B'}], merged_away={'d'})
+    assert [i['id'] for i in result['hang_muc']] == ['a', 'c'], 'b archived meanwhile, c kept, d merged away'
+
+
+def test_match_person():
+    people = [
+        Person('u1', 'Nguyễn Văn Long'),
+        Person('u2', 'Trần Thị Lan', 'lan.tran@ncs.vn'),
+        Person('u3', 'Lê Minh Hùng'),
+        Person('u4', 'Phạm Văn Hùng'),
+    ]
+    assert match_person('Long', people) == 'u1'
+    assert match_person('anh Long', people) == 'u1'
+    assert match_person('Văn Long', people) == 'u1'
+    assert match_person('trần thị lan', people) == 'u2'
+    assert match_person('Hùng', people) is None, 'two Hùng: not guessed'
+    assert match_person('Minh Hùng', people) == 'u3'
+    assert match_person('lantran', people) == 'u2'
+    assert match_person('Bình', people) is None
+
+
+def test_long_message_is_read_in_parts():
+    from open_webui.tracker.config import TRACKER_MESSAGE_MAX_CHARS
+    from open_webui.tracker.service import _prompt_groups, _split_long
+
+    long_text = ''.join(f'Việc {n}; ' for n in range(TRACKER_MESSAGE_MAX_CHARS // 4))
+    messages = [PromptMessage(id='x', created_at=1, user_name='Lan', content=long_text)]
+    parts = _split_long(messages)
+    assert len(parts) > 1 and ''.join(p.content for p in parts) == long_text, 'nothing is cut'
+    assert parts[0].part == f'1/{len(parts)}'
+    assert sum(len(g) for g in _prompt_groups(parts)) == len(parts)
 
 
 def test_normalize_key():
@@ -137,14 +216,18 @@ async def test_end_to_end(project, monkeypatch):
 
     async def fake_update(messages):
         prompts.append(messages[-1]['content'])
-        return StateUpdate.model_validate(
+        return StateDelta.model_validate(
             {
-                'trang_thai': {
-                    'tong_quan': 'Đang làm đăng nhập',
-                    'hang_muc': [
-                        {'ten': 'Module đăng nhập', 'tien_do': 50, 'han': '2026-11-20', 'nguon': ['m1', 'm2', 'm7']}
-                    ],
-                },
+                'tong_quan': 'Đang làm đăng nhập',
+                'hang_muc_moi': [
+                    {
+                        'ten': 'Module đăng nhập',
+                        'phu_trach': ['Lan'],
+                        'tien_do': 50,
+                        'han': '2026-11-20',
+                        'nguon': ['m1', 'm2', 'm7'],
+                    }
+                ],
                 'tom_tat_lo': 'UI xong, API 50%',
             }
         )
@@ -165,6 +248,7 @@ async def test_end_to_end(project, monkeypatch):
     item = row.state['hang_muc'][0]
     assert item['tien_do'] == 50
     assert item['nguon'] == [f'msg:{m1.id}', f'msg:{m3.id}'], 'm7 is not in the batch and must be dropped'
+    assert item['id'] and item['phu_trach_ids'] == [user.id], 'owner name linked to the channel member'
     assert row.dirty_at is None and row.pending_count == 0
     assert row.watermark >= m3.created_at
     items = await Trackers.get_items(channel.id, 0, time.time_ns())
@@ -239,3 +323,42 @@ async def test_concurrency_cap(project):
     assert await _claim(max_active=1) == [], 'cap counts leases held by other workers'
     for channel_id, lease_id in first:
         await Trackers.fail(channel_id, lease_id, 'released by test')
+
+
+@pytest.mark.asyncio(loop_scope='module')
+async def test_archive_survives_a_concurrent_run(project, monkeypatch):
+    from open_webui.models.channels import Channels, CreateChannelForm
+    from open_webui.tracker.models import Trackers
+
+    user, _ = project
+    channel = await Channels.insert_new_channel(CreateChannelForm(name=f'arc-{uuid.uuid4().hex[:6]}'), user.id)
+    await _post(channel.id, user.id, 'Việc A xong, việc B đang làm')
+
+    async def first(messages):
+        return StateDelta.model_validate(
+            {'hang_muc_moi': [{'ten': 'Việc A', 'trang_thai': 'done'}, {'ten': 'Việc B'}], 'tom_tat_lo': 's'}
+        )
+
+    monkeypatch.setattr(llm, 'generate_state_update', first)
+    await service.process_channel(*[c for c in await _claim() if c[0] == channel.id][0])
+    items = {i['ten']: i['id'] for i in (await Trackers.get_state(channel.id)).state['hang_muc']}
+
+    # The owner closes A while a run that started before the close is still computing.
+    await _post(channel.id, user.id, 'Việc B 60%, việc C mới')
+    claimed = [c for c in await _claim() if c[0] == channel.id][0]
+
+    async def second(messages):
+        assert await Trackers.archive_items(channel.id, [items['Việc A']], 'dong', user.id) == 1
+        return StateDelta.model_validate(
+            {'cap_nhat': [{'id': items['Việc B'], 'tien_do': 60}], 'hang_muc_moi': [{'ten': 'Việc C'}]}
+        )
+
+    monkeypatch.setattr(llm, 'generate_state_update', second)
+    await service.process_channel(*claimed)
+    row = await Trackers.get_state(channel.id)
+    assert sorted(i['ten'] for i in row.state['hang_muc']) == ['Việc B', 'Việc C'], 'closed item stays closed'
+    assert [e['ten'] for e in row.archive] == ['Việc A'] and row.archive[0]['archive_kind'] == 'dong'
+
+    assert await Trackers.reopen_item(channel.id, items['Việc A'])
+    row = await Trackers.get_state(channel.id)
+    assert 'Việc A' in [i['ten'] for i in row.state['hang_muc']] and not row.archive

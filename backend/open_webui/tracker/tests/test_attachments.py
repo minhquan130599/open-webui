@@ -10,7 +10,7 @@ import pytest
 import pytest_asyncio
 
 from open_webui.tracker import llm, media, service
-from open_webui.tracker.schema import StateUpdate
+from open_webui.tracker.schema import StateDelta
 
 
 def test_split_chunks_samples_long_documents():
@@ -22,6 +22,26 @@ def test_split_chunks_samples_long_documents():
 
     one, total = media.split_chunks('ngắn', 2_000, 5)
     assert one == ['ngắn'] and total == 1
+
+
+@pytest.mark.asyncio
+async def test_long_document_keeps_every_chunk(monkeypatch):
+    async def fake_text(messages, max_tokens=1024):
+        prompt = messages[-1]['content']
+        first_line = prompt.splitlines()[0]
+        if '(phần ' in first_line:
+            index = first_line.split('(phần ', 1)[1].split('/', 1)[0]
+            return f'- Việc số {index}'
+        return '\n'.join(line for line in prompt.splitlines() if line.startswith('- Việc số'))
+
+    monkeypatch.setattr(llm, 'generate_text', fake_text)
+    content = '\n\n'.join(f'Đoạn {i} ' + 'x' * 900 for i in range(30))
+    monkeypatch.setattr(media, 'TRACKER_FILE_CHUNK_CHARS', 2_000)
+    summary = await media.summarize_document('ke_hoach.docx', content)
+    chunks, total = media.split_chunks(content, 2_000, media.TRACKER_FILE_MAX_CHUNKS)
+    assert len(chunks) == total, 'a document under the cap is read in full'
+    for index in range(1, total + 1):
+        assert f'- Việc số {index}' in summary.splitlines(), 'every chunk survives the reduce'
 
 
 def test_downscale_image():
@@ -94,9 +114,10 @@ async def _run(channel_id: str):
 def _fake_update(prompts: list):
     async def fake(messages):
         prompts.append(messages[-1]['content'])
-        return StateUpdate.model_validate(
+        return StateDelta.model_validate(
             {
-                'trang_thai': {'tong_quan': 'ok', 'hang_muc': [{'ten': 'Móng nhà', 'tien_do': 80, 'nguon': ['m1']}]},
+                'tong_quan': 'ok',
+                'hang_muc_moi': [{'ten': 'Móng nhà', 'tien_do': 80, 'nguon': ['m1']}],
                 'tom_tat_lo': 'Cập nhật móng nhà',
             }
         )

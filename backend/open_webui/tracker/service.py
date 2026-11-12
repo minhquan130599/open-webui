@@ -1,5 +1,6 @@
 import logging
 import time
+from dataclasses import replace
 from typing import Optional
 
 from open_webui.models.channels import Channels
@@ -24,7 +25,8 @@ from open_webui.tracker.prompts import (
     get_tz,
     is_trivial,
 )
-from open_webui.tracker.schema import SCHEMA_VERSION, load_state, merge_sources, render_state_markdown
+from open_webui.tracker.people import channel_people, link_owners
+from open_webui.tracker.schema import SCHEMA_VERSION, apply_delta, load_state, normalize_key, render_state_markdown
 
 log = logging.getLogger(__name__)
 
@@ -117,6 +119,43 @@ async def _summarize_batch_attachments(
     return batch, summaries, None, False
 
 
+def _split_long(messages: list[PromptMessage]) -> list[PromptMessage]:
+    """Break a message longer than the per-message limit into parts that are all read, instead of cutting it."""
+    limit = TRACKER_MESSAGE_MAX_CHARS
+    result = []
+    for message in messages:
+        content = message.content or ''
+        if len(content) <= limit:
+            result.append(message)
+            continue
+        parts = [content[i : i + limit] for i in range(0, len(content), limit)]
+        for index, part in enumerate(parts, 1):
+            result.append(
+                replace(
+                    message,
+                    content=part,
+                    part=f'{index}/{len(parts)}',
+                    attachments=message.attachments if index == 1 else [],
+                )
+            )
+    return result
+
+
+def _prompt_groups(messages: list[PromptMessage]) -> list[list[PromptMessage]]:
+    """Consecutive groups that each fit the batch budget (one group unless a long message was split)."""
+    groups, current, used = [], [], 0
+    for message in messages:
+        size = len(message.content or '') + sum(len(a) for a in message.attachments) + 80
+        if current and used + size > TRACKER_BATCH_MAX_CHARS:
+            groups.append(current)
+            current, used = [], 0
+        current.append(message)
+        used += size
+    if current:
+        groups.append(current)
+    return groups
+
+
 def _watermark_before(messages: list[Message], stop: Message, fallback: int) -> int:
     earlier = [m.created_at for m in messages if m.created_at < stop.created_at]
     return max(earlier) if earlier else fallback
@@ -191,15 +230,23 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         for prompt_message in prompt_messages:
             prompt_message.attachments = attachments.get(prompt_message.id, [])
 
-        chat_messages, ref_map = build_update_messages(
-            channel.name, old_state, prompt_messages, TZ, TRACKER_MESSAGE_MAX_CHARS, time.time_ns()
-        )
-
+        archived_keys = frozenset(normalize_key(e.get('ten', '')) for e in row.archive or [])
+        today = format_time(time.time_ns(), TZ)[:10]
         started = time.monotonic()
-        update = await llm.generate_state_update(chat_messages)
-        new_state = merge_sources(update.trang_thai, old_state, ref_map)
+        state, merged_away, summaries = old_state, set(), []
+        # Usually one call; a message longer than the per-message limit is read in parts over several calls.
+        for group in _prompt_groups(_split_long(prompt_messages)):
+            chat_messages, ref_map = build_update_messages(
+                channel.name, state, group, TZ, TRACKER_MESSAGE_MAX_CHARS, time.time_ns()
+            )
+            delta = await llm.generate_state_update(chat_messages)
+            state, merged = apply_delta(state, delta, ref_map, today, archived_keys)
+            merged_away |= merged
+            if delta.tom_tat_lo:
+                summaries.append(delta.tom_tat_lo)
 
-        stored = {**new_state.model_dump(), 'schema_version': SCHEMA_VERSION}
+        link_owners(state, await channel_people(channel))
+        stored = {**state.model_dump(), 'schema_version': SCHEMA_VERSION}
         _drop_sources(stored, {f'msg:{d.get("id")}' for d in deletions})
         sources = [m.id for m in candidates]
         item = {
@@ -207,7 +254,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             'source_ids': sources,
             'period_start': min([m.created_at for m in candidates] or [time.time_ns()]),
             'period_end': max([m.created_at for m in candidates] or [time.time_ns()]),
-            'summary': update.tom_tat_lo,
+            'summary': ' '.join(summaries),
             'data': {
                 'edited_ids': [m.id for m in edited],
                 'deleted_ids': [d.get('id') for d in deletions],
@@ -223,6 +270,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             item=item,
             deletions_done=len(deletions),
             retry_after_ns=retry_after_ns,
+            merged_away=merged_away,
         )
         log.info(
             'Tracker updated channel %s with %s messages, %s deletions in %.1fs',

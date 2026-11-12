@@ -178,7 +178,8 @@ services:
       # Dùng kết nối OpenAI đầu tiên đang bật trong Admin > Cài đặt > Kết nối (sửa ở đó là áp dụng ngay).
       # Tắt nhanh: đổi thành false.
       - ENABLE_PROJECT_TRACKER=true
-      - TRACKER_MODEL=${TRACKER_MODEL:-}             # trống/sai tên = lấy model đầu tiên từ GET <URL>/models
+      - TRACKER_MODEL=${TRACKER_MODEL:-}             # vd: nai hoặc nai,gpt-4o-mini (ưu tiên theo thứ tự); dùng kết nối nào có model này
+      - TRACKER_LLM_FAILOVER=${TRACKER_LLM_FAILOVER:-true}   # kết nối lỗi thì tự chuyển sang kết nối tiếp theo
       - TRACKER_MAX_CONCURRENCY=${TRACKER_MAX_CONCURRENCY:-2}
       - TRACKER_TIMEZONE=Asia/Ho_Chi_Minh
       - TRACKER_IDLE_SECONDS=90       # kênh im lặng bao lâu thì tổng hợp

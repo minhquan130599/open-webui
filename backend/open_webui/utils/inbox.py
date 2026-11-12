@@ -66,6 +66,8 @@ async def validate_source(event_type, resource_type, resource_id, object_type, o
             and obj.calendar_id == resource_id
             and not obj.is_cancelled
         )
+    elif event_type == 'tracker.due':
+        valid = object_type == 'channel' and resource_type == 'channel' and obj.id == resource_id
     if not valid:
         raise ValueError('Notification object does not belong to resource')
 
@@ -203,6 +205,7 @@ async def visible_clause(user, db):
         ('message', 'channel_id', ['channel.mentioned', 'channel.replied']),
         ('automation_run', 'automation_id', ['automation.run_failed']),
         ('calendar_event', 'calendar_id', ['calendar.alert']),
+        ('channel', 'id', ['tracker.due']),
     ):
         model = models[kind]
         conditions = [model.id == Notification.object_id, getattr(model, parent_column) == Notification.resource_id]
