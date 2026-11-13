@@ -61,7 +61,7 @@ Lưu ý:
 | Token | Bảng người dùng × model: số lần gọi, token vào/ra. Lọc theo chat, kênh, tác vụ nền, tracker |
 | Tốc độ model | Mỗi model: thời gian ra chữ đầu (TB/p95), tổng thời gian, token/s, lỗi; biểu đồ theo giờ; các lần gọi chậm nhất |
 | Function call | Mỗi function: số lần gọi, thời gian TB/p95/lâu nhất, lỗi; bảng **function bị lỗi** kèm nội dung lỗi và tham số AI đã truyền; phân bố số function trên mỗi lượt; chi tiết từng lượt (gọi function nào, bao nhiêu lần, mất bao lâu) |
-| Kiến thức | Cách tài liệu đang được xử lý theo cấu hình thật, model đang dùng, thời gian trích xuất chữ/embedding, file vừa xử lý, các công cụ đọc kiến thức mà AI đã gọi |
+| Kiến thức | Cách tài liệu đang được xử lý theo cấu hình thật, model đang dùng, thời gian trích xuất chữ/embedding, file vừa xử lý, các công cụ đọc kiến thức mà AI đã gọi  Cuối tab có bảng **Tài liệu kiến thức: trích xuất và embedding** (file nào đủ/thiếu/chưa embedding/không có chữ); **Xem chữ** cần khóa truy xuất, **Xử lý lại** cần phiên chỉnh sửa |
 | Tracker | Số lần tổng hợp, token, thời gian, lỗi, số lần chuyển kết nối, kết nối và model đang dùng, số tin chờ |
 | Thành phần & tài nguyên | Mọi thành phần đang dùng (LLM, embedding, reranker, STT, TTS, terminal, DB, Redis, lưu file), RAM/CPU từng container, dung lượng DB, Redis, nút **Đo ngay** (cơ sở dữ liệu, Redis, kho file, embedding, reranker, trích xuất tài liệu/OCR bằng PDF mẫu, một model mỗi kết nối), **Đo tất cả model** (thử từng model chat của mọi kết nối) và **Đo nhanh** (không gọi model) |
 

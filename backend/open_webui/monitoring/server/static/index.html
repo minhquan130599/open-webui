@@ -491,7 +491,7 @@
       <div id="models-box">${modelsHtml()}</div>
       <div class="editor-groups" style="margin-top:12px">${groups}</div>
       <div id="reindex-box">${reindexHtml()}</div>
-      <div id="files-box">${filesHtml()}</div>
+      <div id="files-box">${filesHtml('admin')}</div>
       <h2 style="margin-top:14px">Lịch sử thay đổi</h2>${history}`);
   }
   const REINDEX_STEP = { starting: 'đang bắt đầu', knowledge_files: 'tạo lại vector cho file trong kho kiến thức', knowledge_search: 'tạo lại chỉ mục tìm kho kiến thức', memories: 'tạo lại vector bộ nhớ' };
@@ -640,27 +640,36 @@
   }
 
   // ---------- knowledge files: embedding coverage and extracted (OCR) text ----------
+  // One panel in the settings editor (edit session) and one on the Knowledge tab (page login; content needs the
+  // reveal key, kept in memory only; re-processing needs an open edit session).
   const FILE_STATE = {
     ok: ['ok', 'Đủ'], partial: ['warn', 'Có thể thiếu'], missing: ['err', 'Chưa embedding'], empty: ['err', 'Không có chữ'],
     failed: ['err', 'Lỗi xử lý'], text_only: ['info', 'Chỉ có chữ'], unknown: ['', 'Không rõ'],
   };
-  const files = { data: null, loading: false, filter: '', viewer: null, busy: '' };
-  async function loadFiles() {
-    files.loading = true; drawFiles();
-    try { files.data = await api('/api/admin/knowledge/files', { headers: editHeaders() }); }
-    catch (err) { files.data = { error: err.message }; }
-    files.loading = false; drawFiles();
+  const filePanels = {
+    admin: { box: 'files-box', base: '/api/admin', headers: () => editHeaders(), needKey: false, data: null, loading: false, filter: '', viewer: null, busy: '', note: '' },
+    tab: { box: 'kfiles-box', base: '/api', headers: () => (filePanels.tab.key ? { 'X-Reveal-Key': filePanels.tab.key } : {}), needKey: true, key: '', data: null, loading: false, filter: '', viewer: null, busy: '', note: '' },
+  };
+  async function loadFiles(name) {
+    const P = filePanels[name];
+    P.loading = true; drawFiles(name);
+    try { P.data = await api(`${P.base}/knowledge/files`, { headers: name === 'admin' ? P.headers() : {} }); }
+    catch (err) { P.data = { error: err.message }; }
+    P.loading = false; drawFiles(name);
   }
-  function drawFiles() { const box = $('#files-box'); if (box) box.innerHTML = filesHtml(); }
-  function filesHtml() {
-    const head = `<h2>Tài liệu kiến thức: trích xuất và embedding <button class="btn" type="button" data-files-load>${files.data ? 'Kiểm tra lại' : 'Kiểm tra tài liệu'}</button></h2>
-      <p class="muted" style="font-size:12px;margin:-4px 0 8px">Mỗi file trong kho kiến thức: đã trích xuất được bao nhiêu chữ, có bao nhiêu đoạn vector, file nào chưa embedding hoặc không đọc được. Bấm <b>Xem chữ</b> để đặt chữ trích xuất (kết quả OCR) cạnh file gốc và đánh giá độ chính xác.</p>`;
-    if (files.loading && !files.data) return `<section class="card" style="box-shadow:none;margin-top:12px">${head}<span class="spin"></span> Đang đọc…</section>`;
-    if (!files.data) return `<section class="card" style="box-shadow:none;margin-top:12px">${head}</section>`;
-    if (files.data.error) return `<section class="card" style="box-shadow:none;margin-top:12px">${head}<div class="error-box">${esc(files.data.error)}</div></section>`;
-    const d = files.data;
-    const chips = Object.entries(FILE_STATE).filter(([k]) => d.summary[k]).map(([k, [cls, label]]) => `<button type="button" class="btn" data-files-filter="${k}" aria-pressed="${files.filter === k}" style="${files.filter === k ? 'border-color:var(--text)' : ''}"><span class="pill ${cls}">${label}</span> ${n(d.summary[k])}</button>`).join(' ');
-    const list = d.files.filter((f) => !files.filter || f.state === files.filter);
+  function drawFiles(name) { const box = document.getElementById(filePanels[name].box); if (box) box.innerHTML = filesHtml(name); }
+  function filesHtml(name) {
+    const P = filePanels[name];
+    const attr = `data-panel="${name}"`;
+    const head = `<h2>Tài liệu kiến thức: trích xuất và embedding <button class="btn" type="button" data-files-load ${attr}>${P.data ? 'Kiểm tra lại' : 'Kiểm tra tài liệu'}</button></h2>
+      <p class="muted" style="font-size:12px;margin:-4px 0 8px">Mỗi file trong kho kiến thức: đã trích xuất được bao nhiêu chữ, có bao nhiêu đoạn vector, file nào chưa embedding hoặc không đọc được. Bấm <b>Xem chữ</b> để đặt chữ trích xuất (kết quả OCR) cạnh file gốc và đánh giá độ chính xác${P.needKey ? ' (cần khóa truy xuất)' : ''}.</p>`;
+    const wrap = (body) => `<section class="card" style="${name === 'admin' ? 'box-shadow:none;' : ''}margin-top:12px">${head}${body}</section>`;
+    if (P.loading && !P.data) return wrap('<span class="spin"></span> Đang đọc…');
+    if (!P.data) return wrap('');
+    if (P.data.error) return wrap(`<div class="error-box">${esc(P.data.error)}</div>`);
+    const d = P.data;
+    const chips = Object.entries(FILE_STATE).filter(([k]) => d.summary[k]).map(([k, [cls, label]]) => `<button type="button" class="btn" data-files-filter="${k}" ${attr} aria-pressed="${P.filter === k}" style="${P.filter === k ? 'border-color:var(--text)' : ''}"><span class="pill ${cls}">${label}</span> ${n(d.summary[k])}</button>`).join(' ');
+    const list = d.files.filter((f) => !P.filter || f.state === P.filter);
     const rows = table([
       { label: 'Kho', render: (f) => esc(f.kb_name) },
       { label: 'File', render: (f) => `<b>${esc(f.filename)}</b><div class="muted" style="font-size:11px">${esc(f.content_type || '')}</div>` },
@@ -668,17 +677,29 @@
       { label: 'Ký tự', num: true, render: (f) => n(f.chars) },
       { label: 'Đoạn vector', num: true, render: (f) => (f.kb_chunks === null ? '—' : n(f.kb_chunks)) },
       { label: 'Trạng thái', render: (f) => `<span class="pill ${FILE_STATE[f.state][0]}">${FILE_STATE[f.state][1]}</span><div class="muted" style="font-size:11px;max-width:300px">${esc(f.note)}</div>` },
-      { label: '', render: (f) => `<span style="display:flex;gap:4px"><button class="btn" type="button" data-file-view="${esc(f.id)}">Xem chữ</button><button class="btn" type="button" data-file-reprocess="${esc(f.id)}" ${files.busy === f.id ? 'disabled' : ''}>${files.busy === f.id ? 'Đang xử lý…' : 'Xử lý lại'}</button></span>` },
+      { label: '', render: (f) => `<span style="display:flex;gap:4px"><button class="btn" type="button" data-file-view="${esc(f.id)}" ${attr}>Xem chữ</button><button class="btn" type="button" data-file-reprocess="${esc(f.id)}" ${attr} ${P.busy === f.id ? 'disabled' : ''} title="${name === 'tab' && !editor.token ? 'Cần mở Chỉnh sửa cấu hình (khóa + mã Authenticator) ở tab Thành phần & tài nguyên' : 'Trích xuất và embedding lại file này'}">${P.busy === f.id ? 'Đang xử lý…' : 'Xử lý lại'}</button></span>` },
     ], list, 'Không có file nào.');
-    return `<section class="card" style="box-shadow:none;margin-top:12px">${head}
+    return wrap(`
       <div class="muted" style="font-size:12px;margin-bottom:8px">${d.bypass ? 'Đang <b>bỏ qua embedding</b>: file chỉ có chữ, không có vector.' : `Model embedding: <b>${esc(d.embedding_model || '')}</b> · đoạn ${n(d.chunk_size)} ký tự`} · ${n(d.files.length)} file</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${chips}${files.filter ? ' <button class="btn" type="button" data-files-filter="">Tất cả</button>' : ''}</div>
+      ${P.note ? `<div class="notice info" style="margin-bottom:8px">${esc(P.note)}</div>` : ''}
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${chips}${P.filter ? ` <button class="btn" type="button" data-files-filter="" ${attr}>Tất cả</button>` : ''}</div>
       ${rows}
-      <div id="file-viewer">${viewerHtml()}</div></section>`;
+      <div id="file-viewer-${name}">${viewerHtml(name)}</div>`);
   }
-  function viewerHtml() {
-    const v = files.viewer;
+  function viewerHtml(name) {
+    const P = filePanels[name];
+    const v = P.viewer;
+    const attr = `data-panel="${name}"`;
     if (!v) return '';
+    if (v.askKey) {
+      return `<form class="reveal-files-form" ${attr} data-id="${esc(v.id)}" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+          <span class="muted" style="font-size:12.5px">Nội dung tài liệu được ẩn. Nhập khóa truy xuất để xem.</span>
+          <input class="btn files-key" type="password" autocomplete="off" placeholder="Khóa truy xuất" style="min-width:220px">
+          <button class="btn primary" type="submit">Xem chữ</button>
+          <button class="btn" type="button" data-viewer-close ${attr}>Hủy</button>
+          ${v.error ? `<span class="error-box">${esc(v.error)}</span>` : ''}
+        </form>`;
+    }
     if (v.loading) return '<div style="margin-top:10px"><span class="spin"></span> Đang tải chữ trích xuất và file gốc…</div>';
     if (v.error) return `<div class="error-box" style="margin-top:10px">${esc(v.error)}</div>`;
     const t = v.text;
@@ -691,26 +712,51 @@
     return `<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
       <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center">
         <div><b>${esc(t.filename)}</b> <span class="muted" style="font-size:12px">· ${n(t.chars)} ký tự · ${n((t.chunks || []).length)} đoạn vector${t.error ? ` · <span style="color:var(--red)">${esc(t.error)}</span>` : ''}</span></div>
-        <span style="display:flex;gap:6px"><span class="seg"><button type="button" data-viewer-mode="text" aria-pressed="${v.mode !== 'chunks'}">Toàn bộ chữ</button><button type="button" data-viewer-mode="chunks" aria-pressed="${v.mode === 'chunks'}">Theo đoạn vector</button></span><button class="btn" type="button" data-viewer-close>Đóng</button></span>
+        <span style="display:flex;gap:6px"><span class="seg"><button type="button" data-viewer-mode="text" ${attr} aria-pressed="${v.mode !== 'chunks'}">Toàn bộ chữ</button><button type="button" data-viewer-mode="chunks" ${attr} aria-pressed="${v.mode === 'chunks'}">Theo đoạn vector</button></span><button class="btn" type="button" data-viewer-close ${attr}>Đóng</button></span>
       </div>
       <div class="viewer"><div><div class="muted" style="font-size:12px;margin-bottom:4px">File gốc</div>${original}</div><div><div class="muted" style="font-size:12px;margin-bottom:4px">Chữ engine trích xuất được (dùng để đánh giá độ chính xác OCR)</div>${right}</div></div></div>`;
   }
-  async function openViewer(id) {
-    if (files.viewer?.url) URL.revokeObjectURL(files.viewer.url);
-    files.viewer = { loading: true }; drawFiles();
+  async function openViewer(name, id) {
+    const P = filePanels[name];
+    if (P.viewer?.url) URL.revokeObjectURL(P.viewer.url);
+    if (P.needKey && !P.key) { P.viewer = { askKey: true, id }; drawFiles(name); return; }
+    P.viewer = { loading: true }; drawFiles(name);
     const v = { mode: 'text' };
-    try { v.text = await api(`/api/admin/files/${encodeURIComponent(id)}/text`, { headers: editHeaders() }); }
-    catch (err) { files.viewer = { error: err.message }; drawFiles(); return; }
+    try { v.text = await api(`${P.base}/files/${encodeURIComponent(id)}/text`, { headers: P.headers() }); }
+    catch (err) {
+      if (P.needKey && /Khóa|khóa|429/.test(err.message)) { P.key = ''; P.viewer = { askKey: true, id, error: err.message }; }
+      else P.viewer = { error: err.message };
+      drawFiles(name); return;
+    }
     try {
-      const res = await fetch(`/api/admin/files/${encodeURIComponent(id)}/original`, { headers: editHeaders(), credentials: 'same-origin' });
+      const res = await fetch(`${P.base}/files/${encodeURIComponent(id)}/original`, { headers: P.headers(), credentials: 'same-origin' });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`);
       const blob = await res.blob();
       v.type = blob.type || v.text.content_type || '';
       v.url = URL.createObjectURL(blob);
     } catch (err) { v.originalError = err.message; }
-    files.viewer = v; drawFiles();
-    const el = $('#file-viewer'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    P.viewer = v; drawFiles(name);
+    const el = document.getElementById(`file-viewer-${name}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+  async function reprocessFile(name, id) {
+    const P = filePanels[name];
+    if (!editor.token) { P.note = 'Xử lý lại cần phiên chỉnh sửa: vào tab Thành phần & tài nguyên → Chỉnh sửa cấu hình, xác thực bằng khóa và mã Google Authenticator, rồi bấm lại.'; drawFiles(name); return; }
+    if (!confirm('Trích xuất và embedding lại file này bằng engine và model hiện tại?')) return;
+    P.busy = id; drawFiles(name);
+    try { const r = await api(`/api/admin/files/${encodeURIComponent(id)}/reprocess`, { method: 'POST', headers: editHeaders() }); P.note = `Đã xử lý lại: ${n(r.chars)} ký tự, ${n(r.knowledge_bases)} kho, ${ms(r.ms)}.`; }
+    catch (err) { P.note = `Xử lý lại thất bại: ${err.message}`; }
+    P.busy = ''; await loadFiles(name);
+    if (P.viewer && P.viewer.text && P.viewer.text.id === id) await openViewer(name, id);
+  }
+  document.addEventListener('submit', async (e) => {
+    if (!e.target.classList || !e.target.classList.contains('reveal-files-form')) return;
+    e.preventDefault();
+    const name = e.target.dataset.panel;
+    const key = e.target.querySelector('.files-key').value;
+    if (!key) return;
+    filePanels[name].key = key;
+    await openViewer(name, e.target.dataset.id);
+  });
 
   async function saveGroup(group) {
     const box = document.querySelector(`[data-group="${group}"]`);
@@ -932,7 +978,8 @@
         { label: 'Ký tự', num: true, render: (r) => n((r.meta || {}).chars) },
         { label: 'Trích xuất', num: true, render: (r) => ms((r.meta || {}).extract_ms) },
         { label: 'Embedding', num: true, render: (r) => ((r.meta || {}).bypass ? '<span class="muted">bỏ qua</span>' : ms((r.meta || {}).embed_ms)) },
-      ], d.ingest, 'Chưa có file nào được xử lý trong khoảng này.'))}`;
+      ], d.ingest, 'Chưa có file nào được xử lý trong khoảng này.'))}
+      <div id="kfiles-box">${filesHtml('tab')}</div>${filePanels.tab.data || filePanels.tab.loading ? '' : (setTimeout(() => loadFiles('tab')), '')}`;
   }
 
   async function renderTracker() {
@@ -1079,7 +1126,7 @@
   function schedule() {
     clearInterval(timer);
     // Skip a refresh while the viewer is typing (search, reveal key), so the input is not wiped.
-    if ($('#auto').checked) timer = setInterval(() => document.visibilityState === 'visible' && !document.activeElement?.matches('input, select') && !(tab === 'system' && editor.open) && load(), 30000);
+    if ($('#auto').checked) timer = setInterval(() => document.visibilityState === 'visible' && !document.activeElement?.matches('input, select') && !(tab === 'system' && editor.open) && !(tab === 'knowledge' && filePanels.tab.viewer) && load(), 30000);
   }
 
   document.addEventListener('input', (e) => {
@@ -1094,20 +1141,12 @@
     if (!b) return;
     if (b.dataset.openEditor !== undefined) { if (editor.open) { editor.open = false; drawEditor(); } else { await openEditor(); } return; }
     if (b.dataset.saveGroup) { await saveGroup(b.dataset.saveGroup); return; }
-    if (b.dataset.filesLoad !== undefined) { await loadFiles(); return; }
-    if (b.dataset.filesFilter !== undefined) { files.filter = b.dataset.filesFilter; drawFiles(); return; }
-    if (b.dataset.fileView) { await openViewer(b.dataset.fileView); return; }
-    if (b.dataset.viewerMode) { files.viewer.mode = b.dataset.viewerMode; drawFiles(); return; }
-    if (b.dataset.viewerClose !== undefined) { if (files.viewer?.url) URL.revokeObjectURL(files.viewer.url); files.viewer = null; drawFiles(); return; }
-    if (b.dataset.fileReprocess) {
-      if (!confirm('Trích xuất và embedding lại file này bằng engine và model hiện tại?')) return;
-      files.busy = b.dataset.fileReprocess; drawFiles();
-      try { const r = await api(`/api/admin/files/${encodeURIComponent(files.busy)}/reprocess`, { method: 'POST', headers: editHeaders() }); editor.note = `Đã xử lý lại: ${n(r.chars)} ký tự, ${n(r.knowledge_bases)} kho, ${ms(r.ms)}.`; editor.error = ''; }
-      catch (err) { editor.error = err.message; }
-      files.busy = ''; await loadFiles();
-      const id = b.dataset.fileReprocess; if (files.viewer && files.viewer.text && files.viewer.text.id === id) await openViewer(id);
-      return;
-    }
+    if (b.dataset.filesLoad !== undefined) { await loadFiles(b.dataset.panel); return; }
+    if (b.dataset.filesFilter !== undefined) { filePanels[b.dataset.panel].filter = b.dataset.filesFilter; drawFiles(b.dataset.panel); return; }
+    if (b.dataset.fileView) { await openViewer(b.dataset.panel, b.dataset.fileView); return; }
+    if (b.dataset.viewerMode) { filePanels[b.dataset.panel].viewer.mode = b.dataset.viewerMode; drawFiles(b.dataset.panel); return; }
+    if (b.dataset.viewerClose !== undefined) { const P = filePanels[b.dataset.panel]; if (P.viewer?.url) URL.revokeObjectURL(P.viewer.url); P.viewer = null; drawFiles(b.dataset.panel); return; }
+    if (b.dataset.fileReprocess) { await reprocessFile(b.dataset.panel, b.dataset.fileReprocess); return; }
     if (b.dataset.testExtraction !== undefined) { b.disabled = true; await testExtraction(); b.disabled = false; return; }
     if (b.dataset.modelPublic) {
       const toPublic = b.dataset.to === '1';

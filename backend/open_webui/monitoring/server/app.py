@@ -571,9 +571,9 @@ def _client(request: Request) -> str:
     return forwarded or (request.client.host if request.client else '?')
 
 
-@app.post('/api/trace/{message_id}/content', dependencies=[Depends(require_login)])
-async def trace_content(message_id: str, request: Request):
-    """The user's question and the answer of one message, for whoever knows the reveal key."""
+def check_reveal(request: Request, what: str) -> str:
+    """Require the reveal key (X-Reveal-Key) to read content; wrong keys lock the client out for a while.
+    Returns the client address."""
     if not REVEAL_KEY:
         raise HTTPException(
             503, 'Chưa đặt MONITOR_REVEAL_KEY (hoặc MONITOR_API_KEY) nên không truy xuất được nội dung.'
@@ -588,9 +588,16 @@ async def trace_content(message_id: str, request: Request):
     key = request.headers.get('x-reveal-key', '')
     if not key or not hmac.compare_digest(key, REVEAL_KEY):
         recent.append(now)
-        log.warning('Monitor: wrong reveal key from %s for message %s', client, message_id)
+        log.warning('Monitor: wrong reveal key from %s for %s', client, what)
         raise HTTPException(403, f'Khóa không đúng (còn {REVEAL_MAX_FAILURES - len(recent)} lần thử).')
     _reveal_failures.pop(client, None)
+    return client
+
+
+@app.post('/api/trace/{message_id}/content', dependencies=[Depends(require_login)])
+async def trace_content(message_id: str, request: Request):
+    """The user's question and the answer of one message, for whoever knows the reveal key."""
+    client = check_reveal(request, f'message {message_id}')
     found = await rows(
         'SELECT chat_id FROM perf_event WHERE message_id = :m AND chat_id IS NOT NULL LIMIT 1', m=message_id
     )

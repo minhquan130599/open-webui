@@ -786,6 +786,16 @@ def _file_status(row: dict, bypass: bool, chunk_size: int, overlap: int) -> tupl
 
 @router.get('/api/admin/knowledge/files')
 async def knowledge_files(token: str = Depends(require_session)):
+    return await knowledge_files_data()
+
+
+@router.get('/api/knowledge/files')
+async def knowledge_files_public():
+    """Same list on the Knowledge tab (page login only): names and numbers, no document content."""
+    return await knowledge_files_data()
+
+
+async def knowledge_files_data() -> dict:
     async with _engine().connect() as conn:
         settings = await _get(
             conn, ['rag.bypass_embedding_and_retrieval', 'rag.chunk_size', 'rag.chunk_overlap', 'rag.embedding_model']
@@ -834,6 +844,18 @@ async def knowledge_files(token: str = Depends(require_session)):
 
 @router.get('/api/admin/files/{file_id}/text')
 async def file_text(file_id: str, request: Request, token: str = Depends(require_session)):
+    return await file_text_data(file_id, _client(request))
+
+
+@router.get('/api/files/{file_id}/text')
+async def file_text_reveal(file_id: str, request: Request):
+    """Knowledge tab: the extracted text, for whoever knows the reveal key."""
+    from open_webui.monitoring.server.app import check_reveal
+
+    return await file_text_data(file_id, check_reveal(request, f'file {file_id}'))
+
+
+async def file_text_data(file_id: str, client: str) -> dict:
     """The text the extraction engine produced for a file, and its chunks in the vector store."""
     async with _engine().connect() as conn:
         row = (
@@ -870,7 +892,7 @@ async def file_text(file_id: str, request: Request, token: str = Depends(require
                     )
         except Exception:
             chunks = []
-    log.info('Monitor admin: %s viewed extracted text of file %s', _client(request), file_id)
+    log.info('Monitor: %s viewed extracted text of file %s', client, file_id)
     content = row.content or ''
     return {
         'id': row.id,
@@ -887,6 +909,18 @@ async def file_text(file_id: str, request: Request, token: str = Depends(require
 
 @router.get('/api/admin/files/{file_id}/original')
 async def file_original(file_id: str, token: str = Depends(require_session)):
+    return await file_original_response(file_id)
+
+
+@router.get('/api/files/{file_id}/original')
+async def file_original_reveal(file_id: str, request: Request):
+    from open_webui.monitoring.server.app import check_reveal
+
+    check_reveal(request, f'file {file_id} (original)')
+    return await file_original_response(file_id)
+
+
+async def file_original_response(file_id: str):
     import aiohttp
     from fastapi.responses import Response
 
