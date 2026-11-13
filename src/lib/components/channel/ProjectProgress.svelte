@@ -62,6 +62,7 @@
 	let filter: Filter = 'all';
 	let busy = false;
 	let menuFor: string | null = null;
+	let menuUp = false;
 	// Progress bars grow from zero once per opened channel.
 	let barsReady = false;
 	// Pending confirmation: cancel one item, or close every completed item.
@@ -650,14 +651,20 @@
 													aria-haspopup="menu"
 													aria-expanded={menuFor === item.id}
 													disabled={busy}
-													on:click|stopPropagation={() =>
-														(menuFor = menuFor === item.id ? null : item.id)}
+													on:click|stopPropagation={(e) => {
+														menuUp =
+															e.currentTarget.getBoundingClientRect().bottom >
+															window.innerHeight - 120;
+														menuFor = menuFor === item.id ? null : item.id;
+													}}
 												>
 													<EllipsisHorizontal className="size-4" />
 												</button>
 												{#if menuFor === item.id}
 													<div
-														class="absolute right-0 top-7 z-20 flex min-w-36 flex-col rounded-xl border border-gray-100 bg-white p-1 shadow-lg dark:border-gray-800 dark:bg-gray-900"
+														class="absolute right-0 {menuUp
+															? 'bottom-7'
+															: 'top-7'} z-30 flex min-w-36 flex-col rounded-xl border border-gray-100 bg-white p-1 shadow-lg dark:border-gray-800 dark:bg-gray-900"
 														role="menu"
 														transition:slide={{ duration: 120 }}
 													>

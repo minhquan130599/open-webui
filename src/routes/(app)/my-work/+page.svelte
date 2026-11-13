@@ -135,6 +135,7 @@
 	let filter: WorkBucket | null = null;
 	let showDone: Record<string, boolean> = {};
 	let menuFor: string | null = null;
+	let menuUp = false;
 	let busy = false;
 	let barsReady = false;
 	let pendingCancel: MyWorkItem | null = null;
@@ -380,13 +381,18 @@
 						aria-haspopup="menu"
 						aria-expanded={menuFor === key}
 						disabled={busy}
-						on:click|stopPropagation={() => (menuFor = menuFor === key ? null : key)}
+						on:click|stopPropagation={(e) => {
+							menuUp = e.currentTarget.getBoundingClientRect().bottom > window.innerHeight - 120;
+							menuFor = menuFor === key ? null : key;
+						}}
 					>
 						<EllipsisHorizontal className="size-4" />
 					</button>
 					{#if menuFor === key}
 						<div
-							class="absolute right-0 top-8 z-20 flex min-w-44 flex-col rounded-xl border border-gray-100 bg-white p-1 shadow-lg dark:border-gray-800 dark:bg-gray-900"
+							class="absolute right-0 {menuUp
+								? 'bottom-8'
+								: 'top-8'} z-30 flex min-w-44 flex-col rounded-xl border border-gray-100 bg-white p-1 shadow-lg dark:border-gray-800 dark:bg-gray-900"
 							role="menu"
 							transition:slide={{ duration: 120 }}
 						>
@@ -449,12 +455,10 @@
 	{@const orphans = items.filter(isOrphan)}
 	{@const key = `${channel.id}:__none__`}
 	{#if channel.can_manage && orphans.length}
-		<div
-			class="mt-2 overflow-hidden rounded-xl border border-dashed border-amber-400 dark:border-amber-700"
-		>
+		<div class="mt-2 rounded-xl border border-dashed border-amber-400 dark:border-amber-700">
 			<button
 				type="button"
-				class="grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-2.5 text-left hover:bg-amber-50/60 dark:hover:bg-amber-950/20"
+				class="grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2.5 rounded-xl px-3 py-2.5 text-left hover:bg-amber-50/60 dark:hover:bg-amber-950/20"
 				aria-expanded={!!openMember[key]}
 				on:click={() => (openMember = { ...openMember, [key]: !openMember[key] })}
 			>
@@ -637,11 +641,11 @@
 							{@const openItems = items.filter((i) => i.bucket !== 'done')}
 							{@const avg = average(items)}
 							<section
-								class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900"
+								class="rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900"
 							>
 								<button
 									type="button"
-									class="grid w-full grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3.5 text-left transition hover:bg-gray-50 dark:hover:bg-gray-850/60"
+									class="grid w-full grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl px-4 py-3.5 text-left transition hover:bg-gray-50 dark:hover:bg-gray-850/60"
 									aria-expanded={!!open[channel.id]}
 									on:click={() => (open = { ...open, [channel.id]: !open[channel.id] })}
 								>
@@ -771,12 +775,10 @@
 												{@const key = `${channel.id}:${member.key}`}
 												{@const memberOpen = member.items.filter((i) => i.bucket !== 'done')}
 												{@const memberAvg = average(member.items)}
-												<div
-													class="mt-2 overflow-hidden rounded-xl border border-gray-100 dark:border-gray-800"
-												>
+												<div class="mt-2 rounded-xl border border-gray-100 dark:border-gray-800">
 													<button
 														type="button"
-														class="grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-850/60"
+														class="grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2.5 rounded-xl px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-850/60"
 														aria-expanded={!!openMember[key]}
 														on:click={() =>
 															(openMember = { ...openMember, [key]: !openMember[key] })}
