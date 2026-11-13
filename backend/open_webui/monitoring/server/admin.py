@@ -27,7 +27,7 @@ MAX_FAILURES = 5
 LOCK_SECONDS = 600
 VERSION_KEY = 'monitor.config_version'
 
-# key, label, type (text | secret | bool | int | select), group, help, options
+# key, label, type (text | secret | bool | int | select | list), group, help, options
 SETTINGS: list[dict[str, Any]] = [
     # Tracker (database values override .env)
     {'key': 'tracker.model', 'label': 'Model ưu tiên', 'type': 'text', 'group': 'tracker',
@@ -60,12 +60,30 @@ SETTINGS: list[dict[str, Any]] = [
     {'key': 'rag.external_reranker_url', 'label': 'URL reranker', 'type': 'text', 'group': 'reranker', 'help': 'URL đầy đủ, vd https://<pod>-8000.proxy.runpod.net/v1/rerank'},
     {'key': 'rag.external_reranker_api_key', 'label': 'Khóa API reranker', 'type': 'secret', 'group': 'reranker'},
     {'key': 'rag.top_k_reranker', 'label': 'Số đoạn giữ lại sau rerank', 'type': 'int', 'group': 'reranker', 'min': 1, 'max': 100},
-    # Document extraction
-    {'key': 'rag.content_extraction_engine', 'label': 'Công cụ trích xuất', 'type': 'select', 'group': 'extraction',
-     'options': [['', 'Có sẵn (pypdf, python-docx, unstructured)'], ['tika', 'Apache Tika'], ['docling', 'Docling'], ['mistral_ocr', 'Mistral OCR'], ['external', 'Dịch vụ ngoài']]},
-    {'key': 'rag.tika_server_url', 'label': 'URL Tika', 'type': 'text', 'group': 'extraction'},
-    {'key': 'rag.docling_server_url', 'label': 'URL Docling', 'type': 'text', 'group': 'extraction'},
-    {'key': 'rag.pdf_extract_images', 'label': 'Đọc chữ trong ảnh của PDF', 'type': 'bool', 'group': 'extraction'},
+    # Document extraction (same settings as Admin > Settings > Documents > Content extraction)
+    {'key': 'rag.content_extraction_engine', 'label': 'Engine trích xuất nội dung', 'type': 'select', 'group': 'extraction',
+     'help': 'Cách đọc chữ từ tài liệu tải lên. Mặc định = thư viện có sẵn trong NCS AI (pypdf, docx2txt, unstructured).',
+     'options': [['', 'Mặc định (thư viện có sẵn)'], ['docling', 'Docling'], ['tika', 'Apache Tika'],
+                 ['mistral_ocr', 'Mistral OCR'], ['document_intelligence', 'Azure Document Intelligence'],
+                 ['datalab_marker', 'Datalab Marker'], ['mineru', 'MinerU'], ['paddleocr_vl', 'PaddleOCR-VL'],
+                 ['external', 'Dịch vụ ngoài (External)']]},
+    {'key': 'rag.content_extraction.supported_media_mime_types', 'label': 'Các loại MIME phương tiện được hỗ trợ', 'type': 'list',
+     'group': 'extraction',
+     'help': 'Ảnh/video engine trên xử lý được, cách nhau bởi dấu phẩy, vd image/*, video/*. Chỉ có tác dụng khi engine không phải Mặc định. Trống = không trích xuất ảnh (riêng engine External thì nhận mọi loại).'},
+    {'key': 'rag.pdf_extract_images', 'label': 'Trích xuất ảnh từ PDF (OCR)', 'type': 'bool', 'group': 'extraction',
+     'help': 'OCR ảnh trong PDF bằng RapidOCR trên CPU: chậm, tiếng Việt hay mất dấu. PDF scan tiếng Việt nên dùng Docling/Mistral OCR.'},
+    {'key': 'rag.pdf_loader_mode', 'label': 'Chế độ trình tải PDF', 'type': 'select', 'group': 'extraction',
+     'help': 'Trang: mỗi trang một tài liệu (giữ số trang khi trích dẫn). Đơn: nối các trang để chia đoạn vượt qua ranh giới trang.',
+     'options': [['page', 'Trang'], ['single', 'Đơn']]},
+    {'key': 'rag.docling_server_url', 'label': 'URL Docling', 'type': 'text', 'group': 'extraction', 'help': 'vd http://docling:5001'},
+    {'key': 'rag.docling_api_key', 'label': 'Khóa API Docling', 'type': 'secret', 'group': 'extraction'},
+    {'key': 'rag.tika_server_url', 'label': 'URL Tika', 'type': 'text', 'group': 'extraction', 'help': 'vd http://tika:9998'},
+    {'key': 'rag.mistral_ocr_api_base_url', 'label': 'URL Mistral OCR', 'type': 'text', 'group': 'extraction'},
+    {'key': 'rag.mistral_ocr_api_key', 'label': 'Khóa API Mistral OCR', 'type': 'secret', 'group': 'extraction'},
+    {'key': 'rag.document_intelligence_endpoint', 'label': 'Endpoint Azure Document Intelligence', 'type': 'text', 'group': 'extraction'},
+    {'key': 'rag.document_intelligence_key', 'label': 'Khóa Azure Document Intelligence', 'type': 'secret', 'group': 'extraction'},
+    {'key': 'rag.external_document_loader_url', 'label': 'URL dịch vụ trích xuất ngoài', 'type': 'text', 'group': 'extraction'},
+    {'key': 'rag.external_document_loader_api_key', 'label': 'Khóa dịch vụ trích xuất ngoài', 'type': 'secret', 'group': 'extraction'},
     # Speech to text
     {'key': 'audio.stt.engine', 'label': 'Engine nhận dạng giọng nói', 'type': 'select', 'group': 'stt',
      'options': [['', 'Local (faster-whisper)'], ['openai', 'API dạng OpenAI'], ['web', 'Trình duyệt'], ['deepgram', 'Deepgram'], ['azure', 'Azure']]},
@@ -104,7 +122,11 @@ GROUPS = [
         'Đổi engine/model xong phải bấm "Lập chỉ mục lại" trong Cài đặt quản trị → Tài liệu.',
     ),
     ('reranker', 'Kiến thức: reranker', 'Chỉ dùng khi bật Tìm kiếm kết hợp và tắt Bỏ qua embedding.'),
-    ('extraction', 'Trích xuất tài liệu', ''),
+    (
+        'extraction',
+        'Trích xuất tài liệu',
+        'Áp dụng cho tài liệu tải lên sau khi lưu. Tài liệu cũ muốn đọc lại bằng engine mới thì bấm Lập chỉ mục lại.',
+    ),
     ('stt', 'Nhận dạng giọng nói (STT)', ''),
     ('tts', 'Đọc văn bản (TTS)', ''),
     ('web', 'Tìm kiếm web', ''),
@@ -273,6 +295,12 @@ def _coerce(setting: dict, value: Any) -> Any:
         if (low is not None and number < low) or (high is not None and number > high):
             raise HTTPException(400, f'{setting["label"]}: phải trong khoảng {low}–{high}')
         return number
+    if kind == 'list':
+        items = value if isinstance(value, list) else str(value or '').split(',')
+        items = [str(i).strip() for i in items if str(i).strip()]
+        if any(len(i) > 200 or ' ' in i for i in items):
+            raise HTTPException(400, f'{setting["label"]}: mỗi giá trị cách nhau bởi dấu phẩy, không chứa khoảng trắng')
+        return items or None
     value = '' if value is None else str(value).strip()
     if kind == 'select' and value not in [o[0] for o in setting.get('options', [])]:
         raise HTTPException(400, f'{setting["label"]}: giá trị không hợp lệ')
