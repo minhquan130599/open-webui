@@ -35,6 +35,7 @@ from langchain_text_splitters import (
     RecursiveCharacterTextSplitter,
     TokenTextSplitter,
 )
+from open_webui.monitoring import recorder as perf
 from open_webui.config import (
     Config,
     DEFAULT_LOCALE,
@@ -1767,7 +1768,9 @@ async def index_file(
                         'file_content_type': file.meta.get('content_type'),
                         'client_ip': request.client.host if request.client else '',
                     }
+                    extract_timer = perf.Timer()
                     docs = await loader.aload(file.filename, file.meta.get('content_type'), file_path)
+                    perf_extract_ms = extract_timer.stop()
 
                     docs = [
                         Document(
@@ -1806,7 +1809,30 @@ async def index_file(
             )
             hash = calculate_sha256_string(text_content)
 
+            perf_ingest = {
+                'source': 'knowledge' if form_data.collection_name else 'upload',
+                'user_id': getattr(user, 'id', None),
+                'name': file.filename,
+                'chat_id': form_data.collection_name,
+                'meta': {
+                    'file_id': file.id,
+                    'content_type': (file.meta or {}).get('content_type'),
+                    'size': (file.meta or {}).get('size'),
+                    'chars': len(text_content),
+                    'pages': len(docs) if 'docs' in locals() else None,
+                    'engine': config.get('rag.content_extraction_engine') or 'mặc định (pypdf/docx/unstructured)',
+                    'extract_ms': locals().get('perf_extract_ms'),
+                    'bypass': bool(config['rag.bypass_embedding_and_retrieval']),
+                },
+            }
+
             if config['rag.bypass_embedding_and_retrieval']:
+                perf.record(
+                    'ingest',
+                    ts=perf.now_ms() - (perf_ingest['meta']['extract_ms'] or 0),
+                    duration_ms=perf_ingest['meta']['extract_ms'],
+                    **perf_ingest,
+                )
                 await Files.update_file_hash_by_id(file.id, hash, db=db)
                 await publish_event(
                     request,
@@ -1835,6 +1861,7 @@ async def index_file(
                     # which blocks the calling thread.  We MUST run it in a
                     # worker thread to avoid deadlocking the event loop.
                     result = True
+                    embed_timer = perf.Timer()
                     for name in collection_names:
                         result = await run_in_threadpool(
                             save_docs_to_vector_db,
@@ -1851,6 +1878,18 @@ async def index_file(
                             user=user,
                         )
                     log.info('added %s items to collection %s', len(docs), collection_name)
+                    embed_ms = embed_timer.stop()
+                    perf_ingest['meta'].update(
+                        embed_ms=embed_ms,
+                        embedding_engine=config.get('rag.embedding_engine') or 'sentence-transformers (local)',
+                        embedding_model=config.get('rag.embedding_model'),
+                    )
+                    perf.record(
+                        'ingest',
+                        ts=embed_timer.ts - (perf_ingest['meta']['extract_ms'] or 0),
+                        duration_ms=(perf_ingest['meta']['extract_ms'] or 0) + embed_ms,
+                        **perf_ingest,
+                    )
 
                     if result:
                         # Fresh session for the final update.

@@ -18,6 +18,7 @@ from langchain_classic.retrievers import (
     EnsembleRetriever,
 )
 from langchain_core.documents import Document
+from open_webui.monitoring import recorder as perf
 from open_webui.config import (
     RAG_EMBEDDING_PREFIX_FIELD_NAME,
     VECTOR_DB,
@@ -702,6 +703,7 @@ async def query_collection(
         'rag.hybrid_bm25_weight',
         'rag.enable_hybrid_search_enriched_texts',
     )
+    rag_timer = perf.Timer()
     # When request is provided, try hybrid search + reranking if enabled
     if request and config.get('rag.enable_hybrid_search'):
         try:
@@ -710,7 +712,7 @@ async def query_collection(
                 if request.app.state.RERANKING_FUNCTION
                 else None
             )
-            return await query_collection_with_hybrid_search(
+            hybrid = await query_collection_with_hybrid_search(
                 collection_names=collection_names,
                 queries=queries,
                 embedding_function=embedding_function,
@@ -721,6 +723,21 @@ async def query_collection(
                 hybrid_bm25_weight=config.get('rag.hybrid_bm25_weight'),
                 enable_enriched_texts=config.get('rag.enable_hybrid_search_enriched_texts'),
             )
+            perf.record(
+                'rag',
+                ts=rag_timer.ts,
+                source='hybrid',
+                user_id=getattr(user, 'id', None),
+                duration_ms=rag_timer.stop(),
+                count=len((hybrid.get('documents') or [[]])[0]),
+                meta={
+                    'collections': len(collection_names),
+                    'queries': len(queries),
+                    'k': k,
+                    'reranker': bool(reranking_function),
+                },
+            )
+            return hybrid
         except Exception as e:
             log.debug('Hybrid search failed, falling back to vector search: %s', e)
 
@@ -750,7 +767,10 @@ async def query_collection(
         return {'distances': [[]], 'documents': [[]], 'metadatas': [[]]}
 
     # Generate all query embeddings (in one call)
+    embed_timer = perf.Timer()
     query_embeddings = await embedding_function(queries, prefix=config['rag.embedding_query_prefix'])
+    embed_ms = embed_timer.stop()
+    search_timer = perf.Timer()
     log.debug('query_collection: processing %s queries across %s collections', len(queries), len(collection_names))
 
     task_results = await asyncio.gather(
@@ -776,7 +796,24 @@ async def query_collection(
             exc_info=last_error,
         )
 
-    return merge_and_sort_query_results(results, k=k)
+    merged = merge_and_sort_query_results(results, k=k)
+    perf.record(
+        'rag',
+        ts=rag_timer.ts,
+        source='vector',
+        user_id=getattr(user, 'id', None),
+        status='error' if failed_collection_names and not results else 'ok',
+        duration_ms=rag_timer.stop(),
+        count=len((merged.get('documents') or [[]])[0]),
+        meta={
+            'embed_ms': embed_ms,
+            'search_ms': search_timer.stop(),
+            'collections': len(collection_names),
+            'queries': len(queries),
+            'k': k,
+        },
+    )
+    return merged
 
 
 async def query_collection_with_hybrid_search(

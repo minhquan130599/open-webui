@@ -9,6 +9,7 @@ import aiohttp
 from pydantic import ValidationError
 
 from open_webui.models.config import Config
+from open_webui.monitoring import recorder as perf
 from open_webui.tracker.config import (
     TRACKER_DISABLE_THINKING,
     TRACKER_GUIDED_JSON,
@@ -148,6 +149,7 @@ async def _post(session: aiohttp.ClientSession, payload: dict) -> tuple[int, dic
         headers = {'Content-Type': 'application/json'}
         if endpoint.key:
             headers['Authorization'] = f'Bearer {endpoint.key}'
+        timer = perf.Timer()
         try:
             async with session.post(
                 f'{endpoint.url}/chat/completions',
@@ -157,7 +159,10 @@ async def _post(session: aiohttp.ClientSession, payload: dict) -> tuple[int, dic
                 status, text = response.status, await response.text()
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             status, text = 0, f'{type(e).__name__}: {e}'
-        if status == 0 or status in _FAILOVER_STATUSES or status >= 500:
+        timer.stop()
+        failed = status == 0 or status in _FAILOVER_STATUSES or status >= 500
+        _record(endpoint, model, timer, status, text, failover=index > 0, failed=failed)
+        if failed:
             errors.append(f'{endpoint.name} ({model}): {status or "no response"} {text[:200]}')
             _down_until[endpoint.url] = time.monotonic() + TRACKER_LLM_COOLDOWN
             _model_cache.pop(endpoint.url, None)  # it may come back with another model list
@@ -179,6 +184,29 @@ async def _post(session: aiohttp.ClientSession, payload: dict) -> tuple[int, dic
         except Exception:
             return status, text
     raise TrackerLLMError('No LLM connection to try')
+
+
+def _record(endpoint: Endpoint, model: str, timer, status: int, text: str, failover: bool, failed: bool) -> None:
+    """One tracker LLM call for the monitor: endpoint, model, duration, tokens, failover."""
+    usage = {}
+    if not failed:
+        try:
+            usage = (JSONCodec.loads(text) or {}).get('usage') or {}
+        except Exception:
+            usage = {}
+    perf.record(
+        'tracker',
+        ts=timer.ts,
+        source='tracker',
+        model_id=model,
+        name=endpoint.name,
+        status='error' if failed or status >= 400 else 'ok',
+        duration_ms=timer.ms,
+        input_tokens=usage.get('prompt_tokens'),
+        output_tokens=usage.get('completion_tokens'),
+        meta={'url': endpoint.url, 'http_status': status, 'failover': failover}
+        | ({'error': text[:300]} if failed else {}),
+    )
 
 
 def extract_json(text: str) -> dict:

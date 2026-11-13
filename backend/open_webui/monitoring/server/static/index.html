@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NCS AI Monitor</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --raised: #f2f3f6; --line: #e5e7eb; --line-strong: #d1d5db;
+    --text: #111827; --muted: #6b7280; --faint: #9ca3af;
+    --blue: #2563eb; --blue-soft: #e8efff; --green: #16a34a; --green-soft: #e7f6ec;
+    --red: #dc2626; --red-soft: #fdecec; --amber: #d97706; --amber-soft: #fdf3e2;
+    --violet: #7c3aed; --cyan: #0891b2; --pink: #db2777;
+    --shadow: 0 1px 2px rgba(17,24,39,.05), 0 6px 18px rgba(17,24,39,.05);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e0f11; --panel: #17181b; --raised: #1f2125; --line: #2a2d32; --line-strong: #3a3e45;
+      --text: #e8eaed; --muted: #a0a6b0; --faint: #6b7280;
+      --blue: #60a5fa; --blue-soft: #16233f; --green: #4ade80; --green-soft: #12301f;
+      --red: #f87171; --red-soft: #3a1717; --amber: #fbbf24; --amber-soft: #3a2a0c;
+      --violet: #a78bfa; --cyan: #22d3ee; --pink: #f472b6;
+      --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e0f11; --panel: #17181b; --raised: #1f2125; --line: #2a2d32; --line-strong: #3a3e45;
+    --text: #e8eaed; --muted: #a0a6b0; --faint: #6b7280;
+    --blue: #60a5fa; --blue-soft: #16233f; --green: #4ade80; --green-soft: #12301f;
+    --red: #f87171; --red-soft: #3a1717; --amber: #fbbf24; --amber-soft: #3a2a0c;
+    --violet: #a78bfa; --cyan: #22d3ee; --pink: #f472b6;
+    --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button, select, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  header { position: sticky; top: 0; z-index: 10; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .bar { max-width: 1320px; margin: 0 auto; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+  .brand { font-weight: 650; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+  .brand small { color: var(--muted); font-weight: 400; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .seg { display: inline-flex; padding: 2px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); }
+  .seg button { border: 0; background: transparent; padding: 4px 10px; border-radius: 8px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.12); font-weight: 550; }
+  .btn { border: 1px solid var(--line); background: var(--panel); border-radius: 9px; padding: 5px 11px; font-size: 12.5px; cursor: pointer; }
+  .btn:hover { border-color: var(--line-strong); }
+  .btn.primary { background: var(--text); color: var(--panel); border-color: var(--text); }
+  nav.tabs { max-width: 1320px; margin: 0 auto; padding: 0 16px; display: flex; gap: 2px; overflow-x: auto; }
+  nav.tabs button { border: 0; background: transparent; padding: 9px 12px; font-size: 13px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+  nav.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); font-weight: 550; }
+  main { max-width: 1320px; margin: 0 auto; padding: 18px 16px 48px; display: grid; gap: 16px; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+  .cols { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+  @media (max-width: 520px) { .cols { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; box-shadow: var(--shadow); min-width: 0; }
+  .card h2 { font-size: 13.5px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .card h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .kpi .label { font-size: 12px; color: var(--muted); }
+  .kpi .value { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .kpi .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  th { text-align: left; color: var(--muted); font-weight: 550; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; cursor: default; }
+  th.sort { cursor: pointer; }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  .pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+  .ok { background: var(--green-soft); color: var(--green); }
+  .err { background: var(--red-soft); color: var(--red); }
+  .warn { background: var(--amber-soft); color: var(--amber); }
+  .info { background: var(--blue-soft); color: var(--blue); }
+  .muted { color: var(--muted); }
+  .chip { display: inline-flex; gap: 4px; align-items: center; font-size: 11.5px; padding: 1px 7px; border-radius: 7px; background: var(--raised); border: 1px solid var(--line); margin: 1px 3px 1px 0; white-space: nowrap; }
+  .chip b { font-weight: 600; }
+  .meter { height: 6px; border-radius: 999px; background: var(--raised); overflow: hidden; min-width: 80px; }
+  .meter > div { height: 100%; border-radius: inherit; background: var(--blue); }
+  svg.chart { width: 100%; height: 190px; display: block; }
+  svg.chart text { fill: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+  svg.chart .grid line { stroke: var(--line); }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .flow { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); counter-reset: step; }
+  .step { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--raised); position: relative; }
+  .step b { display: block; font-size: 13px; margin-bottom: 3px; }
+  .step span { font-size: 12px; color: var(--muted); }
+  .step.off { opacity: .55; }
+  .step.off b::after { content: " (đang tắt)"; font-weight: 400; color: var(--muted); }
+  .notice { border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.5; }
+  .notice.warn { border: 1px solid var(--amber); }
+  .notice.info { border: 1px solid var(--blue); }
+  .kv { display: grid; grid-template-columns: minmax(140px, max-content) 1fr; gap: 4px 14px; font-size: 12.5px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; overflow-wrap: anywhere; }
+  .empty { color: var(--muted); font-size: 13px; padding: 14px 0; text-align: center; }
+  .error-box { color: var(--red); font-size: 13px; }
+  .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line-strong); border-top-color: var(--text); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand"><span class="dot" id="live-dot"></span> NCS AI Monitor <small id="updated">đang tải…</small></div>
+    <div class="controls">
+      <div class="seg" role="group" aria-label="Khoảng thời gian" id="ranges"></div>
+      <label class="muted" style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="checkbox" id="auto" checked> Tự làm mới 30 giây</label>
+      <button class="btn" id="refresh" type="button">Làm mới</button>
+      <div class="seg" role="group" aria-label="Giao diện" id="themes"></div>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+</header>
+<main id="main"><div class="empty"><span class="spin"></span> Đang tải…</div></main>
+
+<script>
+(() => {
+  const TABS = [
+    ['overview', 'Tổng quan'], ['tokens', 'Token'], ['models', 'Tốc độ model'], ['tools', 'Function call'],
+    ['knowledge', 'Kiến thức'], ['tracker', 'Tracker'], ['system', 'Thành phần & tài nguyên'],
+  ];
+  const RANGES = [['1h', '1 giờ'], ['24h', '24 giờ'], ['7d', '7 ngày'], ['30d', '30 ngày'], ['90d', '90 ngày']];
+  const SOURCE = { chat: 'Chat', channel: 'Kênh', task: 'Tác vụ nền', api: 'API', tracker: 'Tracker', upload: 'Tải lên chat', knowledge: 'Kho kiến thức' };
+  const COLORS = ['var(--blue)', 'var(--violet)', 'var(--green)', 'var(--amber)', 'var(--pink)', 'var(--cyan)', 'var(--red)'];
+  const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { return null; } };
+  let tab = (location.hash || '').slice(1) || store('mon.tab') || 'overview';
+  if (!TABS.some(([k]) => k === tab)) tab = 'overview';
+  let range = store('mon.range') || '24h';
+  let timer = null;
+  let tokenSource = '';
+  let toolFilter = '';
+  const $ = (s) => document.querySelector(s);
+  const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const nf = new Intl.NumberFormat('vi-VN');
+  const n = (v) => (v === null || v === undefined ? '—' : nf.format(Math.round(v)));
+  const ms = (v) => (v === null || v === undefined ? '—' : v < 1000 ? `${Math.round(v)} ms` : `${(v / 1000).toLocaleString('vi-VN', { maximumFractionDigits: v < 10000 ? 2 : 1 })} s`);
+  const tok = (v) => { if (v === null || v === undefined) return '—'; if (v >= 1e6) return `${(v / 1e6).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} tr`; if (v >= 1e3) return `${(v / 1e3).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} K`; return nf.format(Math.round(v)); };
+  const bytes = (v) => { if (!v && v !== 0) return '—'; const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; } return `${v.toLocaleString('vi-VN', { maximumFractionDigits: i > 1 ? 1 : 0 })} ${u[i]}`; };
+  const pct = (a, b) => (b ? `${((a / b) * 100).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}%` : '—');
+  const when = (t) => new Date(t).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+  const status = (s) => (s === 'ok' ? '<span class="pill ok">OK</span>' : `<span class="pill err">${esc(s || 'lỗi')}</span>`);
+  const yes = (v) => (v ? '<span class="pill ok">Bật</span>' : '<span class="pill">Tắt</span>');
+
+  async function api(path, opts = {}) {
+    const res = await fetch(path, { credentials: 'same-origin', ...opts });
+    if (!res.ok) { let d = ''; try { d = (await res.json()).detail; } catch {} throw new Error(d || `HTTP ${res.status}`); }
+    return res.json();
+  }
+
+  // ---------- charts (plain SVG) ----------
+  function lineChart(series, { format = (v) => v, bucket = 0 } = {}) {
+    const W = 640, H = 190, L = 52, R = 10, T = 10, B = 24;
+    const pts = series.flatMap((s) => s.points);
+    if (!pts.length) return '<div class="empty">Chưa có dữ liệu trong khoảng này.</div>';
+    const xs = pts.map((p) => p[0]); let x0 = Math.min(...xs), x1 = Math.max(...xs);
+    if (x0 === x1) { x0 -= bucket || 60000; x1 += bucket || 60000; }
+    const ymax = Math.max(...pts.map((p) => p[1] || 0)) * 1.1 || 1;
+    const X = (x) => L + ((x - x0) / (x1 - x0)) * (W - L - R);
+    const Y = (y) => T + (1 - (y || 0) / ymax) * (H - T - B);
+    let g = '<g class="grid">';
+    for (let i = 0; i <= 4; i++) { const y = T + (i / 4) * (H - T - B); g += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text x="${L - 6}" y="${y + 3}" text-anchor="end">${esc(format((ymax * (4 - i)) / 4))}</text>`; }
+    for (let i = 0; i <= 4; i++) { const x = x0 + (i / 4) * (x1 - x0); g += `<text x="${X(x)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === 4 ? 'end' : 'middle'}">${esc(when(x))}</text>`; }
+    g += '</g>';
+    const lines = series.map((s, i) => {
+      const color = s.color || COLORS[i % COLORS.length];
+      const sorted = [...s.points].sort((a, b) => a[0] - b[0]);
+      const d = sorted.map((p, j) => `${j ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join('');
+      const area = s.area && sorted.length > 1 ? `<path d="${d}L${X(sorted.at(-1)[0])},${H - B}L${X(sorted[0][0])},${H - B}Z" fill="${color}" opacity=".1"/>` : '';
+      const dots = sorted.length < 40 ? sorted.map((p) => `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="2.4" fill="${color}"><title>${esc(when(p[0]))}: ${esc(format(p[1]))}</title></circle>`).join('') : '';
+      return `${area}<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>${dots}`;
+    }).join('');
+    const legend = series.length > 1 ? `<div class="legend">${series.map((s, i) => `<span><i style="background:${s.color || COLORS[i % COLORS.length]}"></i>${esc(s.name)}</span>`).join('')}</div>` : '';
+    return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img">${g}${lines}</svg>${legend}`;
+  }
+  function bars(items, { format = n, color = 'var(--blue)' } = {}) {
+    if (!items.length) return '<div class="empty">Chưa có dữ liệu.</div>';
+    const max = Math.max(...items.map((i) => i.value || 0)) || 1;
+    return `<div style="display:grid;gap:6px">${items.map((i) => `<div style="display:grid;grid-template-columns:minmax(90px,30%) 1fr auto;gap:8px;align-items:center;font-size:12.5px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(i.label)}">${esc(i.label)}</span><div class="meter"><div style="width:${((i.value || 0) / max) * 100}%;background:${i.color || color}"></div></div><span class="num" style="font-variant-numeric:tabular-nums">${esc(format(i.value))}</span></div>`).join('')}</div>`;
+  }
+  const kpi = (label, value, sub = '') => `<div class="card kpi"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
+  const card = (title, body, note = '') => `<section class="card"><h2>${title}${note ? `<small>${note}</small>` : ''}</h2>${body}</section>`;
+  function table(cols, rows, empty = 'Chưa có dữ liệu.') {
+    if (!rows.length) return `<div class="empty">${empty}</div>`;
+    return `<div class="table-wrap"><table><thead><tr>${cols.map((c) => `<th class="${c.num ? 'num' : ''}">${c.label}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td class="${c.num ? 'num' : ''}">${c.render ? c.render(r) : esc(r[c.key] ?? '—')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  }
+  const statCols = [
+    { label: 'Số lần', num: true, render: (r) => n(r.count) },
+    { label: 'TB', num: true, render: (r) => ms(r.avg_ms) },
+    { label: 'p50', num: true, render: (r) => ms(r.p50_ms) },
+    { label: 'p95', num: true, render: (r) => ms(r.p95_ms) },
+    { label: 'Lỗi', num: true, render: (r) => (r.errors ? `<span style="color:var(--red)">${n(r.errors)} (${pct(r.errors, r.count)})</span>` : '0') },
+  ];
+
+  // ---------- tabs ----------
+  async function renderOverview() {
+    const d = await api(`/api/overview?range=${range}`);
+    const r = d.responses, c = d.calls;
+    const series = d.series;
+    return `<div class="grid">
+        ${kpi('Lượt trả lời', n(r.count), `${n(r.users)} người dùng`)}
+        ${kpi('Thời gian trả lời TB', ms(r.avg_ms), `p95 ${ms(r.p95_ms)}`)}
+        ${kpi('Ra chữ đầu tiên TB', ms(c.avg_ttft), `p95 ${ms(c.p95_ttft)}`)}
+        ${kpi('Tốc độ sinh TB', c.tokens_per_second ? `${n(c.tokens_per_second)} token/s` : '—', `${n(c.count)} lần gọi model`)}
+        ${kpi('Token vào / ra', `${tok(c.input_tokens)} / ${tok(c.output_tokens)}`, 'tất cả model')}
+        ${kpi('Function call', n(r.tool_calls), r.count ? `TB ${(r.tool_calls / r.count || 0).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} / lượt` : '')}
+        ${kpi('Tỷ lệ lỗi', pct((r.errors || 0) + (c.errors || 0), (r.count || 0) + (c.count || 0)), `${n((r.errors || 0) + (c.errors || 0))} lỗi`)}
+      </div>
+      <div class="cols">
+        ${card('Số lượt trả lời', lineChart([{ name: 'Lượt trả lời', points: series.map((p) => [p.t, p.responses]), area: true }], { format: n, bucket: d.bucket }))}
+        ${card('Thời gian', lineChart([
+          { name: 'Trả lời xong (TB)', points: series.filter((p) => p.avg_ms !== null).map((p) => [p.t, p.avg_ms]) },
+          { name: 'Ra chữ đầu tiên (TB)', points: series.filter((p) => p.avg_ttft !== null).map((p) => [p.t, p.avg_ttft]), color: 'var(--violet)' },
+        ], { format: ms, bucket: d.bucket }))}
+        ${card('Token theo thời gian', lineChart([{ name: 'Token', points: series.map((p) => [p.t, p.tokens || 0]), area: true, color: 'var(--green)' }], { format: tok, bucket: d.bucket }))}
+        ${card('Theo nguồn', bars(d.by_source.map((s, i) => ({ label: `${SOURCE[s.source] || s.source} · ${n(s.calls)} lần`, value: s.tokens, color: COLORS[i % COLORS.length] })), { format: tok }), 'token')}
+      </div>`;
+  }
+
+  async function renderTokens() {
+    const d = await api(`/api/tokens?range=${range}${tokenSource ? `&source=${tokenSource}` : ''}`);
+    const users = {};
+    for (const r of d.matrix) {
+      const u = (users[r.user_id || '—'] ||= { name: r.user_name, email: r.email, input: 0, output: 0, calls: 0, models: [] });
+      u.input += r.input_tokens; u.output += r.output_tokens; u.calls += r.calls; u.models.push(r);
+    }
+    const list = Object.values(users).sort((a, b) => b.input + b.output - (a.input + a.output));
+    const filters = [['', 'Tất cả'], ['chat', 'Chat'], ['channel', 'Kênh'], ['task', 'Tác vụ nền'], ['tracker', 'Tracker'], ['api', 'API']];
+    return `${d.calls_without_usage ? `<div class="notice warn">${n(d.calls_without_usage)} lần gọi model không có số token (model/provider không trả về <code>usage</code>), nên tổng token có thể thấp hơn thực tế.</div>` : ''}
+      <div class="seg" role="group" aria-label="Nguồn">${filters.map(([k, l]) => `<button type="button" data-source="${k}" aria-pressed="${tokenSource === k}">${l}</button>`).join('')}</div>
+      <div class="cols">
+        ${card('Người dùng nhiều token nhất', bars(list.slice(0, 12).map((u) => ({ label: u.name, value: u.input + u.output })), { format: tok }))}
+        ${card('Theo model', bars(Object.entries(d.matrix.reduce((m, r) => ((m[r.model_id || '—'] = (m[r.model_id || '—'] || 0) + r.input_tokens + r.output_tokens), m), {})).sort((a, b) => b[1] - a[1]).map(([k, v], i) => ({ label: k, value: v, color: COLORS[i % COLORS.length] })), { format: tok }))}
+      </div>
+      ${card('Token theo người dùng × model', table([
+        { label: 'Người dùng', render: (r) => `<b>${esc(r.user_name)}</b>${r.email ? `<div class="muted">${esc(r.email)}</div>` : ''}` },
+        { label: 'Model', render: (r) => esc(r.model_id || '—') },
+        { label: 'Lần gọi', num: true, render: (r) => n(r.calls) },
+        { label: 'Token vào', num: true, render: (r) => tok(r.input_tokens) },
+        { label: 'Token ra', num: true, render: (r) => tok(r.output_tokens) },
+        { label: 'Tổng', num: true, render: (r) => `<b>${tok(r.input_tokens + r.output_tokens)}</b>` },
+      ], d.matrix), 'chat, kênh, tác vụ nền và tracker')}`;
+  }
+
+  async function renderModels() {
+    const d = await api(`/api/models?range=${range}`);
+    const byModel = {};
+    for (const p of d.series) (byModel[p.model_id || '—'] ||= []).push(p);
+    const names = Object.keys(byModel).slice(0, 6);
+    return `${card('Tốc độ từng model', table([
+        { label: 'Model', render: (r) => `<b>${esc(r.model_id || '—')}</b><div class="muted">${esc(r.endpoint || '')}</div>` },
+        { label: 'Lần gọi', num: true, render: (r) => n(r.count) },
+        { label: 'Ra chữ đầu TB', num: true, render: (r) => ms(r.avg_ttft) },
+        { label: 'Ra chữ đầu p95', num: true, render: (r) => ms(r.p95_ttft) },
+        { label: 'Tổng thời gian TB', num: true, render: (r) => ms(r.avg_ms) },
+        { label: 'p95', num: true, render: (r) => ms(r.p95_ms) },
+        { label: 'Tốc độ sinh', num: true, render: (r) => (r.tokens_per_second ? `${n(r.tokens_per_second)} token/s` : '—') },
+        { label: 'Lỗi', num: true, render: (r) => (r.errors ? `<span style="color:var(--red)">${n(r.errors)}</span>` : '0') },
+      ], d.models), 'mỗi lần gọi model, gồm cả các vòng gọi tool')}
+      <div class="cols">
+        ${card('Ra chữ đầu tiên theo thời gian', lineChart(names.map((m) => ({ name: m, points: byModel[m].filter((p) => p.avg_ttft !== null).map((p) => [p.t, p.avg_ttft]) })), { format: ms, bucket: d.bucket }))}
+        ${card('Tốc độ sinh theo thời gian', lineChart(names.map((m) => ({ name: m, points: byModel[m].filter((p) => p.tokens_per_second !== null).map((p) => [p.t, p.tokens_per_second]) })), { format: (v) => `${n(v)} t/s`, bucket: d.bucket }))}
+      </div>
+      ${card('Lần gọi chậm nhất', table([
+        { label: 'Lúc', render: (r) => when(r.ts) },
+        { label: 'Model', key: 'model_id' },
+        { label: 'Nguồn', render: (r) => SOURCE[r.source] || esc(r.source) },
+        { label: 'Người dùng', render: (r) => esc(r.user_name || '—') },
+        { label: 'Ra chữ đầu', num: true, render: (r) => ms(r.ttft_ms) },
+        { label: 'Tổng', num: true, render: (r) => ms(r.duration_ms) },
+        { label: 'Token ra', num: true, render: (r) => n(r.output_tokens) },
+        { label: 'Trạng thái', render: (r) => status(r.status) + (r.error ? `<div class="muted">${esc(r.error)}</div>` : '') },
+      ], d.slowest))}`;
+  }
+
+  async function renderTools() {
+    const d = await api(`/api/tools?range=${range}${toolFilter ? `&name=${encodeURIComponent(toolFilter)}` : ''}`);
+    return `<div class="cols">
+        ${card('Function được gọi nhiều nhất', bars(d.tools.slice(0, 14).map((t) => ({ label: t.name, value: t.count })), { format: n }))}
+        ${card('Số function call mỗi lượt trả lời', bars(d.distribution.map((x) => ({ label: x.calls >= 10 ? '10+ lần' : `${x.calls} lần`, value: x.responses, color: 'var(--violet)' })), { format: (v) => `${n(v)} lượt` }))}
+      </div>
+      ${card('Thời gian chạy từng function', table([
+        { label: 'Function', render: (r) => `<button class="btn" type="button" data-tool="${esc(r.name)}" title="Lọc các lượt có function này">${esc(r.name)}</button>` },
+        ...statCols,
+        { label: 'Lâu nhất', num: true, render: (r) => ms(r.max_ms) },
+        { label: 'Số lượt dùng', num: true, render: (r) => n(r.responses) },
+      ], d.tools), 'bấm tên để lọc bảng dưới')}
+      ${card(`Chi tiết từng lượt trả lời${toolFilter ? ` · ${esc(toolFilter)} <button class="btn" type="button" data-tool="">Bỏ lọc</button>` : ''}`, table([
+        { label: 'Lúc', render: (r) => when(r.ts) },
+        { label: 'Người dùng', render: (r) => esc(r.user_name || '—') },
+        { label: 'Model', render: (r) => esc(r.model_id || '—') },
+        { label: 'Nguồn', render: (r) => SOURCE[r.source] || esc(r.source) },
+        { label: 'Function đã gọi', render: (r) => Object.entries(r.tools || {}).map(([k, v]) => `<span class="chip" title="${v.errors ? `${v.errors} lỗi` : ''}"><b>${esc(k)}</b> ×${v.count} · ${ms(v.ms)}${v.errors ? ' <span style="color:var(--red)">!</span>' : ''}</span>`).join('') },
+        { label: 'Tổng thời gian', num: true, render: (r) => ms(r.duration_ms) },
+        { label: 'Token', num: true, render: (r) => tok((r.input_tokens || 0) + (r.output_tokens || 0)) },
+      ], d.recent, 'Chưa có lượt nào dùng function call.'), '100 lượt gần nhất')}`;
+  }
+
+  function knowledgeFlow(s) {
+    const bypass = !!s['rag.bypass_embedding_and_retrieval'];
+    const engine = s['rag.content_extraction_engine'] || '';
+    const extractor = engine ? engine : 'thư viện có sẵn (pypdf cho PDF, python-docx cho Word, unstructured/pandas cho Excel, PowerPoint)';
+    const emb = `${s['rag.embedding_engine'] || 'sentence-transformers (chạy ngay trong container NCS AI, CPU)'} · ${s['rag.embedding_model'] || '—'}`;
+    const steps = [
+      [true, '1. Tải file lên', `Lưu file gốc vào kho lưu trữ (RustFS/S3). Giới hạn ${n(s['rag.file.max_size'])} MB/file.`],
+      [true, '2. Trích xuất văn bản', `Công cụ: ${esc(extractor)}. Toàn bộ chữ được lưu vào cơ sở dữ liệu (cột nội dung của file).`],
+      [!bypass, '3. Chia đoạn', `Bộ chia ${esc(s['rag.text_splitter'] || 'character')}, mỗi đoạn ${n(s['rag.chunk_size'])} ký tự, chồng lấn ${n(s['rag.chunk_overlap'])}.`],
+      [!bypass, '4. Tạo embedding & lưu vector', `Model ${esc(emb)} → lưu vào ${esc((window.__infra || {}).vector_db || 'vector DB')}.`],
+      [true, '5. Khi người dùng hỏi', bypass
+        ? 'AI tự gọi công cụ đọc kiến thức: liệt kê file, tìm theo tên, tìm dòng chứa từ khóa (grep), đọc từng phần file (view_file). Không có tìm kiếm theo ngữ nghĩa.'
+        : `Câu hỏi được tạo embedding → tìm ${n(s['rag.top_k'])} đoạn gần nhất${s['rag.enable_hybrid_search'] ? ` kết hợp BM25, rerank bằng ${esc(s['rag.reranking_model'] || '—')}` : ''} → đưa vào prompt.`],
+    ];
+    return `<div class="flow">${steps.map(([on, t, d]) => `<div class="step${on ? '' : ' off'}"><b>${t}</b><span>${d}</span></div>`).join('')}</div>`;
+  }
+
+  async function renderKnowledge() {
+    const d = await api(`/api/knowledge?range=${range}`);
+    const st = d.status || {};
+    const s = st.settings || {};
+    window.__infra = st.infra || {};
+    const bypass = !!s['rag.bypass_embedding_and_retrieval'];
+    const loaded = st.loaded || {};
+    const notice = st.error
+      ? `<div class="notice warn">Không lấy được cấu hình từ NCS AI: ${esc(st.error)}</div>`
+      : bypass
+        ? `<div class="notice warn"><b>Đang bật "Bỏ qua embedding và truy xuất" (Upload nhanh).</b> File tải lên chỉ được trích xuất chữ, không chia đoạn, không tạo embedding, không ghi vào vector DB. Khi hỏi, AI đọc kiến thức bằng các công cụ liệt kê/tìm theo tên/grep/đọc file. Công cụ <code>query_knowledge_files</code> (tìm theo ngữ nghĩa) sẽ không tìm thấy gì trong chế độ này.${loaded.embedding_model ? ` Model embedding <code>${esc(s['rag.embedding_model'])}</code> vẫn được nạp vào RAM dù không dùng.` : ''}</div>`
+        : '<div class="notice info">Đang dùng truy xuất theo ngữ nghĩa: file được chia đoạn, tạo embedding và lưu vào vector DB; khi hỏi, hệ thống tìm các đoạn liên quan nhất.</div>';
+    const ist = d.ingest_stats || {}, rt = d.retrieval || {}, tt = d.totals || {};
+    return `${notice}
+      ${card('Cách tài liệu kiến thức đang được xử lý', knowledgeFlow(s), 'theo cấu hình hiện tại')}
+      <div class="grid">
+        ${kpi('Kho kiến thức', n(tt.knowledge_bases), `${n(tt.knowledge_files)} file trong kho`)}
+        ${kpi('Tổng file đã tải', n(tt.files), `${tok(tt.stored_chars)} ký tự đã trích xuất`)}
+        ${kpi('File xử lý trong kỳ', n(ist.count), ist.count ? `TB ${tok(ist.avg_chars)} ký tự/file` : '')}
+        ${kpi('Trích xuất chữ TB', ms(ist.avg_extract_ms), `p95 tổng ${ms(ist.p95_ms)}`)}
+        ${kpi('Tạo embedding TB', bypass ? 'Không dùng' : ms(ist.avg_embed_ms), bypass ? 'đang bỏ qua' : '')}
+        ${kpi('Truy xuất khi hỏi', rt.count ? ms(rt.avg_ms) : (bypass ? 'Không dùng' : '—'), rt.count ? `embedding ${ms(rt.avg_embed_ms)} · tìm ${ms(rt.avg_search_ms)}` : '')}
+      </div>
+      <div class="cols">
+        ${card('Model và cấu hình', `<dl class="kv">
+          <dt>Trích xuất văn bản</dt><dd>${esc(s['rag.content_extraction_engine'] || 'Mặc định (pypdf, python-docx, unstructured)')}</dd>
+          <dt>PDF</dt><dd>chế độ ${esc(s['rag.pdf_loader_mode'] || 'page')}, trích ảnh: ${s['rag.pdf_extract_images'] ? 'có' : 'không'}</dd>
+          <dt>Bỏ qua embedding</dt><dd>${yes(bypass)}</dd>
+          <dt>Embedding</dt><dd>${esc(s['rag.embedding_engine'] || 'sentence-transformers (local)')} · <code>${esc(s['rag.embedding_model'] || '—')}</code> ${loaded.embedding_model ? '<span class="pill info">đã nạp RAM</span>' : '<span class="pill">chưa nạp</span>'}</dd>
+          <dt>Reranker</dt><dd>${esc(s['rag.reranking_model'] || 'không dùng')} ${loaded.reranker ? '<span class="pill info">đã nạp RAM</span>' : ''}</dd>
+          <dt>Tìm kiếm kết hợp (BM25)</dt><dd>${yes(s['rag.enable_hybrid_search'])}</dd>
+          <dt>Chia đoạn</dt><dd>${n(s['rag.chunk_size'])} ký tự, chồng lấn ${n(s['rag.chunk_overlap'])}</dd>
+          <dt>Top K</dt><dd>${n(s['rag.top_k'])} (rerank ${n(s['rag.top_k_reranker'])})</dd>
+          <dt>Vector DB</dt><dd>${esc((st.infra || {}).vector_db || '—')}</dd>
+          <dt>Giới hạn file</dt><dd>${n(s['rag.file.max_size'])} MB${s['rag.file.max_count'] ? `, tối đa ${n(s['rag.file.max_count'])} file/lần` : ''}</dd>
+        </dl>`)}
+        ${card('Công cụ đọc kiến thức AI đã dùng', table([
+          { label: 'Công cụ', render: (r) => `<code>${esc(r.name)}</code>` }, ...statCols,
+        ], d.tools, 'Chưa có lần nào AI đọc kiến thức trong khoảng này.'))}
+      </div>
+      ${card('File đã xử lý gần đây', table([
+        { label: 'Lúc', render: (r) => when(r.ts) },
+        { label: 'File', render: (r) => `<b>${esc(r.name)}</b><div class="muted">${esc((r.meta || {}).content_type || '')}</div>` },
+        { label: 'Nơi tải', render: (r) => SOURCE[r.source] || esc(r.source) },
+        { label: 'Người tải', render: (r) => esc(r.user_name || '—') },
+        { label: 'Kích thước', num: true, render: (r) => bytes((r.meta || {}).size) },
+        { label: 'Ký tự', num: true, render: (r) => n((r.meta || {}).chars) },
+        { label: 'Trích xuất', num: true, render: (r) => ms((r.meta || {}).extract_ms) },
+        { label: 'Embedding', num: true, render: (r) => ((r.meta || {}).bypass ? '<span class="muted">bỏ qua</span>' : ms((r.meta || {}).embed_ms)) },
+      ], d.ingest, 'Chưa có file nào được xử lý trong khoảng này.'))}`;
+  }
+
+  async function renderTracker() {
+    const d = await api(`/api/tracker?range=${range}`);
+    const ch = d.channels || {};
+    const total = d.endpoints.reduce((a, e) => ({ calls: a.calls + e.count, tokens: a.tokens + e.input_tokens + e.output_tokens, errors: a.errors + e.errors, failovers: a.failovers + e.failovers }), { calls: 0, tokens: 0, errors: 0, failovers: 0 });
+    return `<div class="grid">
+        ${kpi('Kênh đang theo dõi', n(ch.channels), `${n(ch.running)} đang tổng hợp`)}
+        ${kpi('Tin chờ tổng hợp', n(ch.pending), ch.failing ? `<span style="color:var(--red)">${n(ch.failing)} kênh đang lỗi</span>` : 'không có kênh lỗi')}
+        ${kpi('Lần gọi model', n(total.calls), `${tok(total.tokens)} token`)}
+        ${kpi('Lỗi / chuyển kết nối', `${n(total.errors)} / ${n(total.failovers)}`, '')}
+        ${kpi('Tổng hợp gần nhất', ch.last_processed ? when(ch.last_processed / 1e6) : '—', '')}
+      </div>
+      ${card('Theo kết nối và model', table([
+        { label: 'Kết nối', render: (r) => `<b>${esc(r.endpoint)}</b><div class="muted">${esc(r.url || '')}</div>` },
+        { label: 'Model', key: 'model_id' }, ...statCols,
+        { label: 'Token vào/ra', num: true, render: (r) => `${tok(r.input_tokens)} / ${tok(r.output_tokens)}` },
+        { label: 'Chuyển kết nối', num: true, render: (r) => n(r.failovers) },
+      ], d.endpoints, 'Tracker chưa gọi model trong khoảng này.'))}
+      <div class="cols">
+        ${card('Số lần gọi và thời gian', lineChart([
+          { name: 'Lần gọi', points: d.series.map((p) => [p.t, p.calls]), area: true },
+          { name: 'Lỗi', points: d.series.map((p) => [p.t, p.errors]), color: 'var(--red)' },
+        ], { format: n }))}
+        ${card('Lỗi gần đây', table([
+          { label: 'Lúc', render: (r) => when(r.ts) }, { label: 'Kết nối', key: 'endpoint' }, { label: 'HTTP', key: 'http_status' },
+          { label: 'Chi tiết', render: (r) => `<span class="muted">${esc(r.error || '')}</span>` },
+        ], d.errors, 'Không có lỗi.'))}
+      </div>`;
+  }
+
+  let probeResult = null;
+  async function renderSystem() {
+    const d = await api('/api/system');
+    const st = d.status || {};
+    const s = st.settings || {};
+    const c = st.container || {};
+    const loaded = st.loaded || {};
+    const tr = st.tracker || {};
+    const conns = st.openai_connections || [];
+    const components = [
+      ['Model chat (LLM)', conns.filter((x) => x.enabled).map((x) => `Kết nối #${x.index}: ${esc(x.url)}${x.model_ids.length ? ` · ${esc(x.model_ids.join(', '))}` : ''}`).join('<br>') || 'Chưa có kết nối', 'Cloud / RunPod', null],
+      ['Model tác vụ nền (tiêu đề, gợi ý)', esc(s['task.model.external'] || s['task.model.default'] || 'giống model đang chat'), 'theo kết nối', null],
+      ['Tracker tiến độ', `${tr.enabled ? 'Bật' : 'Tắt'} · model ưu tiên: ${esc(tr.model || 'tự chọn')} · ${tr.last_used ? `đang dùng ${esc(tr.last_used.model)} @ ${esc(tr.last_used.url)}` : 'chưa gọi lần nào kể từ khi khởi động'}`, 'theo kết nối', null],
+      ['Embedding (kiến thức)', `${esc(s['rag.embedding_engine'] || 'sentence-transformers')} · ${esc(s['rag.embedding_model'] || '—')}${s['rag.bypass_embedding_and_retrieval'] ? ' · <span class="pill warn">không dùng (đang bỏ qua)</span>' : ''}`, s['rag.embedding_engine'] ? 'API' : 'Local (CPU, trong container NCS AI)', loaded.embedding_model],
+      ['Reranker', esc(s['rag.reranking_model'] || 'không dùng'), 'Local', loaded.reranker],
+      ['Trích xuất tài liệu', esc(s['rag.content_extraction_engine'] || 'thư viện có sẵn (pypdf, python-docx, unstructured)'), 'Local', null],
+      ['Nhận dạng giọng nói (STT)', `${esc(s['audio.stt.engine'] || 'faster-whisper')} · ${esc(s['audio.stt.model'] || s['audio.stt.whisper_model'] || '—')}`, s['audio.stt.engine'] ? 'API' : 'Local (nạp khi dùng lần đầu)', loaded.whisper],
+      ['Đọc văn bản (TTS)', `${esc(s['audio.tts.engine'] || 'trình duyệt')} ${esc(s['audio.tts.model'] || '')}`, s['audio.tts.engine'] ? 'API' : 'Trình duyệt người dùng', loaded.tts_local],
+      ['Tạo ảnh', s['image_generation.enable'] ? `${esc(s['image_generation.engine'])} · ${esc(s['image_generation.model'] || '')}` : 'Tắt', 'API', null],
+      ['Chạy code (Code interpreter)', s['code_interpreter.enable'] ? esc(s['code_interpreter.engine']) : 'Tắt', 'Trình duyệt / Jupyter', null],
+      ['Terminal (tạo file Word/Excel/PDF)', (st.terminals || []).map((t) => `${esc(t.name)} (${esc(t.url)}) ${t.enabled ? '' : '· tắt'}`).join('<br>') || 'Chưa cấu hình', 'Container riêng', null],
+      ['Cơ sở dữ liệu', esc((st.infra || {}).database || '—'), 'Container postgres', null],
+      ['Vector DB', esc((st.infra || {}).vector_db || '—'), 'Trong PostgreSQL (pgvector)', null],
+      ['Lưu file', esc((st.infra || {}).storage || '—'), 'Container RustFS', null],
+      ['Redis (đồng bộ nhiều worker, websocket)', (st.infra || {}).redis ? 'Bật' : 'Tắt', 'Container redis', null],
+    ];
+    const docker = d.docker || {};
+    const containers = (docker.containers || []).sort((a, b) => b.memory - a.memory);
+    const maxMem = Math.max(...containers.map((x) => x.memory), 1);
+    const db = d.database || {};
+    const redis = d.redis || {};
+    const pr = probeResult;
+    return `${st.error ? `<div class="notice warn">Không lấy được trạng thái từ NCS AI: ${esc(st.error)}</div>` : ''}
+      ${card('Thành phần đang dùng', table([
+        { label: 'Thành phần', render: (r) => `<b>${r[0]}</b>` },
+        { label: 'Đang dùng', render: (r) => r[1] },
+        { label: 'Chạy ở đâu', render: (r) => `<span class="muted">${r[2]}</span>` },
+        { label: 'Nạp RAM', render: (r) => (r[3] === null ? '' : r[3] ? '<span class="pill info">đã nạp</span>' : '<span class="pill">chưa</span>') },
+      ], components))}
+      <div class="cols">
+        ${card('Container: RAM và CPU', docker.available ? table([
+          { label: 'Container', render: (r) => `<b>${esc(r.name)}</b><div class="muted">${esc(r.image)}</div>` },
+          { label: 'RAM', render: (r) => `<div style="display:flex;gap:8px;align-items:center"><div class="meter" style="flex:1"><div style="width:${(r.memory / maxMem) * 100}%"></div></div><span class="num">${bytes(r.memory)}</span></div>` },
+          { label: 'CPU', num: true, render: (r) => `${r.cpu_percent.toLocaleString('vi-VN')}%` },
+          { label: 'Trạng thái', render: (r) => `<span class="pill ${r.state === 'running' ? 'ok' : 'err'}">${esc(r.status)}</span>` },
+        ], containers) : `<div class="notice warn">${esc(docker.reason || 'Không có dữ liệu Docker')}. Hiện chỉ có số liệu của container NCS AI bên dưới.</div>`, `máy chủ: ${bytes(c.host_memory_total)} RAM, ${n(c.cpu_count)} CPU`)}
+        ${card('Container NCS AI', `<dl class="kv">
+          <dt>RAM đang dùng</dt><dd>${bytes((c.memory || {}).used)}${(c.memory || {}).limit ? ` / giới hạn ${bytes(c.memory.limit)}` : ''}</dd>
+          <dt>Tổng RAM các tiến trình</dt><dd>${bytes(c.rss)} (${n(c.processes)} tiến trình, ${n((st.infra || {}).workers)} worker)</dd>
+          <dt>CPU</dt><dd>${c.cpu_percent ?? '—'}% · tải TB ${(c.load_avg || []).map((x) => x.toFixed(2)).join(' / ') || '—'}</dd>
+          <dt>RAM trống của máy</dt><dd>${bytes(c.host_memory_available)} / ${bytes(c.host_memory_total)}</dd>
+          <dt>PostgreSQL</dt><dd>${bytes(db.size)} · ${n(db.connections)} kết nối · ${n(db.perf_events)} bản ghi giám sát</dd>
+          <dt>Redis</dt><dd>${redis.error ? esc(redis.error) : `${bytes(redis.memory)} · ${n(redis.clients)} client · ping ${ms(redis.ping_ms)}`}</dd>
+        </dl>
+        ${(db.tables || []).length ? `<h2 style="margin-top:12px">Bảng lớn nhất</h2>${bars(db.tables.map((t) => ({ label: `${t.name} (${n(t.rows)} dòng)`, value: t.size })), { format: bytes })}` : ''}`)}
+      </div>
+      ${card('Đo tốc độ trực tiếp', `<p class="muted" style="margin:0 0 10px">Gọi thử từng thành phần ngay bây giờ: cơ sở dữ liệu, Redis, kho file, model embedding, và mỗi kết nối model (lấy danh sách model + một câu trả lời ngắn để đo thời gian ra chữ đầu và tốc độ sinh). Một lần đo tốn khoảng 30–100 token mỗi kết nối.</p>
+        <button class="btn primary" type="button" id="probe">Đo ngay</button> <button class="btn" type="button" id="probe-lite">Đo nhanh (không gọi model)</button>
+        <div id="probe-out" style="margin-top:12px">${pr ? probeTable(pr) : ''}</div>`)}`;
+  }
+
+  function probeTable(pr) {
+    if (pr.error) return `<div class="error-box">${esc(pr.error)}</div>`;
+    const rows = Object.entries(pr.results || {}).map(([name, r]) => ({ name, ...r }));
+    return table([
+      { label: 'Thành phần', render: (r) => `<b>${esc(r.name)}</b>` },
+      { label: 'Kết quả', render: (r) => (r.ok ? '<span class="pill ok">OK</span>' : `<span class="pill err">Lỗi</span> <span class="muted">${esc(r.error)}</span>`) },
+      { label: 'Thời gian', num: true, render: (r) => ms(r.ms) },
+      { label: 'Chi tiết', render: (r) => {
+        const det = r.detail;
+        if (!det || typeof det !== 'object') return `<span class="muted">${esc(det || '')}</span>`;
+        if (det.completion) { const cp = det.completion; return `danh sách model ${ms(det.models_ms)} · <b>${esc(cp.model)}</b>: ra chữ đầu ${ms(cp.ttft_ms)}, xong ${ms(cp.total_ms)}, ${n(cp.output_tokens)} token, <b>${cp.tokens_per_second ?? '—'} token/s</b>`; }
+        if (det.models) return `danh sách model ${ms(det.models_ms)} · ${esc(det.models.slice(0, 6).join(', '))}`;
+        if (det.dimensions) return `vector ${n(det.dimensions)} chiều`;
+        return esc(JSON.stringify(det));
+      } },
+    ], rows);
+  }
+
+  const RENDER = { overview: renderOverview, tokens: renderTokens, models: renderModels, tools: renderTools, knowledge: renderKnowledge, tracker: renderTracker, system: renderSystem };
+
+  async function load() {
+    const main = $('#main');
+    try {
+      const html = await RENDER[tab]();
+      main.innerHTML = html;
+      $('#updated').textContent = `cập nhật ${new Date().toLocaleTimeString('vi-VN')}`;
+      $('#live-dot').style.background = 'var(--green)';
+    } catch (e) {
+      main.innerHTML = `<div class="card error-box">Không tải được dữ liệu: ${esc(e.message)}</div>`;
+      $('#live-dot').style.background = 'var(--red)';
+    }
+  }
+
+  function renderChrome() {
+    $('#tabs').innerHTML = TABS.map(([k, l]) => `<button role="tab" type="button" data-tab="${k}" aria-selected="${tab === k}">${l}</button>`).join('');
+    $('#ranges').innerHTML = RANGES.map(([k, l]) => `<button type="button" data-range="${k}" aria-pressed="${range === k}">${l}</button>`).join('');
+    const theme = document.documentElement.getAttribute('data-theme') || '';
+    $('#themes').innerHTML = [['', 'Tự động'], ['light', 'Sáng'], ['dark', 'Tối']].map(([k, l]) => `<button type="button" data-theme="${k}" aria-pressed="${theme === k}">${l}</button>`).join('');
+  }
+
+  function schedule() {
+    clearInterval(timer);
+    if ($('#auto').checked) timer = setInterval(() => document.visibilityState === 'visible' && load(), 30000);
+  }
+
+  document.addEventListener('click', async (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.tab) { tab = b.dataset.tab; store('mon.tab', tab); history.replaceState(null, '', `#${tab}`); renderChrome(); $('#main').innerHTML = '<div class="empty"><span class="spin"></span> Đang tải…</div>'; load(); }
+    else if (b.dataset.range) { range = b.dataset.range; store('mon.range', range); renderChrome(); load(); }
+    else if (b.dataset.theme !== undefined) { const t = b.dataset.theme; if (t) document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme'); store('mon.theme', t); renderChrome(); }
+    else if (b.dataset.source !== undefined) { tokenSource = b.dataset.source; load(); }
+    else if (b.dataset.tool !== undefined) { toolFilter = b.dataset.tool; load(); }
+    else if (b.id === 'refresh') load();
+    else if (b.id === 'probe' || b.id === 'probe-lite') {
+      const out = $('#probe-out');
+      out.innerHTML = '<span class="spin"></span> Đang đo… (có thể mất đến 1 phút)';
+      document.querySelectorAll('#probe, #probe-lite').forEach((x) => (x.disabled = true));
+      try { probeResult = await api(`/api/probe?llm=${b.id === 'probe'}`, { method: 'POST' }); }
+      catch (err) { probeResult = { error: err.message }; }
+      out.innerHTML = probeTable(probeResult);
+      document.querySelectorAll('#probe, #probe-lite').forEach((x) => (x.disabled = false));
+    }
+  });
+  $('#auto').addEventListener('change', schedule);
+
+  const savedTheme = store('mon.theme');
+  if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+  renderChrome();
+  load();
+  schedule();
+})();
+</script>
+</body>
+</html>

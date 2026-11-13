@@ -562,6 +562,12 @@ async def lifespan(app: FastAPI):
         app.state.tracker_worker_loop.cancel()
     if hasattr(app.state, 'tracker_reminder_loop'):
         app.state.tracker_reminder_loop.cancel()
+    try:
+        from open_webui.monitoring.recorder import flush as flush_perf_events
+
+        await flush_perf_events()
+    except Exception:
+        pass
 
     await publish_event(request, EVENTS.SYSTEM_SHUTDOWN_COMPLETED, source='system')
 
@@ -861,9 +867,12 @@ app.include_router(apps.router, prefix='/api/v1/apps', tags=['apps'])
 app.include_router(channels.router, prefix='/api/v1/channels', tags=['channels'])
 
 from open_webui.tracker import router as tracker_router
+from open_webui.monitoring import router as monitor_router
 from open_webui.tracker.config import ENABLE_PROJECT_TRACKER
 
 app.include_router(tracker_router.router, prefix='/api/v1/tracker', tags=['tracker'])
+# Internal API for the separate monitor container (X-Monitor-Key); not used by the interface.
+app.include_router(monitor_router.router, prefix='/api/v1/monitor', tags=['monitor'], include_in_schema=False)
 app.include_router(chats.router, prefix='/api/v1/chats', tags=['chats'])
 app.include_router(comments.router, prefix='/api/v1/comments', tags=['comments'])
 app.include_router(notes.router, prefix='/api/v1/notes', tags=['notes'])
@@ -1716,6 +1725,8 @@ async def chat_completion(
                 # Saved chats load the message after approved tool calls run, so their results are kept
                 if metadata.get('assistant_message_id') and not is_saved_chat_id(metadata.get('chat_id')):
                     ctx = await build_chat_response_context(request, form_data, user, model, metadata, tasks, [])
+                # Start of the answer for the performance monitor (includes file/knowledge preparation).
+                metadata['perf_started_ms'] = int(time.time() * 1000)
                 form_data, metadata, events, paused = await process_chat_payload(
                     request, form_data, user, metadata, model
                 )
@@ -1725,6 +1736,9 @@ async def chat_completion(
                 response = await chat_completion_handler(request, form_data, user)
 
                 if isinstance(response, Response) and response.status_code >= 400:
+                    from open_webui.monitoring.llm import record_response
+
+                    record_response(metadata, user, form_data.get('model'), [], None, status='error')
                     error_detail = get_response_error_detail(response)
                     if metadata.get('session_id') and metadata.get('chat_id'):
                         return None

@@ -18,6 +18,7 @@ from fastapi.responses import (
     PlainTextResponse,
     StreamingResponse,
 )
+from open_webui.monitoring import llm as perf_llm
 from open_webui.config import (
     CACHE_DIR,
 )
@@ -1572,13 +1573,20 @@ async def generate_chat_completion(
     is_streaming_request = bool(payload.get('stream', False))
     if not is_streaming_request:
         payload.pop('stream_options', None)
+    elif perf_llm.REQUEST_USAGE and not is_responses:
+        # Token counts for the performance monitor; providers only send them when asked.
+        payload['stream_options'] = {**(payload.get('stream_options') or {}), 'include_usage': True}
 
+    perf_ctx = perf_llm.context(metadata, user, model_id, url)
+    if requested_model and requested_model != model_id:
+        perf_ctx['meta']['base_model'] = requested_model
     payload = JSONCodec.dumps(payload)
 
     r = None
     streaming = False
     response = None
 
+    perf_timer = perf_llm.Timer()
     try:
         session = await get_session()
 
@@ -1600,6 +1608,7 @@ async def generate_chat_completion(
             if r.status >= 400:
                 retry_headers = {k: v for k, v in r.headers.items() if k.lower() in ('retry-after', 'retry-after-ms')}
                 error_body = await r.text()
+                perf_llm.record(perf_ctx, perf_timer, status='error', error=f'HTTP {r.status}')
                 log.error(
                     'Provider returned HTTP %d with SSE content-type: %s',
                     r.status,
@@ -1637,7 +1646,7 @@ async def generate_chat_completion(
 
             streaming = True
             return StreamingResponse(
-                stream_wrapper(r),
+                perf_llm.wrap_stream(stream_wrapper(r), perf_ctx, perf_timer),
                 status_code=r.status,
                 headers=_clean_proxy_headers(r.headers),
             )
@@ -1647,6 +1656,13 @@ async def generate_chat_completion(
             except Exception as e:
                 log.error(e)
                 response = await r.text()
+            perf_llm.record(
+                perf_ctx,
+                perf_timer,
+                status='error' if r.status >= 400 else 'ok',
+                usage=response.get('usage') if isinstance(response, dict) else None,
+                error=f'HTTP {r.status}' if r.status >= 400 else None,
+            )
 
             if r.status >= 400:
                 retry_headers = {k: v for k, v in r.headers.items() if k.lower() in ('retry-after', 'retry-after-ms')}
@@ -1672,6 +1688,7 @@ async def generate_chat_completion(
             return response
     except Exception as e:
         log.exception(e)
+        perf_llm.record(perf_ctx, perf_timer, status='error', error=type(e).__name__)
 
         raise HTTPException(
             status_code=r.status if r else 500,

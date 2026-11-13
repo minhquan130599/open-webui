@@ -4230,6 +4230,11 @@ async def non_streaming_chat_response_handler(response, ctx):
                             (ctx.get('assistant_message') or {}).get('usage'), usage or {'incomplete': True}
                         )
                     finish_reason = choices[0].get('finish_reason') if choices else None
+                    from open_webui.monitoring.llm import record_response
+
+                    record_response(
+                        metadata, user, (ctx.get('form_data') or {}).get('model'), response_output, usage
+                    )
 
                     if save_to_chat:
                         await Chats.upsert_message_to_chat_by_id_and_message_id(
@@ -6525,6 +6530,9 @@ async def streaming_chat_response_handler(response, ctx):
                             },
                         ]
                         content_parts.append(note)
+                from open_webui.monitoring.llm import record_response
+
+                record_response(metadata, user, form_data.get('model'), current_output, usage)
                 title = await Chats.get_chat_title_by_id(metadata['chat_id']) if save_to_chat else ''
                 data = {
                     'done': True,

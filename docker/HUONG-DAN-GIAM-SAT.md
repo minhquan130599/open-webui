@@ -1,0 +1,133 @@
+# Trang giám sát hiệu năng NCS AI (Knight)
+
+Trang giám sát là một container riêng (`ncs-monitor`), không nằm trong giao diện NCS AI. Container dùng chung
+image với NCS AI nên không phải build hay xuất thêm image nào.
+
+## 1. Cấu hình `.env`
+
+Thêm vào file `.env` (trên máy build và server triển khai):
+
+```env
+MONITOR_PORT=8090
+MONITOR_USERNAME=admin
+MONITOR_PASSWORD=<mật khẩu đăng nhập trang giám sát>
+MONITOR_API_KEY=<chuỗi ngẫu nhiên dài, vd: openssl rand -hex 32>
+PERF_RETENTION_DAYS=90
+```
+
+- `MONITOR_PASSWORD` là bắt buộc. Để trống thì trang báo lỗi và không hiển thị số liệu.
+- `MONITOR_API_KEY` là khóa nội bộ giữa trang giám sát và NCS AI. Không cần nhập ở đâu khác.
+
+## 2. Chạy
+
+```bash
+cd ~/ncschatui/deploy
+sudo docker compose up -d          # tạo thêm container ncs-monitor, khởi động lại open-webui với khóa mới
+sudo docker compose logs -f monitor
+```
+
+Trang chỉ mở trên chính server: `http://127.0.0.1:8090`. Để xem từ máy khác, chọn một trong hai cách:
+
+- Qua SSH tunnel: `ssh -L 8090:127.0.0.1:8090 <user>@<server>`, rồi mở `http://localhost:8090` trên máy mình.
+- Qua nginx: thêm một `location` hoặc subdomain trỏ tới `http://127.0.0.1:8090`. Trang đã có mật khẩu riêng.
+
+## 3. Các tab
+
+| Tab | Nội dung |
+|---|---|
+| Tổng quan | Số lượt trả lời, thời gian trả lời TB/p95, thời gian ra chữ đầu tiên, tốc độ sinh (token/s), token vào/ra, số function call, tỷ lệ lỗi, biểu đồ theo thời gian |
+| Token | Bảng người dùng × model: số lần gọi, token vào/ra. Lọc theo chat, kênh, tác vụ nền, tracker |
+| Tốc độ model | Mỗi model: thời gian ra chữ đầu (TB/p95), tổng thời gian, token/s, lỗi; biểu đồ theo giờ; các lần gọi chậm nhất |
+| Function call | Mỗi function: số lần gọi, thời gian TB/p95/lâu nhất, lỗi; phân bố số function trên mỗi lượt; chi tiết từng lượt (gọi function nào, bao nhiêu lần, mất bao lâu) |
+| Kiến thức | Cách tài liệu đang được xử lý theo cấu hình thật, model đang dùng, thời gian trích xuất chữ/embedding, file vừa xử lý, các công cụ đọc kiến thức mà AI đã gọi |
+| Tracker | Số lần tổng hợp, token, thời gian, lỗi, số lần chuyển kết nối, kết nối và model đang dùng, số tin chờ |
+| Thành phần & tài nguyên | Mọi thành phần đang dùng (LLM, embedding, reranker, STT, TTS, terminal, DB, Redis, lưu file), RAM/CPU từng container, dung lượng DB, Redis, nút **Đo ngay** để kiểm tra tốc độ trực tiếp |
+
+Lưu ý về số liệu:
+
+- Số liệu chỉ bắt đầu có từ khi chạy bản mới, không có số liệu của các lần dùng trước đó.
+- Số token chỉ đúng khi model trả về `usage`. vLLM và OpenAI đều có trả về.
+- **p95**: 95% số lượt nhanh hơn mức này. Dùng để thấy các lượt chậm bất thường.
+- **Ra chữ đầu tiên**: thời gian từ lúc gửi câu hỏi đến khi model bắt đầu trả chữ. Chỉ số này phụ thuộc chủ yếu vào model và GPU (RunPod).
+
+## 4. Quyền Docker
+
+Container giám sát gắn `/var/run/docker.sock` ở chế độ chỉ đọc để lấy RAM/CPU của từng container. Chế độ
+chỉ đọc không giới hạn API Docker, nên ai điều khiển được container này thì cũng điều khiển được Docker.
+Trang chỉ dùng hai lệnh đọc (danh sách container, thống kê), nhưng vẫn phải giữ cổng 8090 ở 127.0.0.1 và
+đặt mật khẩu mạnh.
+
+Không muốn cấp quyền này thì xóa dòng `- /var/run/docker.sock:/var/run/docker.sock:ro` trong
+`docker-compose.yaml`. Trang vẫn hiện RAM/CPU của container NCS AI, PostgreSQL và Redis, nhưng không hiện
+bảng tất cả container.
+
+## 5. Tắt hoặc giảm ghi số liệu
+
+| Biến | Mặc định | Ý nghĩa |
+|---|---|---|
+| `ENABLE_PERF_MONITOR` | `true` | `false` thì NCS AI không ghi số liệu nữa |
+| `PERF_RETENTION_DAYS` | `90` | Số liệu cũ hơn số ngày này tự xóa |
+| `PERF_REQUEST_USAGE` | `true` | Yêu cầu provider trả số token khi stream. Chỉ tắt khi provider báo lỗi với `stream_options` |
+
+Số liệu được ghi theo lô mỗi 3 giây, chạy nền, không làm chậm câu trả lời. Dữ liệu nằm trong bảng `perf_event`
+của PostgreSQL. Bảng này được tự tạo khi NCS AI khởi động bản mới.
+
+## 6. Phần kiến thức đang hoạt động thế nào (cấu hình hiện tại)
+
+Server đang đặt `BYPASS_EMBEDDING_AND_RETRIEVAL=true` (mục "Upload nhanh"). Admin đổi được trong
+**Cài đặt quản trị → Tài liệu → Bỏ qua embedding và truy xuất**. Giá trị trong giao diện được ưu tiên hơn `.env`.
+
+### Khi tải tài liệu lên kho kiến thức
+
+1. File gốc được lưu vào RustFS (S3). Giới hạn 50 MB mỗi file.
+2. Chữ được trích xuất ngay trong container NCS AI bằng thư viện có sẵn:
+   - PDF dùng pypdf, đọc theo trang, không đọc chữ trong ảnh.
+   - Word dùng python-docx.
+   - Excel, PowerPoint dùng unstructured (hoặc pandas, python-pptx).
+   - CSV, HTML, Markdown, văn bản thường được đọc trực tiếp.
+3. Toàn bộ chữ được lưu vào cơ sở dữ liệu, cùng với thông tin của file.
+4. **Không chia đoạn, không tạo embedding, không ghi vào vector DB (pgvector).** Vì vậy tải lên nhanh và
+   không cần GPU.
+
+PDF dạng ảnh scan không có lớp chữ thì trích xuất được rất ít. Muốn đọc được loại này cần bật OCR, ví dụ
+Docling, Tika hoặc Mistral OCR trong mục "Trích xuất nội dung".
+
+### Khi người dùng hỏi
+
+Model dùng chế độ gọi tool (native function calling). AI tự gọi các công cụ đọc kiến thức:
+
+| Công cụ | Việc làm |
+|---|---|
+| `list_knowledge` | Liệt kê kho kiến thức và file được gắn cho model |
+| `search_knowledge_files` | Tìm file theo tên |
+| `grep_knowledge_files` | Tìm các dòng chứa từ khóa hoặc mẫu trong nội dung file |
+| `view_file`, `view_knowledge_file` | Đọc từng phần nội dung file. Mặc định khoảng 12.000 ký tự mỗi lần, có thể đọc tiếp |
+| `query_knowledge_files` | Tìm theo ngữ nghĩa trong vector DB. **Với cấu hình hiện tại công cụ này luôn rỗng**, vì không có vector nào |
+
+Như vậy, chất lượng trả lời phụ thuộc vào việc AI chọn đúng từ khóa để grep và đọc đúng đoạn. Câu hỏi dùng
+từ khác với tài liệu ("nghỉ phép" trong câu hỏi, "phép năm" trong tài liệu) có thể không tìm ra.
+
+### Model đang dùng
+
+| Việc | Model |
+|---|---|
+| Trả lời, chọn công cụ đọc kiến thức | Model chat đang chọn (vd: `nai` trên RunPod) |
+| Embedding | `sentence-transformers/all-MiniLM-L6-v2`. Model này **vẫn được nạp vào RAM** của container NCS AI dù không dùng (vài trăm MB), vì NCS AI nạp nó lúc khởi động. Tab "Thành phần & tài nguyên" cho biết nó đã nạp hay chưa |
+| Reranker | Không dùng |
+
+### Tốc độ
+
+Tab **Kiến thức** đo thời gian trích xuất chữ của từng file (ms), số ký tự, và thời gian các công cụ đọc
+kiến thức. Ở chế độ hiện tại, trích xuất thường mất dưới 1 giây với văn bản thường, vài giây với PDF dài.
+Phần tốn thời gian nhất khi trả lời là model đọc file (nhiều vòng gọi tool), xem ở tab **Function call**.
+
+### Nếu muốn tìm kiếm theo ngữ nghĩa
+
+Tắt "Bỏ qua embedding và truy xuất", rồi chọn model embedding:
+
+- Nên dùng **embedding qua API**, vd. vLLM chạy `bge-m3` hoặc `multilingual-e5` trên RunPod. Model mặc định
+  `all-MiniLM-L6-v2` chỉ hỗ trợ tốt tiếng Anh.
+- Sau khi đổi model embedding, phải **xử lý lại các file đã tải** trong mỗi kho kiến thức.
+
+Khi đó tab Kiến thức sẽ có thêm thời gian embedding lúc tải lên, và thời gian embedding câu hỏi, tìm vector
+lúc trả lời.

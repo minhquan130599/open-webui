@@ -184,6 +184,32 @@ services:
       - TRACKER_TIMEZONE=Asia/Ho_Chi_Minh
       - TRACKER_IDLE_SECONDS=90       # kênh im lặng bao lâu thì tổng hợp
       - TRACKER_BATCH_SIZE=30         # đủ bao nhiêu tin thì tổng hợp ngay
+      # --- Giám sát hiệu năng (trang riêng ở service monitor) ---
+      - ENABLE_PERF_MONITOR=${ENABLE_PERF_MONITOR:-true}
+      - PERF_RETENTION_DAYS=${PERF_RETENTION_DAYS:-90}
+      - MONITOR_API_KEY=${MONITOR_API_KEY:-}
+    restart: unless-stopped
+
+  # Trang giám sát hiệu năng: chạy riêng, cùng image, không nằm trong giao diện NCS AI.
+  # Mở http://<server>:${MONITOR_PORT:-8090} (chỉ nghe ở 127.0.0.1; ra ngoài thì qua nginx hoặc SSH tunnel).
+  monitor:
+    image: open-webui-local:latest
+    container_name: ncs-monitor
+    depends_on:
+      postgres: { condition: service_healthy }
+    command: ["uvicorn", "open_webui.monitoring.server.app:app", "--host", "0.0.0.0", "--port", "8090"]
+    ports:
+      - "127.0.0.1:${MONITOR_PORT:-8090}:8090"
+    volumes:
+      # Đọc RAM/CPU các container. Bỏ dòng này nếu không muốn cấp quyền Docker cho container giám sát.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - DATABASE_URL=postgresql://openwebui:${POSTGRES_PASSWORD}@postgres:5432/openwebui
+      - REDIS_URL=redis://redis:6379/0
+      - OPEN_WEBUI_URL=http://open-webui:8080
+      - MONITOR_API_KEY=${MONITOR_API_KEY:-}
+      - MONITOR_USERNAME=${MONITOR_USERNAME:-admin}
+      - MONITOR_PASSWORD=${MONITOR_PASSWORD:-}
     restart: unless-stopped
 
 volumes:
