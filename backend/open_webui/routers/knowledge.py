@@ -363,6 +363,10 @@ async def create_new_knowledge(
 # Reindex Knowledge Files
 
 
+# Text that older OCR loaders stored in place of the document when extraction failed.
+EXTRACTION_ERROR_PREFIXES = ('Error during OCR processing:', 'Error during processing:')
+
+
 @router.post('/reindex', response_model=bool)
 async def reindex_knowledge_files(
     request: Request,
@@ -384,6 +388,7 @@ async def reindex_knowledge_files(
     processed_files = 0
     failed_files = []
     extracted_file_ids = set()
+    unreadable_file_ids = set()
     start_time = time.monotonic()
 
     log.info('Starting reindexing for %s knowledge bases (%s files)', len(knowledge_bases), total_files)
@@ -415,6 +420,10 @@ async def reindex_knowledge_files(
                     file.filename,
                 )
 
+                if file.id in unreadable_file_ids:
+                    # Already failed in another knowledge base during this run; keep its failure reason.
+                    failed_files.append({'file_id': file.id, 'error': 'extraction failed'})
+                    continue
                 try:
                     if file.id not in extracted_file_ids:
                         extracted_file_ids.add(file.id)
@@ -427,6 +436,15 @@ async def reindex_knowledge_files(
                             try:
                                 await index_file(request, ProcessFileForm(file_id=file.id), user, db)
                             except Exception as e:
+                                stored = (file.data or {}).get('content') or ''
+                                if not stored.strip() or stored.lstrip().startswith(EXTRACTION_ERROR_PREFIXES):
+                                    # Nothing usable to fall back on (no text, or an old OCR error message stored
+                                    # as text): keep the file failed with the new reason instead of embedding it.
+                                    await Files.update_file_data_by_id(
+                                        file.id, {'status': 'failed', 'error': str(e)[:1000], 'content': ''}, db=db
+                                    )
+                                    unreadable_file_ids.add(file.id)
+                                    raise
                                 log.warning(
                                     'Error re-extracting file %s (ID: %s), using stored content: %s',
                                     file.filename,

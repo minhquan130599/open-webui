@@ -515,11 +515,15 @@
   function watchReindex() {
     clearInterval(reindexPoll);
     if (!editor.reindex || editor.reindex.state !== 'running') return;
+    let ticks = 0;
+    // Knowledge file tables that are open follow the run: every 30 s while it runs, and once when it ends.
+    const refreshFiles = () => Object.keys(filePanels).forEach((name) => { if (filePanels[name].data && !filePanels[name].loading) loadFiles(name); });
     reindexPoll = setInterval(async () => {
       if (!editor.token) { clearInterval(reindexPoll); return; }
       try { editor.reindex = await api('/api/admin/reindex', { headers: editHeaders() }); } catch { return; }
       const box = $('#reindex-box'); if (box) box.innerHTML = reindexHtml();
-      if (editor.reindex.state !== 'running') clearInterval(reindexPoll);
+      if (editor.reindex.state !== 'running') { clearInterval(reindexPoll); refreshFiles(); }
+      else if (++ticks % 10 === 0) refreshFiles();
     }, 3000);
   }
 
