@@ -945,7 +945,9 @@ async def file_original_response(file_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(502, f'Không gọi được NCS AI: {e}')
+        from open_webui.monitoring.server.app import webui_error
+
+        raise HTTPException(502, webui_error(e, 120))
     return Response(body, media_type=media_type, headers={'Cache-Control': 'no-store'})
 
 

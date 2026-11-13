@@ -608,6 +608,18 @@ async def trace_content(message_id: str, request: Request):
     return {'question': text.get('question', ''), 'answer': text.get('answer', '')[:5000]}
 
 
+def webui_error(e: Exception, timeout: Optional[int] = None) -> str:
+    """Readable reason why the NCS AI container could not be reached."""
+    if isinstance(e, (asyncio.TimeoutError, aiohttp.ServerTimeoutError)):
+        return f'NCS AI không trả lời sau {timeout or "?"} giây (đang quá tải hoặc thao tác chạy quá lâu).'
+    if isinstance(e, aiohttp.ClientConnectorError):
+        return (
+            f'Không kết nối được NCS AI ({OPEN_WEBUI_URL}): container đang khởi động, đang khởi động lại hoặc đã dừng. '
+            'Đợi 1–2 phút rồi tải lại trang; nếu vẫn lỗi, xem "docker ps" và "docker logs open-webui".'
+        )
+    return f'Không gọi được NCS AI: {e}'
+
+
 async def webui(path: str, method: str = 'GET', timeout: int = 20, json_body=None, **params):
     if not MONITOR_API_KEY:
         return {'error': 'MONITOR_API_KEY chưa đặt'}
@@ -628,7 +640,7 @@ async def webui(path: str, method: str = 'GET', timeout: int = 20, json_body=Non
                     return {'error': detail or f'NCS AI trả về {response.status}'}
                 return await response.json()
     except Exception as e:
-        return {'error': f'Không gọi được NCS AI: {e}'}
+        return {'error': webui_error(e, timeout)}
 
 
 @app.get('/api/knowledge', dependencies=[Depends(require_login)])

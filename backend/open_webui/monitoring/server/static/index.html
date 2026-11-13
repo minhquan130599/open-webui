@@ -1012,6 +1012,8 @@
   }
 
   let probeResult = null;
+  let probing = '';  // mode of the measurement in progress; the page auto-refreshes meanwhile
+  const probeOut = () => (probing ? '<span class="spin"></span> Đang đo… (có thể mất đến 1–3 phút)' : probeResult ? probeTable(probeResult) : '');
   async function renderSystem() {
     const d = await api('/api/system');
     const st = d.status || {};
@@ -1044,7 +1046,6 @@
     const maxMem = Math.max(...containers.map((x) => x.memory), 1);
     const db = d.database || {};
     const redis = d.redis || {};
-    const pr = probeResult;
     return `${st.error ? `<div class="notice warn">Không lấy được trạng thái từ NCS AI: ${esc(st.error)}</div>` : ''}
       <div id="editor">${editorHtml()}</div>
       ${card(`Thành phần đang dùng <button class="btn" type="button" data-open-editor>${editor.open ? 'Đóng chỉnh sửa' : 'Chỉnh sửa cấu hình'}</button>`, table([
@@ -1071,10 +1072,10 @@
         ${(db.tables || []).length ? `<h2 style="margin-top:12px">Bảng lớn nhất</h2>${bars(db.tables.map((t) => ({ label: `${t.name} (${n(t.rows)} dòng)`, value: t.size })), { format: bytes })}` : ''}`)}
       </div>
       ${card('Đo tốc độ trực tiếp', `<p class="muted" style="margin:0 0 10px">Gọi thử từng thành phần ngay bây giờ: cơ sở dữ liệu, Redis, kho file, model embedding, reranker, trích xuất tài liệu/OCR (chạy một PDF mẫu), và mỗi kết nối model (lấy danh sách model + một câu trả lời ngắn để đo thời gian ra chữ đầu và tốc độ sinh). "Đo tất cả model" thử từng model chat của mọi kết nối. Mỗi lần gọi model tốn khoảng 30–100 token.</p>
-        <button class="btn primary" type="button" data-probe="one">Đo ngay</button>
-        <button class="btn" type="button" data-probe="all" title="Gọi thử một câu trả lời ngắn với từng model chat của mọi kết nối (tối đa 10 model mỗi kết nối)">Đo tất cả model</button>
-        <button class="btn" type="button" data-probe="list">Đo nhanh (không gọi model)</button>
-        <div id="probe-out" style="margin-top:12px">${pr ? probeTable(pr) : ''}</div>`)}`;
+        <button class="btn primary" type="button" data-probe="one" ${probing ? 'disabled' : ''}>Đo ngay</button>
+        <button class="btn" type="button" data-probe="all" ${probing ? 'disabled' : ''} title="Gọi thử một câu trả lời ngắn với từng model chat của mọi kết nối (tối đa 10 model mỗi kết nối)">Đo tất cả model</button>
+        <button class="btn" type="button" data-probe="list" ${probing ? 'disabled' : ''}>Đo nhanh (không gọi model)</button>
+        <div id="probe-out" style="margin-top:12px">${probeOut()}</div>`)}`;
   }
 
   const PROBE_NAMES = { database: 'Cơ sở dữ liệu', redis: 'Redis', storage: 'Kho file', embedding: 'Model embedding', reranker: 'Reranker', extraction: 'Trích xuất tài liệu (OCR)' };
@@ -1186,13 +1187,18 @@
     else if (b.dataset.tool !== undefined) { toolFilter = b.dataset.tool; load(); }
     else if (b.id === 'refresh') load();
     else if (b.dataset.probe) {
-      const out = $('#probe-out');
-      out.innerHTML = '<span class="spin"></span> Đang đo… (có thể mất đến 1 phút)';
-      document.querySelectorAll('[data-probe]').forEach((x) => (x.disabled = true));
-      try { probeResult = await api(`/api/probe?llm=${b.dataset.probe}`, { method: 'POST' }); }
+      if (probing) return;
+      probing = b.dataset.probe;
+      const paint = (disabled) => {
+        // Look the box up again: an auto-refresh may have redrawn the tab while measuring.
+        const out = $('#probe-out'); if (out) out.innerHTML = probeOut();
+        document.querySelectorAll('[data-probe]').forEach((x) => (x.disabled = disabled));
+      };
+      paint(true);
+      try { probeResult = await api(`/api/probe?llm=${probing}`, { method: 'POST' }); }
       catch (err) { probeResult = { error: err.message }; }
-      out.innerHTML = probeTable(probeResult);
-      document.querySelectorAll('[data-probe]').forEach((x) => (x.disabled = false));
+      probing = '';
+      paint(false);
     }
   });
   $('#auto').addEventListener('change', schedule);
