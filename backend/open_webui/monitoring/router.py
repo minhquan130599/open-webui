@@ -12,6 +12,7 @@ from typing import Optional
 
 import aiohttp
 from fastapi import APIRouter, Header, HTTPException, Request
+from pydantic import BaseModel
 
 from open_webui.models.config import Config
 
@@ -382,3 +383,30 @@ async def reindex(request: Request, x_monitor_key: Optional[str] = Header(None))
     from open_webui.monitoring.reindex import start
 
     return await start(request.app)
+
+
+@router.get('/models')
+async def models_access(request: Request, x_monitor_key: Optional[str] = Header(None)):
+    """Every model users can pick, with whether it is public."""
+    _check(x_monitor_key)
+    from open_webui.monitoring.model_access import list_models
+    from open_webui.utils.models import default_model_access
+
+    return {'models': await list_models(request.app), 'default_access': await default_model_access()}
+
+
+class ModelAccessForm(BaseModel):
+    model_id: str
+    public: bool
+    name: str = ''
+
+
+@router.post('/models/access')
+async def set_model_access(form: ModelAccessForm, request: Request, x_monitor_key: Optional[str] = Header(None)):
+    _check(x_monitor_key)
+    from open_webui.monitoring.model_access import set_public
+
+    try:
+        return await set_public(request.app, form.model_id, form.public, form.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

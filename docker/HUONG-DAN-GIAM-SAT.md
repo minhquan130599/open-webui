@@ -169,6 +169,12 @@ build lại, không khởi động lại. NCS AI tự áp dụng ở mọi worke
   địa chỉ thì chỉ cần sửa URL ở đây. Giữ nguyên **Prefix** để model, quyền truy cập và lịch sử chat vẫn dùng đúng
   tên model cũ.
 
+- **Quyền truy cập model**: danh sách mọi model (theo kết nối, kèm model tùy chỉnh) với trạng thái **Công khai**
+  (mọi người dùng) / **Riêng tư** (chỉ admin và nhóm/người được chia sẻ trong NCS AI). Bấm một nút để đổi.
+  Chọn được cả quy tắc cho **model mới xuất hiện**: không tự công khai / tự công khai model của kết nối #1 /
+  tự công khai model của mọi kết nối. Quy tắc này thay cho `DEFAULT_MODEL_ACCESS` trong `.env` và không đổi quyền
+  của model đã có.
+
 Hạ tầng (kết nối database, Redis, lưu file) **không** sửa ở đây.
 
 Với Tracker, giá trị lưu trong database được ưu tiên hơn `.env`. Để trống thì dùng giá trị trong `.env`.

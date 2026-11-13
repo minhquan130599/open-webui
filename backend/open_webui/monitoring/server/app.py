@@ -601,7 +601,7 @@ async def trace_content(message_id: str, request: Request):
     return {'question': text.get('question', ''), 'answer': text.get('answer', '')[:5000]}
 
 
-async def webui(path: str, method: str = 'GET', timeout: int = 20, **params):
+async def webui(path: str, method: str = 'GET', timeout: int = 20, json_body=None, **params):
     if not MONITOR_API_KEY:
         return {'error': 'MONITOR_API_KEY chưa đặt'}
     try:
@@ -610,10 +610,15 @@ async def webui(path: str, method: str = 'GET', timeout: int = 20, **params):
                 method,
                 f'{OPEN_WEBUI_URL}/api/v1/monitor{path}',
                 params=params,
+                json=json_body,
                 headers={'X-Monitor-Key': MONITOR_API_KEY},
             ) as response:
                 if response.status != 200:
-                    return {'error': f'NCS AI trả về {response.status}'}
+                    try:
+                        detail = (await response.json()).get('detail')
+                    except Exception:
+                        detail = None
+                    return {'error': detail or f'NCS AI trả về {response.status}'}
                 return await response.json()
     except Exception as e:
         return {'error': f'Không gọi được NCS AI: {e}'}

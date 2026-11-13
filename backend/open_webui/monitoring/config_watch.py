@@ -29,7 +29,7 @@ async def apply(app, groups: set[str]) -> None:
         await load_rag_functions(app)
     if 'stt' in groups:
         app.state.faster_whisper_model = None  # loaded again with the new model on the next transcription
-    if 'connections' in groups:
+    if groups & {'connections', 'models'}:
         # Same as saving connections in Admin > Settings: forget the cached model lists of this worker.
         from starlette.datastructures import Headers
         from starlette.requests import Request

@@ -559,3 +559,81 @@ async def reindex_start(request: Request, token: str = Depends(require_session))
             )
     async with _engine().connect() as conn:
         return {**(await _reindex_status(conn)), 'already_running': bool(result.get('already_running'))}
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Model access: public (every user) or private (admins + users/groups it is shared with in NCS AI)
+# ---------------------------------------------------------------------------------------------------------
+DEFAULT_ACCESS_KEY = 'models.default_access'
+DEFAULT_ACCESS_OPTIONS = {
+    '': 'Không: model mới chỉ admin thấy',
+    'public': 'Model mới của kết nối #1 tự công khai',
+    'public_all': 'Model mới của mọi kết nối tự công khai',
+}
+
+
+async def _bump(conn, groups: list[str]) -> None:
+    version = (await _get(conn, [VERSION_KEY])).get(VERSION_KEY)
+    version = version if isinstance(version, dict) else {}
+    await _put(
+        conn, VERSION_KEY, {'version': int(version.get('version') or 0) + 1, 'groups': groups, 'at': int(time.time())}
+    )
+
+
+@router.get('/api/admin/models')
+async def models_access(token: str = Depends(require_session)):
+    from open_webui.monitoring.server.app import webui
+
+    result = await webui('/models', timeout=60)
+    if result.get('error'):
+        raise HTTPException(502, result['error'])
+    return {**result, 'default_options': [[k, v] for k, v in DEFAULT_ACCESS_OPTIONS.items()]}
+
+
+class ModelAccessForm(BaseModel):
+    model_id: str
+    public: bool
+    name: str = ''
+
+
+@router.post('/api/admin/models/access')
+async def set_model_access(form: ModelAccessForm, request: Request, token: str = Depends(require_session)):
+    from open_webui.monitoring.server.app import webui
+
+    result = await webui('/models/access', method='POST', json_body=form.model_dump())
+    if result.get('error'):
+        raise HTTPException(502, result['error'])
+    async with _engine().begin() as conn:
+        await _audit(
+            conn,
+            f'Quyền model {form.model_id}',
+            'riêng tư' if form.public else 'công khai',
+            'công khai' if form.public else 'riêng tư',
+            _client(request),
+            'model.access',
+        )
+        await _bump(conn, ['models'])
+    return result
+
+
+class DefaultAccessForm(BaseModel):
+    value: str
+
+
+@router.post('/api/admin/models/default')
+async def set_default_access(form: DefaultAccessForm, request: Request, token: str = Depends(require_session)):
+    if form.value not in DEFAULT_ACCESS_OPTIONS:
+        raise HTTPException(400, 'Giá trị không hợp lệ')
+    async with _engine().begin() as conn:
+        old = (await _get(conn, [DEFAULT_ACCESS_KEY])).get(DEFAULT_ACCESS_KEY)
+        await _put(conn, DEFAULT_ACCESS_KEY, form.value)
+        await _audit(
+            conn,
+            'Quyền mặc định của model mới',
+            DEFAULT_ACCESS_OPTIONS.get(old, '(theo .env)') if old is not None else '(theo .env)',
+            DEFAULT_ACCESS_OPTIONS[form.value],
+            _client(request),
+            DEFAULT_ACCESS_KEY,
+        )
+        await _bump(conn, ['models'])
+    return {'value': form.value}

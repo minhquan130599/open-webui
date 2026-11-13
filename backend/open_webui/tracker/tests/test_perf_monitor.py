@@ -213,3 +213,40 @@ async def test_reindex_runs_once_in_background(monkeypatch):
     await _App.state.monitor_reindex_task
     state = await Config.get(reindex.STATE_KEY)
     assert state['state'] == 'done' and calls == ['files', 'search', 'memories']
+
+
+@pytest.mark.asyncio(loop_scope='module')
+async def test_model_public_private_and_default_policy():
+    from open_webui.models.config import Config
+    from open_webui.models.models import Models
+    from open_webui.models.users import Users
+    from open_webui.monitoring import model_access
+    from open_webui.utils import models as model_utils
+
+    if not await Users.get_super_admin_user():
+        await Users.insert_new_user('admin-models', 'Admin', 'admin-models@t.local', role='admin')
+
+    class _App:
+        class state:
+            pass
+
+    # A connection model without a row becomes public by creating the row with a public grant.
+    assert (await model_access.set_public(_App, 'pod-model-x', True, 'Pod X'))['public'] is True
+    assert (await Models.get_model_by_id('pod-model-x')).name == 'Pod X'
+    assert (await model_access.set_public(_App, 'pod-model-x', False))['public'] is False
+    assert (await model_access.set_public(_App, 'pod-model-x', True))['public'] is True
+
+    # Default policy: the database value wins over DEFAULT_MODEL_ACCESS; public_all covers every connection.
+    await Config.upsert({model_utils.DEFAULT_ACCESS_KEY: 'public_all'})
+    assert await model_utils.default_model_access() == 'public_all'
+    models = [
+        {'id': 'conn1-model', 'owned_by': 'openai', 'urlIdx': 0},
+        {'id': 'conn2-model', 'owned_by': 'openai', 'urlIdx': 1},
+    ]
+    custom = await Models.get_all_models()
+    assert await model_utils.register_default_public_models(models, custom, all_connections=True)
+    for model_id in ('conn1-model', 'conn2-model'):
+        row = await Models.get_model_by_id(model_id)
+        assert any(g.principal_id == '*' for g in row.access_grants)
+    await Config.upsert({model_utils.DEFAULT_ACCESS_KEY: ''})
+    assert await model_utils.default_model_access() == ''

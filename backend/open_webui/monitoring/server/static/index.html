@@ -421,6 +421,7 @@
       editor.data = await api('/api/admin/settings', { headers: editHeaders() });
       editor.expires = editor.data.expires;
       editor.reindex = await api('/api/admin/reindex', { headers: editHeaders() }).catch(() => null);
+      editor.models = await api('/api/admin/models', { headers: editHeaders() }).catch((e) => ({ error: e.message }));
       const c = await api('/api/admin/connections', { headers: editHeaders() });
       editor.connections = c.connections.map((x) => ({ ...x, key: '', test: null }));
     }
@@ -463,6 +464,7 @@
     ], d.history || [], 'Chưa có thay đổi nào.');
     return card('Chỉnh sửa cấu hình', `<div class="lockbar"><span class="muted" style="font-size:12.5px">Phiên chỉnh sửa còn <b id="edit-left">${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}</b>. Lưu xong, NCS AI áp dụng trong tối đa 15 giây, không cần khởi động lại.</span><button class="btn" type="button" data-lock>Khóa lại</button></div>${ok}${msg}
       ${connectionsHtml()}
+      <div id="models-box">${modelsHtml()}</div>
       <div class="editor-groups" style="margin-top:12px">${groups}</div>
       <div id="reindex-box">${reindexHtml()}</div>
       <h2 style="margin-top:14px">Lịch sử thay đổi</h2>${history}`);
@@ -495,6 +497,41 @@
       if (editor.reindex.state !== 'running') clearInterval(reindexPoll);
     }, 3000);
   }
+
+  let modelFilter = '';
+  function modelsHtml() {
+    const m = editor.models;
+    if (!m) return '';
+    if (m.error) return `<section class="card" style="box-shadow:none;margin-top:12px"><h2>Quyền truy cập model</h2><div class="error-box">${esc(m.error)}</div></section>`;
+    const q = modelFilter.trim().toLowerCase();
+    const list = (m.models || []).filter((x) => !q || `${x.id} ${x.name}`.toLowerCase().includes(q))
+      .sort((a, b) => (a.connection ?? 99) - (b.connection ?? 99) || a.id.localeCompare(b.id));
+    const rows = table([
+      { label: 'Model', render: (x) => `<b>${esc(x.name)}</b>${x.name !== x.id ? `<div class="muted" style="font-size:11px">${esc(x.id)}</div>` : ''}` },
+      { label: 'Nguồn', render: (x) => x.custom ? `<span class="pill info">Model tùy chỉnh</span> <span class="muted" style="font-size:11px">từ ${esc(x.base_model_id || '')}</span>` : x.connection ? `Kết nối #${x.connection}` : '<span class="muted">không còn trong kết nối</span>' },
+      { label: 'Chia sẻ riêng', render: (x) => (x.shared ? `${n(x.shared)} nhóm/người` : '<span class="muted">—</span>') },
+      { label: 'Quyền', render: (x) => (x.public ? '<span class="pill ok">Công khai</span>' : '<span class="pill">Riêng tư</span>') },
+      { label: '', render: (x) => `<button class="btn ${x.public ? '' : 'primary'}" type="button" data-model-public="${esc(x.id)}" data-model-name="${esc(x.name)}" data-to="${x.public ? '0' : '1'}">${x.public ? 'Đặt riêng tư' : 'Công khai'}</button>` },
+    ], list, 'Không có model nào.');
+    const opts = (m.default_options || []).map(([v, l]) => `<option value="${esc(v)}" ${(m.default_access || '') === v ? 'selected' : ''}>${esc(l)}</option>`).join('');
+    return `<section class="card" style="box-shadow:none;margin-top:12px"><h2>Quyền truy cập model <span class="muted" style="font-weight:400;font-size:12px">${n((m.models || []).filter((x) => x.public).length)}/${n((m.models || []).length)} công khai</span></h2>
+      <p class="muted" style="font-size:12px;margin:-4px 0 10px"><b>Công khai</b> = mọi người dùng thấy và dùng được. <b>Riêng tư</b> = chỉ admin, cùng các nhóm/người đã được chia sẻ trong NCS AI (Workspace → Models). Áp dụng ngay khi người dùng tải lại danh sách model.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
+        <label for="model-default" style="font-size:12.5px;font-weight:550">Model mới xuất hiện:</label>
+        <select id="model-default" class="btn">${opts}</select>
+        <button class="btn" type="button" data-model-default>Lưu mặc định</button>
+        <span class="muted" style="font-size:11.5px">Chỉ áp dụng cho model chưa từng được cấu hình; không đổi quyền model đã có. Lưu ở đây thì không cần sửa <code>DEFAULT_MODEL_ACCESS</code> trong .env.</span>
+      </div>
+      <input id="model-filter" class="btn" style="min-width:240px;margin-bottom:8px" placeholder="Lọc model…" value="${esc(modelFilter)}">
+      ${rows}</section>`;
+  }
+  function drawModels() { const box = $('#models-box'); if (box) box.innerHTML = modelsHtml(); }
+  document.addEventListener('input', (e) => {
+    if (e.target.id !== 'model-filter') return;
+    modelFilter = e.target.value;
+    drawModels();
+    const el = $('#model-filter'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  });
 
   function connectionsHtml() {
     const rows = (editor.connections || []).map((c, i) => `<div class="conn-row" data-conn="${i}">
@@ -922,6 +959,26 @@
     if (!b) return;
     if (b.dataset.openEditor !== undefined) { if (editor.open) { editor.open = false; drawEditor(); } else { await openEditor(); } return; }
     if (b.dataset.saveGroup) { await saveGroup(b.dataset.saveGroup); return; }
+    if (b.dataset.modelPublic) {
+      const toPublic = b.dataset.to === '1';
+      if (!toPublic && !confirm(`Đặt "${b.dataset.modelName}" thành riêng tư? Người dùng thường (không được chia sẻ riêng) sẽ không chọn được model này nữa.`)) return;
+      b.disabled = true;
+      try {
+        await api('/api/admin/models/access', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ model_id: b.dataset.modelPublic, public: toPublic, name: b.dataset.modelName }) });
+        const item = (editor.models.models || []).find((x) => x.id === b.dataset.modelPublic);
+        if (item) { item.public = toPublic; item.configured = true; }
+        editor.error = '';
+      } catch (err) { editor.error = err.message; drawEditor(); return; }
+      drawModels(); return;
+    }
+    if (b.dataset.modelDefault !== undefined) {
+      try {
+        const value = $('#model-default').value;
+        await api('/api/admin/models/default', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ value }) });
+        editor.models.default_access = value; editor.note = 'Đã lưu quyền mặc định cho model mới.'; editor.error = '';
+      } catch (err) { editor.error = err.message; }
+      drawEditor(); return;
+    }
     if (b.dataset.reindex !== undefined) {
       if (!confirm('Lập chỉ mục lại toàn bộ vector kiến thức và bộ nhớ bằng model embedding hiện tại? Việc này có thể mất từ vài phút đến hàng giờ và gọi model embedding cho mọi file.')) return;
       try { editor.reindex = await api('/api/admin/reindex', { method: 'POST', headers: editHeaders() }); editor.error = ''; editor.note = editor.reindex.already_running ? 'Đang có một lần lập chỉ mục lại chạy, theo dõi tiến độ bên dưới.' : 'Đã bắt đầu lập chỉ mục lại.'; }

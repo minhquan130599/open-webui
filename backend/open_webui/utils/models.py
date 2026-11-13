@@ -127,8 +127,19 @@ async def publish_model_availability_events(request: Request, base_models: list[
 PUBLIC_READ_GRANT = {'principal_type': 'user', 'principal_id': '*', 'permission': 'read'}
 
 
-async def register_default_public_models(models: list[dict], custom_models: list) -> bool:
-    """Register unconfigured models of the first OpenAI connection with public read access.
+DEFAULT_ACCESS_KEY = 'models.default_access'  # '' private | 'public' first connection | 'public_all' all connections
+
+
+async def default_model_access() -> str:
+    """The default-access policy: the monitor page setting if saved, else DEFAULT_MODEL_ACCESS from .env."""
+    value = await Config.get(DEFAULT_ACCESS_KEY)
+    return (value if isinstance(value, str) else DEFAULT_MODEL_ACCESS) or ''
+
+
+async def register_default_public_models(
+    models: list[dict], custom_models: list, all_connections: bool = False
+) -> bool:
+    """Register unconfigured models of the first OpenAI connection (or of every connection) with public read access.
 
     Only models without a row are touched, so an admin's later access changes stick. Returns True when rows
     were added.
@@ -138,7 +149,7 @@ async def register_default_public_models(models: list[dict], custom_models: list
         model
         for model in models
         if model.get('owned_by') == 'openai'
-        and model.get('urlIdx') == 0
+        and (all_connections or model.get('urlIdx') == 0)
         and not model.get('direct')
         and model.get('id')
         and model['id'] not in configured_ids
@@ -165,7 +176,7 @@ async def register_default_public_models(models: list[dict], custom_models: list
                 owner.id,
             )
             added = True
-            log.info('Registered model %s as public (DEFAULT_MODEL_ACCESS=public)', model['id'])
+            log.info('Registered model %s as public (default model access)', model['id'])
         except Exception as e:
             # Another worker registered it first, or the id is not a valid model id.
             log.warning('Could not register default public model %s: %s', model['id'], e)
@@ -273,7 +284,10 @@ async def get_all_models(request, refresh: bool = False, user: UserModel = None)
         enabled_filter_ids = set()
 
     custom_models = await Models.get_all_models()
-    if DEFAULT_MODEL_ACCESS == 'public' and await register_default_public_models(models, custom_models):
+    policy = await default_model_access()
+    if policy in ('public', 'public_all') and await register_default_public_models(
+        models, custom_models, all_connections=policy == 'public_all'
+    ):
         custom_models = await Models.get_all_models()
 
     # Single O(1) lookup: Ollama base names first, then exact IDs (exact wins).
