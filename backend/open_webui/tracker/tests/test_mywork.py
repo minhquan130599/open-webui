@@ -198,7 +198,11 @@ async def test_reminder_emails_one_per_person(monkeypatch):
     async def fake_send(to, subject, html_body, s=None):
         sent.append((to, subject, html_body))
 
+    async def fake_token(s):
+        return 'tok'
+
     monkeypatch.setattr(mailer, 'send', fake_send)
+    monkeypatch.setattr(mailer, '_access_token', fake_token)
     await Config.upsert(
         {
             'notifications.enable': True,

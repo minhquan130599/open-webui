@@ -211,6 +211,13 @@ async def send_reminders(per_user: dict[str, list[tuple]]) -> dict:
         log.warning('Reminder emails enabled but not configured: %s', ', '.join(lacking))
         perf.record('tracker', name='email', status='error', error=f'Chưa cấu hình: {", ".join(lacking)}')
         return result
+    try:
+        # A wrong secret or an unreachable Microsoft fails once here instead of once per person.
+        await _access_token(s)
+    except MailError as e:
+        log.warning('Reminder emails skipped: %s', e)
+        perf.record('tracker', name='email', status='error', error=str(e)[:400])
+        return {**result, 'failed': len(per_user)}
     base = ((await Config.get('webui.url')) or os.getenv('OPEN_WEBUI_PUBLIC_URL', '') or '').rstrip('/')
     link = f'{base}/my-work' if base else ''
     for user_id, items in per_user.items():
