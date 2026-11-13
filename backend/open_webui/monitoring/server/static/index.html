@@ -427,8 +427,25 @@
     }
     catch (e) { editor.token = ''; editor.data = null; editor.error = e.message; }
   }
-  function drawEditor() { const el = $('#editor'); if (el) el.innerHTML = editorHtml(); const b = document.querySelector('[data-open-editor]'); if (b) b.textContent = editor.open ? 'Đóng chỉnh sửa' : 'Chỉnh sửa cấu hình'; }
+  function drawEditor() { const el = $('#editor'); if (el) { el.innerHTML = editorHtml(); applyVisibility(); } const b = document.querySelector('[data-open-editor]'); if (b) b.textContent = editor.open ? 'Đóng chỉnh sửa' : 'Chỉnh sửa cấu hình'; }
+  // A field with show_if is shown only while the listed fields of its group have one of the given values.
   function fieldHtml(f) {
+    const html = fieldInner(f);
+    return f.show_if ? html.replace('<div class="field"', `<div class="field" data-show-if="${esc(JSON.stringify(f.show_if))}"`) : html;
+  }
+  function applyVisibility() {
+    document.querySelectorAll('[data-group]').forEach((group) => {
+      const values = {};
+      group.querySelectorAll('[data-key]').forEach((el) => { values[el.dataset.key] = el.dataset.type === 'bool' ? el.checked : el.value; });
+      group.querySelectorAll('[data-show-if]').forEach((field) => {
+        let rule = {};
+        try { rule = JSON.parse(field.dataset.showIf); } catch {}
+        field.hidden = !Object.entries(rule).every(([key, allowed]) => !(key in values) || allowed.some((v) => (typeof v === 'boolean' ? v === values[key] : String(v) === String(values[key] ?? ''))));
+      });
+    });
+  }
+  document.addEventListener('change', (e) => { if (e.target.closest && e.target.closest('[data-group]')) applyVisibility(); });
+  function fieldInner(f) {
     const id = `cfg-${f.key.replace(/[^a-z0-9]/gi, '-')}`;
     const help = f.help ? `<small>${esc(f.help)}</small>` : '';
     if (f.type === 'bool') return `<div class="field"><label class="check"><input type="checkbox" id="${id}" data-key="${esc(f.key)}" data-type="bool" ${f.value === true || f.value === 'true' ? 'checked' : ''}> ${esc(f.label)}</label>${help}</div>`;
@@ -927,6 +944,7 @@
     try {
       const html = await RENDER[tab]();
       main.innerHTML = html;
+      applyVisibility();
       $('#updated').textContent = `cập nhật ${new Date().toLocaleTimeString('vi-VN')}`;
       $('#live-dot').style.background = 'var(--green)';
     } catch (e) {
