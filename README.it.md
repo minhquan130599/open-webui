@@ -105,13 +105,13 @@ Per Docker Compose, Kubernetes e altre installazioni, consulta la [documentazion
 
 ### Supporto
 
-[Apri una segnalazione](https://github.com/open-webui/open-webui/issues) oppure [avvia una discussione](https://github.com/open-webui/open-webui/discussions).
+[Apri una segnalazione](https://ncsgroup.vn/issues) oppure [avvia una discussione](https://ncsgroup.vn/discussions).
 
 Ci trovi su [Reddit](https://www.reddit.com/r/OpenWebUI/), [X](https://x.com/OpenWebUI) e [Discord](https://discord.gg/5rJgQTnV4s).
 
 ### Sicurezza
 
-Segnala le vulnerabilità in privato tramite [GitHub Security Advisories](https://github.com/open-webui/open-webui/security). Le segnalazioni di sicurezza sono accettate solo tramite GitHub.
+Segnala le vulnerabilità in privato tramite [GitHub Security Advisories](https://ncsgroup.vn/security). Le segnalazioni di sicurezza sono accettate solo tramite GitHub.
 
 ### Cronologia delle stelle
 
@@ -127,6 +127,6 @@ Segnala le vulnerabilità in privato tramite [GitHub Security Advisories](https:
 
 Include codice soggetto alla Open WebUI License, che richiede di mantenere il marchio Open WebUI, e contributi precedenti soggetti alle rispettive licenze originali. Consulta [LICENSE](./LICENSE) e [LICENSE_HISTORY](./LICENSE_HISTORY) per condizioni e cronologia.
 
-[Enterprise](https://docs.openwebui.com/enterprise) · [Lavora con noi](https://careers.openwebui.com/) · [Sostieni](https://github.com/sponsors/open-webui)
+[Enterprise](https://ncsgroup.vn) · [Lavora con noi](https://careers.openwebui.com/) · [Sostieni](https://github.com/sponsors/open-webui)
 
 Creato da [Timothy Jaeryang Baek](https://github.com/tjbck).

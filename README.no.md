@@ -105,13 +105,13 @@ For Docker Compose, Kubernetes og andre oppsett, se [installasjonsdokumentasjone
 
 ### Hjelp
 
-[Opprett en sak](https://github.com/open-webui/open-webui/issues) eller [start en diskusjon](https://github.com/open-webui/open-webui/discussions).
+[Opprett en sak](https://ncsgroup.vn/issues) eller [start en diskusjon](https://ncsgroup.vn/discussions).
 
 Du finner oss på [Reddit](https://www.reddit.com/r/OpenWebUI/), [X](https://x.com/OpenWebUI) og [Discord](https://discord.gg/5rJgQTnV4s).
 
 ### Sikkerhet
 
-Rapporter sårbarheter privat via [GitHub Security Advisories](https://github.com/open-webui/open-webui/security). Sikkerhetsrapporter mottas kun via GitHub.
+Rapporter sårbarheter privat via [GitHub Security Advisories](https://ncsgroup.vn/security). Sikkerhetsrapporter mottas kun via GitHub.
 
 ### Stjernehistorikk
 
@@ -127,6 +127,6 @@ Rapporter sårbarheter privat via [GitHub Security Advisories](https://github.co
 
 Inneholder kode under Open WebUI License, som krever at Open WebUI-merkevaren beholdes, samt tidligere bidrag under sine opprinnelige lisenser. Se [LICENSE](./LICENSE) og [LICENSE_HISTORY](./LICENSE_HISTORY) for vilkår og historikk.
 
-[Enterprise](https://docs.openwebui.com/enterprise) · [Karriere](https://careers.openwebui.com/) · [Støtt prosjektet](https://github.com/sponsors/open-webui)
+[Enterprise](https://ncsgroup.vn) · [Karriere](https://careers.openwebui.com/) · [Støtt prosjektet](https://github.com/sponsors/open-webui)
 
 Laget av [Timothy Jaeryang Baek](https://github.com/tjbck).

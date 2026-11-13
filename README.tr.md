@@ -105,13 +105,13 @@ Docker Compose, Kubernetes ve diğer kurulumlar için [kurulum belgelerine](http
 
 ### Destek
 
-[Bir issue açın](https://github.com/open-webui/open-webui/issues) veya [tartışma başlatın](https://github.com/open-webui/open-webui/discussions).
+[Bir issue açın](https://ncsgroup.vn/issues) veya [tartışma başlatın](https://ncsgroup.vn/discussions).
 
 Bizi [Reddit](https://www.reddit.com/r/OpenWebUI/), [X](https://x.com/OpenWebUI) ve [Discord](https://discord.gg/5rJgQTnV4s) üzerinde bulabilirsiniz.
 
 ### Güvenlik
 
-Güvenlik açıklarını [GitHub Security Advisories](https://github.com/open-webui/open-webui/security) üzerinden gizli olarak bildirin. Güvenlik bildirimleri yalnızca GitHub üzerinden kabul edilir.
+Güvenlik açıklarını [GitHub Security Advisories](https://ncsgroup.vn/security) üzerinden gizli olarak bildirin. Güvenlik bildirimleri yalnızca GitHub üzerinden kabul edilir.
 
 ### Yıldız geçmişi
 
@@ -127,6 +127,6 @@ Güvenlik açıklarını [GitHub Security Advisories](https://github.com/open-we
 
 Open WebUI markasının korunmasını gerektiren Open WebUI License kapsamındaki kodu ve kendi özgün lisanslarına tabi önceki katkıları içerir. Koşullar ve geçmiş için [LICENSE](./LICENSE) ve [LICENSE_HISTORY](./LICENSE_HISTORY) dosyalarına bakın.
 
-[Kurumsal](https://docs.openwebui.com/enterprise) · [Kariyer](https://careers.openwebui.com/) · [Sponsor olun](https://github.com/sponsors/open-webui)
+[Kurumsal](https://ncsgroup.vn) · [Kariyer](https://careers.openwebui.com/) · [Sponsor olun](https://github.com/sponsors/open-webui)
 
 Geliştiren: [Timothy Jaeryang Baek](https://github.com/tjbck).

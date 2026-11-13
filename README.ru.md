@@ -105,13 +105,13 @@ docker run -d -p 3000:8080 --add-host=host.docker.internal:host-gateway -v open-
 
 ### Поддержка
 
-[Создайте issue](https://github.com/open-webui/open-webui/issues) или [начните обсуждение](https://github.com/open-webui/open-webui/discussions).
+[Создайте issue](https://ncsgroup.vn/issues) или [начните обсуждение](https://ncsgroup.vn/discussions).
 
 Мы есть на [Reddit](https://www.reddit.com/r/OpenWebUI/), [X](https://x.com/OpenWebUI) и [Discord](https://discord.gg/5rJgQTnV4s).
 
 ### Безопасность
 
-Сообщайте об уязвимостях конфиденциально через [GitHub Security Advisories](https://github.com/open-webui/open-webui/security). Сообщения о безопасности принимаются только через GitHub.
+Сообщайте об уязвимостях конфиденциально через [GitHub Security Advisories](https://ncsgroup.vn/security). Сообщения о безопасности принимаются только через GitHub.
 
 ### История звёзд
 
@@ -127,6 +127,6 @@ docker run -d -p 3000:8080 --add-host=host.docker.internal:host-gateway -v open-
 
 Включает код под Open WebUI License, которая требует сохранения брендинга Open WebUI, а также предыдущие вклады под их исходными лицензиями. Условия и история приведены в [LICENSE](./LICENSE) и [LICENSE_HISTORY](./LICENSE_HISTORY).
 
-[Для организаций](https://docs.openwebui.com/enterprise) · [Карьера](https://careers.openwebui.com/) · [Поддержать проект](https://github.com/sponsors/open-webui)
+[Для организаций](https://ncsgroup.vn) · [Карьера](https://careers.openwebui.com/) · [Поддержать проект](https://github.com/sponsors/open-webui)
 
 Автор: [Timothy Jaeryang Baek](https://github.com/tjbck).

@@ -10,13 +10,13 @@ body:
 
         Use this for real, reproducible bugs. A clear issue is the most useful contribution: include the affected workflow, the expected result, the actual result, and the details needed for someone else to reproduce it.
 
-        Before submitting, search open and closed [Issues](https://github.com/open-webui/open-webui/issues) and [Discussions](https://github.com/open-webui/open-webui/discussions). The issue may already be reported or fixed on `dev`.
+        Before submitting, search open and closed [Issues](https://ncsgroup.vn/issues) and [Discussions](https://ncsgroup.vn/discussions). The issue may already be reported or fixed on `dev`.
 
         **Test on the latest release AND on `dev`, right before you submit this report, not last week.** A huge share of reports are for bugs already fixed on `dev`, sometimes weeks earlier, because the reporter only tested an old version and never rechecked. Reports that don't reproduce on latest and on current `dev` at submission time will be closed without further discussion, no exceptions.
 
         Please do not open a code pull request for this report unless a maintainer asks for one, or the change is only i18n/localization. If you want to share code as reference, include it here as a local diff or patch. Actionable reproduction details are the most useful next step.
 
-        Security vulnerabilities must not be reported publicly. Use the [GitHub security page](https://github.com/open-webui/open-webui/security) instead.
+        Security vulnerabilities must not be reported publicly. Use the [GitHub security page](https://ncsgroup.vn/security) instead.
 
   - type: checkboxes
     id: issue-check

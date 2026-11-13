@@ -105,13 +105,13 @@ docker run -d -p 3000:8080 --add-host=host.docker.internal:host-gateway -v open-
 
 ### الدعم
 
-[افتح بلاغًا](https://github.com/open-webui/open-webui/issues) أو [ابدأ نقاشًا](https://github.com/open-webui/open-webui/discussions).
+[افتح بلاغًا](https://ncsgroup.vn/issues) أو [ابدأ نقاشًا](https://ncsgroup.vn/discussions).
 
 تجدنا على [Reddit](https://www.reddit.com/r/OpenWebUI/) و[X](https://x.com/OpenWebUI) و[Discord](https://discord.gg/5rJgQTnV4s).
 
 ### الأمان
 
-أبلغ عن الثغرات بسرية عبر [GitHub Security Advisories](https://github.com/open-webui/open-webui/security). تُقبل البلاغات الأمنية عبر GitHub فقط.
+أبلغ عن الثغرات بسرية عبر [GitHub Security Advisories](https://ncsgroup.vn/security). تُقبل البلاغات الأمنية عبر GitHub فقط.
 
 ### سجل النجوم
 
@@ -127,6 +127,6 @@ docker run -d -p 3000:8080 --add-host=host.docker.internal:host-gateway -v open-
 
 يتضمن كودًا يخضع لترخيص Open WebUI License الذي يشترط الحفاظ على هوية Open WebUI التجارية، ومساهمات سابقة تخضع لتراخيصها الأصلية. راجع [LICENSE](./LICENSE) و[LICENSE_HISTORY](./LICENSE_HISTORY) للاطلاع على الشروط والسجل.
 
-[المؤسسات](https://docs.openwebui.com/enterprise) · [الوظائف](https://careers.openwebui.com/) · [الرعاية](https://github.com/sponsors/open-webui)
+[المؤسسات](https://ncsgroup.vn) · [الوظائف](https://careers.openwebui.com/) · [الرعاية](https://github.com/sponsors/open-webui)
 
 أنشأه [Timothy Jaeryang Baek](https://github.com/tjbck).

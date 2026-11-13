@@ -105,13 +105,13 @@ Za Docker Compose, Kubernetes i druge načine instalacije pogledajte [dokumentac
 
 ### Podrška
 
-[Otvorite prijavu](https://github.com/open-webui/open-webui/issues) ili [pokrenite raspravu](https://github.com/open-webui/open-webui/discussions).
+[Otvorite prijavu](https://ncsgroup.vn/issues) ili [pokrenite raspravu](https://ncsgroup.vn/discussions).
 
 Pronađite nas na [Redditu](https://www.reddit.com/r/OpenWebUI/), [X-u](https://x.com/OpenWebUI) i [Discordu](https://discord.gg/5rJgQTnV4s).
 
 ### Sigurnost
 
-Ranjivosti prijavite privatno putem [GitHub Security Advisories](https://github.com/open-webui/open-webui/security). Sigurnosne prijave prihvatamo isključivo putem GitHuba.
+Ranjivosti prijavite privatno putem [GitHub Security Advisories](https://ncsgroup.vn/security). Sigurnosne prijave prihvatamo isključivo putem GitHuba.
 
 ### Historija zvjezdica
 
@@ -127,6 +127,6 @@ Ranjivosti prijavite privatno putem [GitHub Security Advisories](https://github.
 
 Sadrži kod pod licencom Open WebUI License, koja zahtijeva očuvanje brenda Open WebUI, te ranije doprinose pod njihovim izvornim licencama. Uslove i historiju pogledajte u [LICENSE](./LICENSE) i [LICENSE_HISTORY](./LICENSE_HISTORY).
 
-[Enterprise](https://docs.openwebui.com/enterprise) · [Karijere](https://careers.openwebui.com/) · [Sponzorišite](https://github.com/sponsors/open-webui)
+[Enterprise](https://ncsgroup.vn) · [Karijere](https://careers.openwebui.com/) · [Sponzorišite](https://github.com/sponsors/open-webui)
 
 Autor: [Timothy Jaeryang Baek](https://github.com/tjbck).

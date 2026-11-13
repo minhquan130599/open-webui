@@ -105,13 +105,13 @@ Với Docker Compose, Kubernetes và các cách thiết lập khác, xem [tài l
 
 ### Hỗ trợ
 
-[Tạo issue](https://github.com/open-webui/open-webui/issues) hoặc [bắt đầu thảo luận](https://github.com/open-webui/open-webui/discussions).
+[Tạo issue](https://ncsgroup.vn/issues) hoặc [bắt đầu thảo luận](https://ncsgroup.vn/discussions).
 
 Tìm chúng tôi trên [Reddit](https://www.reddit.com/r/OpenWebUI/), [X](https://x.com/OpenWebUI) và [Discord](https://discord.gg/5rJgQTnV4s).
 
 ### Bảo mật
 
-Báo cáo lỗ hổng một cách riêng tư qua [GitHub Security Advisories](https://github.com/open-webui/open-webui/security). Báo cáo bảo mật chỉ được tiếp nhận qua GitHub.
+Báo cáo lỗ hổng một cách riêng tư qua [GitHub Security Advisories](https://ncsgroup.vn/security). Báo cáo bảo mật chỉ được tiếp nhận qua GitHub.
 
 ### Lịch sử sao
 
@@ -127,6 +127,6 @@ Báo cáo lỗ hổng một cách riêng tư qua [GitHub Security Advisories](ht
 
 Bao gồm mã theo Open WebUI License, yêu cầu giữ nguyên thương hiệu Open WebUI, và các đóng góp trước đây theo giấy phép gốc tương ứng. Xem [LICENSE](./LICENSE) và [LICENSE_HISTORY](./LICENSE_HISTORY) để biết điều khoản và lịch sử.
 
-[Doanh nghiệp](https://docs.openwebui.com/enterprise) · [Tuyển dụng](https://careers.openwebui.com/) · [Tài trợ](https://github.com/sponsors/open-webui)
+[Doanh nghiệp](https://ncsgroup.vn) · [Tuyển dụng](https://careers.openwebui.com/) · [Tài trợ](https://github.com/sponsors/open-webui)
 
 Được tạo bởi [Timothy Jaeryang Baek](https://github.com/tjbck).

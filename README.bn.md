@@ -105,13 +105,13 @@ Docker Compose, Kubernetes ও অন্যান্য সেটআপের �
 
 ### সহায়তা
 
-[একটি ইস্যু খুলুন](https://github.com/open-webui/open-webui/issues) বা [আলোচনা শুরু করুন](https://github.com/open-webui/open-webui/discussions)।
+[একটি ইস্যু খুলুন](https://ncsgroup.vn/issues) বা [আলোচনা শুরু করুন](https://ncsgroup.vn/discussions)।
 
 আমাদের পাবেন [Reddit](https://www.reddit.com/r/OpenWebUI/), [X](https://x.com/OpenWebUI) ও [Discord](https://discord.gg/5rJgQTnV4s)-এ।
 
 ### নিরাপত্তা
 
-[GitHub Security Advisories](https://github.com/open-webui/open-webui/security)-এর মাধ্যমে গোপনে নিরাপত্তা দুর্বলতা জানান। নিরাপত্তাসংক্রান্ত রিপোর্ট কেবল GitHub-এর মাধ্যমেই গ্রহণ করা হয়।
+[GitHub Security Advisories](https://ncsgroup.vn/security)-এর মাধ্যমে গোপনে নিরাপত্তা দুর্বলতা জানান। নিরাপত্তাসংক্রান্ত রিপোর্ট কেবল GitHub-এর মাধ্যমেই গ্রহণ করা হয়।
 
 ### স্টারের ইতিহাস
 
@@ -127,6 +127,6 @@ Docker Compose, Kubernetes ও অন্যান্য সেটআপের �
 
 এতে Open WebUI License-এর আওতাধীন কোড রয়েছে, যা Open WebUI ব্র্যান্ডিং অক্ষুণ্ণ রাখা বাধ্যতামূলক করে, এবং আগের অবদানগুলো তাদের নিজ নিজ মূল লাইসেন্সের আওতায় রয়েছে। শর্ত ও ইতিহাসের জন্য [LICENSE](./LICENSE) ও [LICENSE_HISTORY](./LICENSE_HISTORY) দেখুন।
 
-[এন্টারপ্রাইজ](https://docs.openwebui.com/enterprise) · [ক্যারিয়ার](https://careers.openwebui.com/) · [স্পনসর করুন](https://github.com/sponsors/open-webui)
+[এন্টারপ্রাইজ](https://ncsgroup.vn) · [ক্যারিয়ার](https://careers.openwebui.com/) · [স্পনসর করুন](https://github.com/sponsors/open-webui)
 
 তৈরি করেছেন [Timothy Jaeryang Baek](https://github.com/tjbck)।

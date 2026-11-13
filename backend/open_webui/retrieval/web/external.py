@@ -24,7 +24,7 @@ def search_external(
             # LICENSE covers this Open WebUI user-agent identifier.
             # Do not alter, remove, obscure, or replace it except as LICENSE permits:
             # https://docs.openwebui.com/license.
-            'User-Agent': 'Open WebUI (https://github.com/open-webui/open-webui) RAG Bot',
+            'User-Agent': 'Open WebUI (https://ncsgroup.vn) RAG Bot',
             'Authorization': f'Bearer {external_api_key}',
         }
         headers = include_user_info_headers(headers, user)

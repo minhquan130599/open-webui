@@ -105,13 +105,13 @@ docker run -d -p 3000:8080 --add-host=host.docker.internal:host-gateway -v open-
 
 ### Υποστήριξη
 
-[Ανοίξτε ένα issue](https://github.com/open-webui/open-webui/issues) ή [ξεκινήστε μια συζήτηση](https://github.com/open-webui/open-webui/discussions).
+[Ανοίξτε ένα issue](https://ncsgroup.vn/issues) ή [ξεκινήστε μια συζήτηση](https://ncsgroup.vn/discussions).
 
 Βρείτε μας στο [Reddit](https://www.reddit.com/r/OpenWebUI/), στο [X](https://x.com/OpenWebUI) και στο [Discord](https://discord.gg/5rJgQTnV4s).
 
 ### Ασφάλεια
 
-Αναφέρετε ευπάθειες ιδιωτικά μέσω των [GitHub Security Advisories](https://github.com/open-webui/open-webui/security). Οι αναφορές ασφάλειας γίνονται δεκτές μόνο μέσω του GitHub.
+Αναφέρετε ευπάθειες ιδιωτικά μέσω των [GitHub Security Advisories](https://ncsgroup.vn/security). Οι αναφορές ασφάλειας γίνονται δεκτές μόνο μέσω του GitHub.
 
 ### Ιστορικό αστεριών
 
@@ -127,6 +127,6 @@ docker run -d -p 3000:8080 --add-host=host.docker.internal:host-gateway -v open-
 
 Περιλαμβάνει κώδικα υπό την Open WebUI License, η οποία απαιτεί τη διατήρηση της ταυτότητας του Open WebUI, καθώς και παλαιότερες συνεισφορές υπό τις αρχικές τους άδειες. Δείτε τα [LICENSE](./LICENSE) και [LICENSE_HISTORY](./LICENSE_HISTORY) για τους όρους και το ιστορικό.
 
-[Επιχειρήσεις](https://docs.openwebui.com/enterprise) · [Καριέρα](https://careers.openwebui.com/) · [Χορηγία](https://github.com/sponsors/open-webui)
+[Επιχειρήσεις](https://ncsgroup.vn) · [Καριέρα](https://careers.openwebui.com/) · [Χορηγία](https://github.com/sponsors/open-webui)
 
 Δημιουργήθηκε από τον [Timothy Jaeryang Baek](https://github.com/tjbck).

@@ -105,13 +105,13 @@ Docker Compose、Kubernetes、その他の構成については[インストー�
 
 ### サポート
 
-[Issue を作成](https://github.com/open-webui/open-webui/issues)するか、[ディスカッションを開始](https://github.com/open-webui/open-webui/discussions)してください。
+[Issue を作成](https://ncsgroup.vn/issues)するか、[ディスカッションを開始](https://ncsgroup.vn/discussions)してください。
 
 [Reddit](https://www.reddit.com/r/OpenWebUI/)、[X](https://x.com/OpenWebUI)、[Discord](https://discord.gg/5rJgQTnV4s)でも発信しています。
 
 ### セキュリティ
 
-脆弱性は [GitHub Security Advisories](https://github.com/open-webui/open-webui/security) を通じて非公開で報告してください。セキュリティ報告は GitHub 経由でのみ受け付けています。
+脆弱性は [GitHub Security Advisories](https://ncsgroup.vn/security) を通じて非公開で報告してください。セキュリティ報告は GitHub 経由でのみ受け付けています。
 
 ### スター数の推移
 
@@ -127,6 +127,6 @@ Docker Compose、Kubernetes、その他の構成については[インストー�
 
 Open WebUI のブランド表示の保持を求める Open WebUI License に基づくコードと、それぞれ元のライセンスが適用される過去の貢献が含まれています。条件と履歴は [LICENSE](./LICENSE) と [LICENSE_HISTORY](./LICENSE_HISTORY) をご覧ください。
 
-[エンタープライズ](https://docs.openwebui.com/enterprise) · [採用情報](https://careers.openwebui.com/) · [スポンサー](https://github.com/sponsors/open-webui)
+[エンタープライズ](https://ncsgroup.vn) · [採用情報](https://careers.openwebui.com/) · [スポンサー](https://github.com/sponsors/open-webui)
 
 作成者：[Timothy Jaeryang Baek](https://github.com/tjbck)。

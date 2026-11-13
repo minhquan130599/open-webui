@@ -105,13 +105,13 @@ Docker Compose, Kubernetes 및 기타 설치 방법은 [설치 문서](https://d
 
 ### 지원
 
-[이슈를 등록](https://github.com/open-webui/open-webui/issues)하거나 [토론을 시작](https://github.com/open-webui/open-webui/discussions)하세요.
+[이슈를 등록](https://ncsgroup.vn/issues)하거나 [토론을 시작](https://ncsgroup.vn/discussions)하세요.
 
 [Reddit](https://www.reddit.com/r/OpenWebUI/), [X](https://x.com/OpenWebUI), [Discord](https://discord.gg/5rJgQTnV4s)에서도 만나보세요.
 
 ### 보안
 
-취약점은 [GitHub Security Advisories](https://github.com/open-webui/open-webui/security)를 통해 비공개로 제보해 주세요. 보안 제보는 GitHub를 통해서만 접수합니다.
+취약점은 [GitHub Security Advisories](https://ncsgroup.vn/security)를 통해 비공개로 제보해 주세요. 보안 제보는 GitHub를 통해서만 접수합니다.
 
 ### 스타 기록
 
@@ -127,6 +127,6 @@ Docker Compose, Kubernetes 및 기타 설치 방법은 [설치 문서](https://d
 
 Open WebUI 브랜드 유지를 요구하는 Open WebUI License가 적용된 코드와, 각각 원래 라이선스가 적용되는 이전 기여분을 포함합니다. 조건과 이력은 [LICENSE](./LICENSE)와 [LICENSE_HISTORY](./LICENSE_HISTORY)를 참고하세요.
 
-[엔터프라이즈](https://docs.openwebui.com/enterprise) · [채용](https://careers.openwebui.com/) · [후원](https://github.com/sponsors/open-webui)
+[엔터프라이즈](https://ncsgroup.vn) · [채용](https://careers.openwebui.com/) · [후원](https://github.com/sponsors/open-webui)
 
 제작: [Timothy Jaeryang Baek](https://github.com/tjbck).

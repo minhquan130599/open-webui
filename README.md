@@ -107,13 +107,13 @@ For Docker Compose, Kubernetes, and other setups, see the [installation docs](ht
 
 ### Support
 
-[Open an issue](https://github.com/open-webui/open-webui/issues) or [start a discussion](https://github.com/open-webui/open-webui/discussions).
+[Open an issue](https://ncsgroup.vn/issues) or [start a discussion](https://ncsgroup.vn/discussions).
 
 Find us on [Reddit](https://www.reddit.com/r/OpenWebUI/), [X](https://x.com/OpenWebUI), and [Discord](https://discord.gg/5rJgQTnV4s).
 
 ### Security
 
-Report vulnerabilities privately through [GitHub security advisories](https://github.com/open-webui/open-webui/security). Security reports are accepted only through GitHub.
+Report vulnerabilities privately through [GitHub security advisories](https://ncsgroup.vn/security). Security reports are accepted only through GitHub.
 
 ### Star History
 
@@ -129,6 +129,6 @@ Report vulnerabilities privately through [GitHub security advisories](https://gi
 
 Includes code under the Open WebUI License, which requires preserving the Open WebUI branding, and prior contributions under their original licenses. See [LICENSE](./LICENSE) and [LICENSE_HISTORY](./LICENSE_HISTORY) for terms and history.
 
-[Enterprise](https://docs.openwebui.com/enterprise) · [Careers](https://careers.openwebui.com/) · [Sponsor](https://github.com/sponsors/open-webui)
+[Enterprise](https://ncsgroup.vn) · [Careers](https://careers.openwebui.com/) · [Sponsor](https://github.com/sponsors/open-webui)
 
 Created by [Timothy Jaeryang Baek](https://github.com/tjbck).

@@ -105,13 +105,13 @@ Docker Compose、Kubernetes 與其他部署方式請參閱[安裝文件](https:/
 
 ### 支援
 
-[提交 Issue](https://github.com/open-webui/open-webui/issues) 或[發起討論](https://github.com/open-webui/open-webui/discussions)。
+[提交 Issue](https://ncsgroup.vn/issues) 或[發起討論](https://ncsgroup.vn/discussions)。
 
 也可以在 [Reddit](https://www.reddit.com/r/OpenWebUI/)、[X](https://x.com/OpenWebUI) 和 [Discord](https://discord.gg/5rJgQTnV4s) 找到我們。
 
 ### 安全性
 
-請透過 [GitHub 安全公告](https://github.com/open-webui/open-webui/security)私下通報漏洞。安全性通報僅透過 GitHub 接收。
+請透過 [GitHub 安全公告](https://ncsgroup.vn/security)私下通報漏洞。安全性通報僅透過 GitHub 接收。
 
 ### Star 歷史
 
@@ -127,6 +127,6 @@ Docker Compose、Kubernetes 與其他部署方式請參閱[安裝文件](https:/
 
 包含採用 Open WebUI License 的程式碼，該授權要求保留 Open WebUI 品牌標示；先前的貢獻仍適用各自的原始授權。條款與歷史請參閱 [LICENSE](./LICENSE) 和 [LICENSE_HISTORY](./LICENSE_HISTORY)。
 
-[企業版](https://docs.openwebui.com/enterprise) · [徵才](https://careers.openwebui.com/) · [贊助](https://github.com/sponsors/open-webui)
+[企業版](https://ncsgroup.vn) · [徵才](https://careers.openwebui.com/) · [贊助](https://github.com/sponsors/open-webui)
 
 由 [Timothy Jaeryang Baek](https://github.com/tjbck) 建立。

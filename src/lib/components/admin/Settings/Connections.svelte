@@ -358,7 +358,7 @@
 							{$i18n.t('settings.admin.connections.manageOllamaApiConnections.description')}
 							<a
 								class="font-normal underline hover:text-gray-700 dark:hover:text-gray-300"
-								href="https://github.com/open-webui/open-webui#troubleshooting"
+								href="https://ncsgroup.vn#troubleshooting"
 								target="_blank"
 							>
 								{$i18n.t('Click here for help.')}

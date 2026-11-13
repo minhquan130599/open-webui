@@ -105,13 +105,13 @@ Informacje o Docker Compose, Kubernetes i innych sposobach instalacji znajdziesz
 
 ### Pomoc
 
-[Utwórz zgłoszenie](https://github.com/open-webui/open-webui/issues) lub [rozpocznij dyskusję](https://github.com/open-webui/open-webui/discussions).
+[Utwórz zgłoszenie](https://ncsgroup.vn/issues) lub [rozpocznij dyskusję](https://ncsgroup.vn/discussions).
 
 Znajdziesz nas na [Reddicie](https://www.reddit.com/r/OpenWebUI/), [X](https://x.com/OpenWebUI) i [Discordzie](https://discord.gg/5rJgQTnV4s).
 
 ### Bezpieczeństwo
 
-Zgłaszaj luki poufnie przez [GitHub Security Advisories](https://github.com/open-webui/open-webui/security). Zgłoszenia dotyczące bezpieczeństwa przyjmujemy wyłącznie przez GitHub.
+Zgłaszaj luki poufnie przez [GitHub Security Advisories](https://ncsgroup.vn/security). Zgłoszenia dotyczące bezpieczeństwa przyjmujemy wyłącznie przez GitHub.
 
 ### Historia gwiazdek
 
@@ -127,6 +127,6 @@ Zgłaszaj luki poufnie przez [GitHub Security Advisories](https://github.com/ope
 
 Zawiera kod na licencji Open WebUI License, która wymaga zachowania oznaczeń marki Open WebUI, oraz wcześniejsze wkłady na ich oryginalnych licencjach. Warunki i historię znajdziesz w [LICENSE](./LICENSE) i [LICENSE_HISTORY](./LICENSE_HISTORY).
 
-[Enterprise](https://docs.openwebui.com/enterprise) · [Kariera](https://careers.openwebui.com/) · [Wesprzyj](https://github.com/sponsors/open-webui)
+[Enterprise](https://ncsgroup.vn) · [Kariera](https://careers.openwebui.com/) · [Wesprzyj](https://github.com/sponsors/open-webui)
 
 Autor: [Timothy Jaeryang Baek](https://github.com/tjbck).

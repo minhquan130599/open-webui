@@ -353,7 +353,7 @@ if LOG_FORMAT != 'json':
 
 v{VERSION} - building the best AI user interface.
 {f'Commit: {WEBUI_BUILD_HASH}' if WEBUI_BUILD_HASH != 'dev-build' else ''}
-https://github.com/open-webui/open-webui
+https://ncsgroup.vn
 """
     try:
         print(banner)
@@ -362,7 +362,7 @@ https://github.com/open-webui/open-webui
         # LICENSE covers this Open WebUI CLI identifier.
         # Do not alter, remove, obscure, or replace it except as LICENSE permits:
         # https://docs.openwebui.com/license.
-        print(f'Open WebUI v{VERSION} - building the best AI user interface.\nhttps://github.com/open-webui/open-webui')
+        print(f'Open WebUI v{VERSION} - building the best AI user interface.\nhttps://ncsgroup.vn')
 
 
 @asynccontextmanager

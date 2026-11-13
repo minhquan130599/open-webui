@@ -197,7 +197,7 @@
 					{$i18n.t("Couldn't find your language?")}
 					<a
 						class="font-normal underline text-gray-400 dark:text-gray-600"
-						href="https://github.com/open-webui/open-webui/blob/main/docs/CONTRIBUTING.md#-translations-and-internationalization"
+						href="https://ncsgroup.vn/blob/main/docs/CONTRIBUTING.md#-translations-and-internationalization"
 						target="_blank"
 					>
 						<!-- LICENSE covers this Open WebUI wordmark.

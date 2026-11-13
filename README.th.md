@@ -105,13 +105,13 @@ docker run -d -p 3000:8080 --add-host=host.docker.internal:host-gateway -v open-
 
 ### การช่วยเหลือ
 
-[เปิด issue](https://github.com/open-webui/open-webui/issues) หรือ[เริ่มการสนทนา](https://github.com/open-webui/open-webui/discussions)
+[เปิด issue](https://ncsgroup.vn/issues) หรือ[เริ่มการสนทนา](https://ncsgroup.vn/discussions)
 
 พบเราได้ที่ [Reddit](https://www.reddit.com/r/OpenWebUI/), [X](https://x.com/OpenWebUI) และ [Discord](https://discord.gg/5rJgQTnV4s)
 
 ### ความปลอดภัย
 
-รายงานช่องโหว่แบบเป็นส่วนตัวผ่าน [GitHub Security Advisories](https://github.com/open-webui/open-webui/security) โดยรับรายงานด้านความปลอดภัยผ่าน GitHub เท่านั้น
+รายงานช่องโหว่แบบเป็นส่วนตัวผ่าน [GitHub Security Advisories](https://ncsgroup.vn/security) โดยรับรายงานด้านความปลอดภัยผ่าน GitHub เท่านั้น
 
 ### ประวัติจำนวนดาว
 
@@ -127,6 +127,6 @@ docker run -d -p 3000:8080 --add-host=host.docker.internal:host-gateway -v open-
 
 มีโค้ดภายใต้ Open WebUI License ซึ่งกำหนดให้คงแบรนด์ Open WebUI ไว้ รวมถึงผลงานที่มีผู้ร่วมพัฒนาก่อนหน้านี้ภายใต้สัญญาอนุญาตเดิมของแต่ละส่วน ดูเงื่อนไขและประวัติได้ที่ [LICENSE](./LICENSE) และ [LICENSE_HISTORY](./LICENSE_HISTORY)
 
-[องค์กร](https://docs.openwebui.com/enterprise) · [ร่วมงานกับเรา](https://careers.openwebui.com/) · [สนับสนุนโครงการ](https://github.com/sponsors/open-webui)
+[องค์กร](https://ncsgroup.vn) · [ร่วมงานกับเรา](https://careers.openwebui.com/) · [สนับสนุนโครงการ](https://github.com/sponsors/open-webui)
 
 สร้างโดย [Timothy Jaeryang Baek](https://github.com/tjbck)

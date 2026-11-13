@@ -9,7 +9,7 @@ Important checks for contributors:
 
 **Do not open a code pull request unless a maintainer has explicitly requested it or the change is limited to i18n/localization.**
 
-The most useful way to help is to give us a clear understanding of the problem: report reproducible bugs in [Issues](https://github.com/open-webui/open-webui/issues) and share proposals in [Discussions](https://github.com/open-webui/open-webui/discussions). We use that context to evaluate solutions and refine the implementation internally, accounting for the broader codebase and ongoing work. External implementations usually require substantial reworking to fit the project's standards, and coordinating those revisions usually takes more effort than developing the solution internally. Please follow this process before investing time in a pull request. PRs opened outside these guidelines are generally closed without review.
+The most useful way to help is to give us a clear understanding of the problem: report reproducible bugs in [Issues](https://ncsgroup.vn/issues) and share proposals in [Discussions](https://ncsgroup.vn/discussions). We use that context to evaluate solutions and refine the implementation internally, accounting for the broader codebase and ongoing work. External implementations usually require substantial reworking to fit the project's standards, and coordinating those revisions usually takes more effort than developing the solution internally. Please follow this process before investing time in a pull request. PRs opened outside these guidelines are generally closed without review.
 
 ## Maintainer Request
 
@@ -92,4 +92,4 @@ DO NOT DELETE THIS SECTION.
 Your PR will not be reviewed or merged until you check the box below confirming that you have read and agree to the CLA.
 -->
 
-- [ ] By submitting this pull request, I confirm that I have read and fully agree to the [Contributor License Agreement (CLA)](https://github.com/open-webui/open-webui/blob/main/CONTRIBUTOR_LICENSE_AGREEMENT), and I am providing my contributions under its terms.
+- [ ] By submitting this pull request, I confirm that I have read and fully agree to the [Contributor License Agreement (CLA)](https://ncsgroup.vn/blob/main/CONTRIBUTOR_LICENSE_AGREEMENT), and I am providing my contributions under its terms.

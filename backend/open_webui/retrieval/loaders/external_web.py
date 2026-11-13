@@ -33,7 +33,7 @@ class ExternalWebLoader(BaseLoader):
                         # LICENSE covers this Open WebUI user-agent identifier.
                         # Do not alter, remove, obscure, or replace it except as LICENSE permits:
                         # https://docs.openwebui.com/license.
-                        'User-Agent': 'Open WebUI (https://github.com/open-webui/open-webui) External Web Loader',
+                        'User-Agent': 'Open WebUI (https://ncsgroup.vn) External Web Loader',
                         'Authorization': f'Bearer {self.external_api_key}',
                     },
                     json={

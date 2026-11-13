@@ -555,7 +555,7 @@
 				<div class="mt-2 flex items-center gap-3">
 					<a
 						class="text-xs text-gray-700 underline transition hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
-						href="https://docs.openwebui.com/enterprise"
+						href="https://ncsgroup.vn"
 						target="_blank"
 						rel="noreferrer"
 					>
