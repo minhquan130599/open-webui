@@ -44,39 +44,78 @@
 			]
 		},
 		{
+			"id": "channel_types",
+			"category": "Kênh & trao đổi",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Kênh, Kênh nhóm và Tin nhắn trực tiếp là gì?",
+			"desc": "Ba loại kênh khác nhau ở đâu và vì sao cần cả ba",
+			"minutes": 3,
+			"icon": "🧭",
+			"steps": [
+				{
+					"title": "Kênh (Channel)",
+					"text": "Không gian trao đổi chính thức của tổ chức, ví dụ kênh của phòng ban, kênh thông báo chung, kênh dự án lớn. Quyền truy cập do quản trị viên cấp theo nhóm và người dùng: Công khai thì mọi người trong hệ thống đều thấy, Riêng tư thì chỉ người được cấp quyền. Thành viên thay đổi theo nhóm nên không phải mời từng người. Chỉ quản trị viên tạo được loại này."
+				},
+				{
+					"title": "Kênh nhóm (Group Channel)",
+					"text": "Nhóm làm việc do chính người dùng lập khi cần, ví dụ nhóm dự án, nhóm báo cáo hằng ngày, tổ công tác tạm thời. Người tạo mời từng thành viên và có thể đặt Riêng tư để chỉ thành viên nhìn thấy. Người dùng và quản trị viên đều tạo được."
+				},
+				{
+					"title": "Tin nhắn trực tiếp (Direct Message)",
+					"text": "Cuộc trò chuyện riêng giữa vài người được chọn, không cần đặt tên kênh. Dùng để trao đổi nhanh hoặc bàn việc riêng mà không cần cả nhóm biết. Người dùng và quản trị viên đều tạo được."
+				},
+				{
+					"title": "Vì sao lại có ba loại?",
+					"text": "Mỗi loại phục vụ một mức độ trao đổi và một cách quản lý quyền khác nhau. Kênh dành cho nội dung chính thức, quyền được quản trị viên quản lý tập trung để tránh việc ai cũng tạo kênh chung cho cả công ty, khó kiểm soát và dễ lộ dữ liệu. Kênh nhóm giúp các nhóm tự lập không gian làm việc ngay, không phải chờ quản trị viên. Tin nhắn trực tiếp tách các trao đổi riêng ra khỏi kênh chung để kênh chung không bị loãng."
+				},
+				{
+					"title": "Chọn loại phù hợp",
+					"text": "Thông báo, trao đổi của cả phòng ban: dùng Kênh (nhờ quản trị viên tạo). Dự án, báo cáo hằng ngày của một nhóm: dùng Kênh nhóm. Hỏi nhanh một, hai người: dùng Tin nhắn trực tiếp."
+				}
+			],
+			"tip": "Dù dùng loại nào, khi gọi trợ lý AI trong một kênh hoặc cuộc trò chuyện, AI chỉ đọc nội dung của chính nơi đó."
+		},
+		{
 			"id": "channels",
 			"category": "Kênh & trao đổi",
 			"roles": [
 				"user",
 				"admin"
 			],
-			"title": "Các loại kênh và tạo kênh nhóm",
-			"desc": "Hiểu ba loại kênh và cách tạo nhóm thảo luận",
-			"minutes": 3,
+			"title": "Các loại kênh và tạo kênh",
+			"desc": "Ba loại kênh và loại nào bạn tạo được theo vai trò",
+			"minutes": 4,
 			"icon": "👥",
 			"steps": [
 				{
 					"title": "Hiểu các loại kênh",
-					"text": "Kênh (Channel): chỉ quản trị viên tạo, dùng cho phòng ban hoặc thông báo. Kênh nhóm (Group Channel): thành viên được mời tham gia, phù hợp nhóm dự án, báo cáo hằng ngày. Tin nhắn trực tiếp (Direct Message): trao đổi riêng giữa vài người."
+					"text": "Có ba loại: Kênh (kênh chính thức của phòng ban, thông báo), Kênh nhóm (nhóm làm việc do người dùng tự lập) và Tin nhắn trực tiếp (trò chuyện riêng vài người). Xem bài \"Kênh, Kênh nhóm và Tin nhắn trực tiếp là gì?\" để hiểu rõ sự khác nhau."
+				},
+				{
+					"title": "Loại kênh tạo được theo vai trò",
+					"text": "Người dùng (user): tạo được Kênh nhóm và Tin nhắn trực tiếp. Quản trị viên (admin): tạo được cả ba loại Kênh, Kênh nhóm và Tin nhắn trực tiếp."
 				},
 				{
 					"title": "Mở danh sách Kênh",
 					"text": "Các kênh bạn là thành viên hiện ở phần Kênh trên thanh bên trái; bấm vào tên kênh để mở."
 				},
 				{
-					"title": "Tạo kênh mới",
-					"text": "Nếu hệ thống cho phép, bấm dấu + cạnh tiêu đề Kênh rồi chọn Loại kênh: Kênh nhóm hoặc Tin nhắn trực tiếp."
+					"title": "Chọn loại kênh",
+					"text": "Bấm dấu + cạnh tiêu đề Kênh rồi chọn Loại kênh. Danh sách chỉ hiện những loại bạn được phép tạo."
 				},
 				{
 					"title": "Đặt tên và chọn thành viên",
-					"text": "Với Kênh nhóm, nhập Tên kênh (ví dụ du-an-a, bao-cao-ngay), chọn người tham gia và đặt chế độ Riêng tư nếu cần."
+					"text": "Kênh nhóm: nhập Tên kênh (ví dụ du-an-a, bao-cao-ngay), chọn người tham gia và đặt Riêng tư nếu cần. Tin nhắn trực tiếp: chỉ cần chọn người tham gia. Kênh (quản trị viên): nhập tên, đặt Công khai hoặc Riêng tư và cấp quyền cho nhóm hoặc người dùng."
 				},
 				{
 					"title": "Hoàn tất",
 					"text": "Bấm Tạo để bắt đầu trao đổi."
 				}
 			],
-			"tip": "Loại Kênh (Channel) chỉ quản trị viên tạo được. Nếu không thấy kênh cần tham gia, hãy nhờ quản trị viên thêm bạn vào.",
+			"tip": "Không thấy lựa chọn Kênh khi tạo? Loại này chỉ dành cho quản trị viên; hãy dùng Kênh nhóm hoặc nhờ quản trị viên tạo. Nếu không thấy kênh cần tham gia, nhờ quản trị viên thêm bạn vào.",
 			"images": [
 				{
 					"src": "/help-center/images/tao-kenh.png",
@@ -536,8 +575,8 @@
 			"roles": [
 				"admin"
 			],
-			"title": "Bật Kênh và quản lý thành viên",
-			"desc": "Bật tính năng Kênh, tạo kênh và thêm, bớt thành viên",
+			"title": "Bật Kênh, tạo kênh và quản lý thành viên",
+			"desc": "Bật tính năng Kênh, tạo đủ ba loại kênh và thêm, bớt thành viên",
 			"minutes": 5,
 			"icon": "🔒",
 			"steps": [
@@ -546,8 +585,12 @@
 					"text": "Trang Quản trị → Cài đặt, ở nhóm Quản trị chọn Hệ thống → Cài đặt chung, bật Kênh rồi bấm Lưu. Nếu thanh bên chưa có phần Kênh, tải lại trang (F5)."
 				},
 				{
-					"title": "Tạo kênh mới",
-					"text": "Ở thanh bên bấm dấu + cạnh Kênh, chọn Loại kênh, nhập Tên kênh (ví dụ du-an-a, bao-cao-ngay), đặt Công khai hoặc Riêng tư hoặc chọn thành viên tùy loại kênh, rồi bấm Tạo."
+					"title": "Chọn loại kênh",
+					"text": "Ở thanh bên bấm dấu + cạnh Kênh. Quản trị viên tạo được cả ba loại: Kênh (kênh chung của phòng ban, kênh thông báo, quản lý quyền tập trung theo nhóm và người dùng), Kênh nhóm (mời thành viên, có thể đặt Riêng tư) và Tin nhắn trực tiếp (trò chuyện riêng giữa vài người). Người dùng thường chỉ tạo được Kênh nhóm và Tin nhắn trực tiếp."
+				},
+				{
+					"title": "Thiết lập và tạo",
+					"text": "Nhập Tên kênh (ví dụ du-an-a, bao-cao-ngay). Với Kênh: đặt Công khai hoặc Riêng tư và cấp quyền cho nhóm, người dùng. Với Kênh nhóm, Tin nhắn trực tiếp: chọn người tham gia. Bấm Tạo."
 				},
 				{
 					"title": "Thêm hoặc bớt thành viên",
@@ -558,7 +601,7 @@
 					"text": "Thêm người dùng hoặc nhóm, gỡ người không còn tham gia, rồi bấm Cập nhật."
 				}
 			],
-			"tip": "Loại Kênh (Channel) chỉ quản trị viên tạo được. Kiểm tra chế độ Công khai / Riêng tư trước khi tạo kênh có dữ liệu nội bộ.",
+			"tip": "Dùng loại Kênh cho phòng ban hoặc thông báo cần quản lý quyền tập trung; để người dùng tự tạo Kênh nhóm cho dự án. Kiểm tra chế độ Công khai / Riêng tư trước khi tạo kênh có dữ liệu nội bộ.",
 			"images": [
 				{
 					"src": "/help-center/images/bat-kenh.png",

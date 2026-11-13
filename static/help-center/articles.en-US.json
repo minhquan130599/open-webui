@@ -26,7 +26,7 @@
 			"minutes": 2,
 			"icon": "🚀",
 			"steps": [
-								{
+				{
 					"title": "Choose your language",
 					"text": "Account icon (bottom left) → Settings (or Ctrl + .) → Language, pick a language and click Save."
 				},
@@ -44,39 +44,78 @@
 			]
 		},
 		{
+			"id": "channel_types",
+			"category": "Channels & messaging",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "What are Channels, Group Channels and Direct Messages?",
+			"desc": "How the three channel types differ and why all three exist",
+			"minutes": 3,
+			"icon": "🧭",
+			"steps": [
+				{
+					"title": "Channel",
+					"text": "The organization's official space for discussion, for example a department channel, a company-wide announcement channel or a large project channel. Administrators grant access to groups and users: Public means everyone in the system can see it, Private means only those granted access. Membership follows the groups, so people don't need to be invited one by one. Only administrators can create this type."
+				},
+				{
+					"title": "Group Channel",
+					"text": "A working group that users set up themselves when needed, for example a project team, a daily-report group or a temporary task force. The creator invites each member and can make it Private so only members can see it. Both users and administrators can create it."
+				},
+				{
+					"title": "Direct Message",
+					"text": "A private conversation between a few selected people, with no channel name needed. Use it for quick questions or private matters that the whole team doesn't need to see. Both users and administrators can create it."
+				},
+				{
+					"title": "Why three types?",
+					"text": "Each type serves a different level of discussion and a different way of managing access. Channels are for official content, with access managed centrally by administrators so that not everyone creates company-wide channels that are hard to control and risk exposing data. Group Channels let teams set up their own workspace right away without waiting for an administrator. Direct Messages keep private exchanges out of shared channels so those don't get cluttered."
+				},
+				{
+					"title": "Choosing the right type",
+					"text": "Announcements or department-wide discussion: use a Channel (ask an administrator to create it). A team project or daily reports: use a Group Channel. A quick question for one or two people: use a Direct Message."
+				}
+			],
+			"tip": "Whichever type you use, when you ask the AI assistant in a channel or conversation, it only reads the content of that place."
+		},
+		{
 			"id": "channels",
 			"category": "Channels & messaging",
 			"roles": [
 				"user",
 				"admin"
 			],
-			"title": "Channel types and creating group channels",
-			"desc": "Understand the three channel types and how to start a group discussion",
-			"minutes": 3,
+			"title": "Channel types and creating channels",
+			"desc": "The three channel types and which ones you can create for your role",
+			"minutes": 4,
 			"icon": "👥",
 			"steps": [
 				{
 					"title": "Know the channel types",
-					"text": "Channel: created by administrators only, for departments or announcements. Group Channel: members are invited, suited to project teams and daily reports. Direct Message: a private conversation between a few people."
+					"text": "There are three: Channel (official department or announcement channel), Group Channel (a working group users set up themselves) and Direct Message (a private conversation between a few people). See \"What are Channels, Group Channels and Direct Messages?\" for the differences."
+				},
+				{
+					"title": "What you can create by role",
+					"text": "Users (user) can create Group Channels and Direct Messages. Administrators (admin) can create all three types: Channel, Group Channel and Direct Message."
 				},
 				{
 					"title": "Open the channel list",
 					"text": "The channels you belong to appear under Channels in the left sidebar; click a channel name to open it."
 				},
 				{
-					"title": "Create a channel",
-					"text": "If allowed, click + next to the Channels heading and choose the Channel Type: Group Channel or Direct Message."
+					"title": "Choose the channel type",
+					"text": "Click + next to the Channels heading and choose the Channel Type. The list only shows the types you are allowed to create."
 				},
 				{
 					"title": "Name it and choose members",
-					"text": "For a group channel, enter a Channel Name (for example project-a, daily-reports), pick the participants and make it Private if needed."
+					"text": "Group Channel: enter a Channel Name (for example project-a, daily-reports), pick the participants and make it Private if needed. Direct Message: just pick the participants. Channel (administrators): enter a name, set Public or Private and grant access to groups or users."
 				},
 				{
 					"title": "Finish",
 					"text": "Click Create to start the conversation."
 				}
 			],
-			"tip": "Only administrators can create the Channel type. If you cannot see a channel you need, ask an administrator to add you.",
+			"tip": "No Channel option when creating? That type is for administrators only; use a Group Channel or ask an administrator to create it. If you cannot see a channel you need, ask an administrator to add you.",
 			"images": [
 				{
 					"src": "/help-center/images/tao-kenh.png",
@@ -536,8 +575,8 @@
 			"roles": [
 				"admin"
 			],
-			"title": "Enabling channels and managing members",
-			"desc": "Turn on channels, create channels and add or remove members",
+			"title": "Enabling, creating channels and managing members",
+			"desc": "Turn on channels, create all three channel types and add or remove members",
 			"minutes": 5,
 			"icon": "🔒",
 			"steps": [
@@ -546,8 +585,12 @@
 					"text": "Admin Panel → Settings, under Admin choose System → General settings, turn on Channels and click Save. If Channels does not appear in the sidebar, reload the page (F5)."
 				},
 				{
-					"title": "Create a channel",
-					"text": "In the sidebar click + next to Channels, choose the Channel Type, enter a Channel Name (for example project-a, daily-reports), set Public or Private or pick members depending on the type, then click Create."
+					"title": "Choose the channel type",
+					"text": "In the sidebar click + next to Channels. Administrators can create all three types: Channel (shared department or announcement channel with access managed centrally by groups and users), Group Channel (invited members, can be Private) and Direct Message (a private conversation between a few people). Regular users can only create Group Channels and Direct Messages."
+				},
+				{
+					"title": "Set it up and create",
+					"text": "Enter a Channel Name (for example project-a, daily-reports). For a Channel: set Public or Private and grant access to groups and users. For a Group Channel or Direct Message: pick the participants. Click Create."
 				},
 				{
 					"title": "Add or remove members",
@@ -558,7 +601,7 @@
 					"text": "Add users or groups, remove people who left, then click Update."
 				}
 			],
-			"tip": "Only administrators can create the Channel type. Check the Public / Private setting before creating a channel for internal data.",
+			"tip": "Use the Channel type for departments or announcements that need central access control, and let users create Group Channels for their projects. Check the Public / Private setting before creating a channel for internal data.",
 			"images": [
 				{
 					"src": "/help-center/images/bat-kenh.png",
