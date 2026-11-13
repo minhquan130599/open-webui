@@ -19,7 +19,7 @@ import time
 import uuid
 from typing import Optional
 
-from sqlalchemy import BigInteger, Column, Index, Integer, JSON, Text, delete, insert
+from sqlalchemy import JSON, BigInteger, Column, Index, Integer, Text, delete, insert
 
 from open_webui.internal.db import Base, get_async_db
 
@@ -137,6 +137,50 @@ async def _flush_loop() -> None:
         await asyncio.sleep(FLUSH_SECONDS)
         await flush()
         await _cleanup()
+
+
+LOAD_SAMPLE_SECONDS = 30
+
+
+def _online_users() -> tuple[Optional[int], Optional[int]]:
+    """(distinct users, open sessions) with a recent heartbeat, across every worker (Redis session pool)."""
+    try:
+        from open_webui.socket.main import SESSION_POOL_TIMEOUT, get_session_pool_batches
+
+        now = time.time()
+        users, sessions = set(), 0
+        for batch in get_session_pool_batches():
+            for _, session in batch:
+                if session and now - session.get('last_seen_at', 0) <= SESSION_POOL_TIMEOUT:
+                    sessions += 1
+                    if session.get('id'):
+                        users.add(session['id'])
+        return len(users), sessions
+    except Exception as e:
+        log.debug('online users unavailable: %s', e)
+        return None, None
+
+
+async def load_sampler_loop() -> None:
+    """Every 30 s per worker: model calls in flight (current and peak) and users online (kind 'load')."""
+    from open_webui.monitoring.llm import in_flight_sample
+
+    name = f'worker:{os.getpid()}'
+    while True:
+        await asyncio.sleep(LOAD_SAMPLE_SECONDS)
+        try:
+            current, peak = in_flight_sample()
+            users, sessions = await asyncio.to_thread(_online_users)
+            record(
+                'load',
+                name=name,
+                count=current,
+                meta={'in_flight_peak': peak, 'online_users': users, 'sessions': sessions},
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.debug('load sample failed: %s', e)
 
 
 class Timer:

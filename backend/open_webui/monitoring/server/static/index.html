@@ -121,7 +121,7 @@
 <script>
 (() => {
   const TABS = [
-    ['overview', 'Tổng quan'], ['tokens', 'Token'], ['models', 'Tốc độ model'], ['tools', 'Function call'],
+    ['overview', 'Tổng quan'], ['load', 'Người dùng & tải'], ['tokens', 'Token'], ['models', 'Tốc độ model'], ['tools', 'Function call'],
     ['knowledge', 'Kiến thức'], ['tracker', 'Tracker'], ['system', 'Thành phần & tài nguyên'],
   ];
   const RANGES = [['1h', '1 giờ'], ['24h', '24 giờ'], ['7d', '7 ngày'], ['30d', '30 ngày'], ['90d', '90 ngày']];
@@ -196,6 +196,17 @@
     { label: 'Lỗi', num: true, render: (r) => (r.errors ? `<span style="color:var(--red)">${n(r.errors)} (${pct(r.errors, r.count)})</span>` : '0') },
   ];
 
+  const KIND = { llm_call: 'Gọi model', response: 'Trả lời', tool: 'Function', tracker: 'Tracker', ingest: 'Tải tài liệu', rag: 'Truy xuất' };
+  const errorTable = (list, empty = 'Không có lỗi trong khoảng này.') => table([
+    { label: 'Lúc', render: (r) => when(r.ts) },
+    { label: 'Loại', render: (r) => `<span class="pill err">${esc(KIND[r.kind] || r.kind || 'Function')}</span>` },
+    { label: 'Tên', render: (r) => `<b>${esc(r.name || r.model_id || '—')}</b>${r.name && r.model_id ? `<div class="muted">${esc(r.model_id)}</div>` : ''}` },
+    { label: 'Người dùng', render: (r) => esc(r.user_name || '—') },
+    { label: 'Nguồn', render: (r) => SOURCE[r.source] || esc(r.source || '—') },
+    { label: 'Chi tiết lỗi', render: (r) => `<div style="max-width:520px;white-space:pre-wrap;overflow-wrap:anywhere">${esc(r.error || r.error_type || 'không có nội dung')}</div>${r.arguments ? `<div class="muted" style="margin-top:3px;overflow-wrap:anywhere">Tham số: <code>${esc(r.arguments)}</code></div>` : ''}` },
+    { label: 'Thời gian', num: true, render: (r) => ms(r.duration_ms) },
+  ], list, empty);
+
   // ---------- tabs ----------
   async function renderOverview() {
     const d = await api(`/api/overview?range=${range}`);
@@ -218,7 +229,46 @@
         ], { format: ms, bucket: d.bucket }))}
         ${card('Token theo thời gian', lineChart([{ name: 'Token', points: series.map((p) => [p.t, p.tokens || 0]), area: true, color: 'var(--green)' }], { format: tok, bucket: d.bucket }))}
         ${card('Theo nguồn', bars(d.by_source.map((s, i) => ({ label: `${SOURCE[s.source] || s.source} · ${n(s.calls)} lần`, value: s.tokens, color: COLORS[i % COLORS.length] })), { format: tok }), 'token')}
-      </div>`;
+      </div>
+      ${card('Lỗi gần đây', errorTable(d.errors), 'gọi model, function, tracker, tải tài liệu')}`;
+  }
+
+  async function renderLoad() {
+    const d = await api(`/api/load?range=${range}`);
+    const now = d.now || {};
+    const series = d.series || [];
+    const levels = d.levels || [];
+    const base = levels.find((l) => l.avg_ttft !== null);
+    const slowAt = base ? levels.find((l) => l.avg_ttft !== null && l.avg_ttft > base.avg_ttft * 2) : null;
+    return `<div class="grid">
+        ${kpi('Người dùng đang online', n(now.online_users), `${n(now.sessions)} tab/phiên đang mở`)}
+        ${kpi('Model đang trả lời cùng lúc', n(now.in_flight), 'ngay lúc này, tất cả worker')}
+        ${kpi('Đỉnh online', n(d.peak_online), 'trong khoảng thời gian đã chọn')}
+        ${kpi('Đỉnh yêu cầu đồng thời', n(d.peak_in_flight), 'số lần gọi model chạy cùng lúc')}
+      </div>
+      ${slowAt ? `<div class="notice warn">Khi có <b>${esc(slowAt.level)}</b> yêu cầu chạy cùng lúc, thời gian ra chữ đầu tiên tăng lên <b>${ms(slowAt.avg_ttft)}</b> (gấp hơn 2 lần mức ${esc(base.level)}: ${ms(base.avg_ttft)}). Đây là dấu hiệu model/GPU đang là điểm nghẽn ở mức tải này.</div>` : ''}
+      <div class="cols">
+        ${card('Người dùng online và đang dùng', lineChart([
+          { name: 'Online (đang mở NCS AI)', points: series.filter((p) => p.online_users !== null).map((p) => [p.t, p.online_users]), area: true },
+          { name: 'Đang hỏi AI', points: series.map((p) => [p.t, p.active_users || 0]), color: 'var(--green)' },
+        ], { format: n, bucket: d.bucket }))}
+        ${card('Yêu cầu đồng thời và tốc độ', lineChart([
+          { name: 'Đỉnh yêu cầu đồng thời', points: series.map((p) => [p.t, p.in_flight_peak || 0]), area: true, color: 'var(--violet)' },
+        ], { format: n, bucket: d.bucket }) + lineChart([
+          { name: 'Ra chữ đầu tiên (TB)', points: series.filter((p) => p.avg_ttft !== null && p.avg_ttft !== undefined).map((p) => [p.t, p.avg_ttft]), color: 'var(--amber)' },
+          { name: 'Trả lời xong (TB)', points: series.filter((p) => p.avg_response_ms !== null && p.avg_response_ms !== undefined).map((p) => [p.t, p.avg_response_ms]), color: 'var(--red)' },
+        ], { format: ms, bucket: d.bucket }))}
+      </div>
+      ${card('Tốc độ theo mức tải', table([
+        { label: 'Yêu cầu chạy cùng lúc', render: (r) => `<b>${esc(r.level)}</b>` },
+        { label: 'Số phút', num: true, render: (r) => n(r.minutes) },
+        { label: 'Lần gọi model', num: true, render: (r) => n(r.calls) },
+        { label: 'Ra chữ đầu TB', num: true, render: (r) => ms(r.avg_ttft) },
+        { label: 'Tổng thời gian TB', num: true, render: (r) => ms(r.avg_ms) },
+        { label: 'Tốc độ sinh', num: true, render: (r) => (r.tokens_per_second ? `${n(r.tokens_per_second)} token/s` : '—') },
+        { label: 'Lỗi', num: true, render: (r) => (r.errors ? `<span style="color:var(--red)">${n(r.errors)}</span>` : '0') },
+      ], levels, 'Chưa đủ số liệu (lấy mẫu mỗi 30 giây từ khi chạy bản mới).'), 'mỗi phút được xếp theo số yêu cầu chạy cùng lúc cao nhất')}
+      <p class="muted" style="margin:0;font-size:12.5px">Cách đọc: nếu thời gian ra chữ đầu tiên và tổng thời gian tăng mạnh khi số yêu cầu đồng thời tăng, điểm nghẽn nằm ở model/GPU (cần thêm GPU, tăng <code>--max-num-seqs</code> của vLLM hoặc thêm pod). Nếu số đồng thời thấp mà vẫn chậm, xem tab Function call và Thành phần & tài nguyên (CPU/RAM container).</p>`;
   }
 
   async function renderTokens() {
@@ -297,7 +347,8 @@
         { label: 'Function đã gọi', render: (r) => Object.entries(r.tools || {}).map(([k, v]) => `<span class="chip" title="${v.errors ? `${v.errors} lỗi` : ''}"><b>${esc(k)}</b> ×${v.count} · ${ms(v.ms)}${v.errors ? ' <span style="color:var(--red)">!</span>' : ''}</span>`).join('') },
         { label: 'Tổng thời gian', num: true, render: (r) => ms(r.duration_ms) },
         { label: 'Token', num: true, render: (r) => tok((r.input_tokens || 0) + (r.output_tokens || 0)) },
-      ], d.recent, 'Chưa có lượt nào dùng function call.'), '100 lượt gần nhất')}`;
+      ], d.recent, 'Chưa có lượt nào dùng function call.'), '100 lượt gần nhất')}
+      ${card('Function bị lỗi', errorTable(d.errors.map((e) => ({ ...e, kind: 'tool' })), 'Không có function nào bị lỗi trong khoảng này.'), 'nội dung lỗi function trả về và tham số AI đã truyền')}`;
   }
 
   function knowledgeFlow(s) {
@@ -326,9 +377,7 @@
     const loaded = st.loaded || {};
     const notice = st.error
       ? `<div class="notice warn">Không lấy được cấu hình từ NCS AI: ${esc(st.error)}</div>`
-      : bypass
-        ? `<div class="notice warn"><b>Đang bật "Bỏ qua embedding và truy xuất" (Upload nhanh).</b> File tải lên chỉ được trích xuất chữ, không chia đoạn, không tạo embedding, không ghi vào vector DB. Khi hỏi, AI đọc kiến thức bằng các công cụ liệt kê/tìm theo tên/grep/đọc file. Công cụ <code>query_knowledge_files</code> (tìm theo ngữ nghĩa) sẽ không tìm thấy gì trong chế độ này.${loaded.embedding_model ? ` Model embedding <code>${esc(s['rag.embedding_model'])}</code> vẫn được nạp vào RAM dù không dùng.` : ''}</div>`
-        : '<div class="notice info">Đang dùng truy xuất theo ngữ nghĩa: file được chia đoạn, tạo embedding và lưu vào vector DB; khi hỏi, hệ thống tìm các đoạn liên quan nhất.</div>';
+      : '';
     const ist = d.ingest_stats || {}, rt = d.retrieval || {}, tt = d.totals || {};
     return `${notice}
       ${card('Cách tài liệu kiến thức đang được xử lý', knowledgeFlow(s), 'theo cấu hình hiện tại')}
@@ -408,14 +457,16 @@
     const tr = st.tracker || {};
     const conns = st.openai_connections || [];
     const components = [
-      ['Model chat (LLM)', conns.filter((x) => x.enabled).map((x) => `Kết nối #${x.index}: ${esc(x.url)}${x.model_ids.length ? ` · ${esc(x.model_ids.join(', '))}` : ''}`).join('<br>') || 'Chưa có kết nối', 'Cloud / RunPod', null],
+      ['Model chat (LLM)', conns.map((x) => `<div style="margin-bottom:4px"><b>Kết nối #${x.index}</b> ${x.enabled ? '' : '<span class="pill">tắt</span>'} <span class="muted">${esc(x.url)}</span><br>${(x.models || x.model_ids || []).length ? (x.models || x.model_ids).map((m) => `<span class="chip">${esc(m)}</span>`).join('') : '<span class="muted">chưa lấy được danh sách model</span>'}</div>`).join('') || 'Chưa có kết nối', 'Cloud / RunPod', null],
       ['Model tác vụ nền (tiêu đề, gợi ý)', esc(s['task.model.external'] || s['task.model.default'] || 'giống model đang chat'), 'theo kết nối', null],
-      ['Tracker tiến độ', `${tr.enabled ? 'Bật' : 'Tắt'} · model ưu tiên: ${esc(tr.model || 'tự chọn')} · ${tr.last_used ? `đang dùng ${esc(tr.last_used.model)} @ ${esc(tr.last_used.url)}` : 'chưa gọi lần nào kể từ khi khởi động'}`, 'theo kết nối', null],
+      ['Tracker tiến độ', `${tr.enabled ? 'Bật' : 'Tắt'} · model ưu tiên: ${esc(tr.model || 'tự chọn')} · ${d.tracker_last ? `lần gần nhất dùng <b>${esc(d.tracker_last.model_id)}</b> qua ${esc(d.tracker_last.name)} (${esc(d.tracker_last.url || '')}) lúc ${when(d.tracker_last.ts)}` : 'chưa có lần gọi nào được ghi lại'}${tr.failover ? ' · tự chuyển kết nối khi lỗi' : ''}`, 'theo kết nối', null],
       ['Embedding (kiến thức)', `${esc(s['rag.embedding_engine'] || 'sentence-transformers')} · ${esc(s['rag.embedding_model'] || '—')}${s['rag.bypass_embedding_and_retrieval'] ? ' · <span class="pill warn">không dùng (đang bỏ qua)</span>' : ''}`, s['rag.embedding_engine'] ? 'API' : 'Local (CPU, trong container NCS AI)', loaded.embedding_model],
       ['Reranker', esc(s['rag.reranking_model'] || 'không dùng'), 'Local', loaded.reranker],
       ['Trích xuất tài liệu', esc(s['rag.content_extraction_engine'] || 'thư viện có sẵn (pypdf, python-docx, unstructured)'), 'Local', null],
       ['Nhận dạng giọng nói (STT)', `${esc(s['audio.stt.engine'] || 'faster-whisper')} · ${esc(s['audio.stt.model'] || s['audio.stt.whisper_model'] || '—')}`, s['audio.stt.engine'] ? 'API' : 'Local (nạp khi dùng lần đầu)', loaded.whisper],
-      ['Đọc văn bản (TTS)', `${esc(s['audio.tts.engine'] || 'trình duyệt')} ${esc(s['audio.tts.model'] || '')}`, s['audio.tts.engine'] ? 'API' : 'Trình duyệt người dùng', loaded.tts_local],
+      ['Đọc văn bản (TTS)', s['audio.tts.engine'] ? `${esc(s['audio.tts.engine'])} · ${esc(s['audio.tts.model'] || '')}` : 'Giọng đọc có sẵn của trình duyệt', s['audio.tts.engine'] ? 'API' : 'Trình duyệt người dùng', null],
+      ['Tìm kiếm web', s['web.search.enable'] ? esc(s['web.search.engine'] || 'chưa chọn') : 'Tắt', 'API', null],
+      ['Tool server (OpenAPI / MCP)', (st.tool_servers || []).map((t) => `${esc(t.name)} <span class="muted">${esc(t.type)} · ${esc(t.url)}</span>${t.enabled ? '' : ' <span class="pill">tắt</span>'}`).join('<br>') || 'Không có', 'Dịch vụ ngoài', null],
       ['Tạo ảnh', s['image_generation.enable'] ? `${esc(s['image_generation.engine'])} · ${esc(s['image_generation.model'] || '')}` : 'Tắt', 'API', null],
       ['Chạy code (Code interpreter)', s['code_interpreter.enable'] ? esc(s['code_interpreter.engine']) : 'Tắt', 'Trình duyệt / Jupyter', null],
       ['Terminal (tạo file Word/Excel/PDF)', (st.terminals || []).map((t) => `${esc(t.name)} (${esc(t.url)}) ${t.enabled ? '' : '· tắt'}`).join('<br>') || 'Chưa cấu hình', 'Container riêng', null],
@@ -477,7 +528,7 @@
     ], rows);
   }
 
-  const RENDER = { overview: renderOverview, tokens: renderTokens, models: renderModels, tools: renderTools, knowledge: renderKnowledge, tracker: renderTracker, system: renderSystem };
+  const RENDER = { overview: renderOverview, load: renderLoad, tokens: renderTokens, models: renderModels, tools: renderTools, knowledge: renderKnowledge, tracker: renderTracker, system: renderSystem };
 
   async function load() {
     const main = $('#main');

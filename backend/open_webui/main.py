@@ -461,6 +461,10 @@ async def lifespan(app: FastAPI):
         from open_webui.tracker.worker import tracker_worker_loop
 
         app.state.tracker_worker_loop = asyncio.create_task(tracker_worker_loop())
+    from open_webui.monitoring.recorder import ENABLE_PERF_MONITOR, load_sampler_loop
+
+    if ENABLE_PERF_MONITOR:
+        app.state.perf_load_sampler = asyncio.create_task(load_sampler_loop())
     if ENABLE_PROJECT_TRACKER:
         from open_webui.tracker.reminders import reminder_loop
 
@@ -562,6 +566,8 @@ async def lifespan(app: FastAPI):
         app.state.tracker_worker_loop.cancel()
     if hasattr(app.state, 'tracker_reminder_loop'):
         app.state.tracker_reminder_loop.cancel()
+    if hasattr(app.state, 'perf_load_sampler'):
+        app.state.perf_load_sampler.cancel()
     try:
         from open_webui.monitoring.recorder import flush as flush_perf_events
 

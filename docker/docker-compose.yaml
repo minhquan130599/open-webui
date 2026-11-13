@@ -200,7 +200,8 @@ services:
     restart: unless-stopped
 
   # Trang giám sát hiệu năng: chạy riêng, cùng image, không nằm trong giao diện NCS AI.
-  # Mở http://<server>:${MONITOR_PORT:-8090} (chỉ nghe ở 127.0.0.1; ra ngoài thì qua nginx hoặc SSH tunnel).
+  # Mở http://<MONITOR_BIND>:${MONITOR_PORT:-8090}. MONITOR_BIND = IP mạng LAN của server để mở trong LAN,
+  # 127.0.0.1 = chỉ trên chính server (mặc định).
   monitor:
     image: open-webui-local:latest
     container_name: ncs-monitor
@@ -208,7 +209,7 @@ services:
       postgres: { condition: service_healthy }
     command: ["uvicorn", "open_webui.monitoring.server.app:app", "--host", "0.0.0.0", "--port", "8090"]
     ports:
-      - "127.0.0.1:${MONITOR_PORT:-8090}:8090"
+      - "${MONITOR_BIND:-127.0.0.1}:${MONITOR_PORT:-8090}:8090"
     volumes:
       # Đọc RAM/CPU các container. Bỏ dòng này nếu không muốn cấp quyền Docker cho container giám sát.
       - /var/run/docker.sock:/var/run/docker.sock:ro

@@ -48,7 +48,20 @@ async def test_response_and_tool_events():
     output = [
         {'type': 'function_call', 'name': 'build_project_report', 'duration': 2.3, 'status': 'completed'},
         {'type': 'function_call', 'name': 'search_project_evidence', 'duration': 0.4, 'status': 'completed'},
-        {'type': 'function_call', 'name': 'search_project_evidence', 'duration': 0.5, 'status': 'failed'},
+        {
+            'type': 'function_call',
+            'call_id': 'c3',
+            'name': 'search_project_evidence',
+            'arguments': '{"project": "OSINT3"}',
+            'duration': 0.5,
+            'status': 'failed',
+        },
+        {
+            'type': 'function_call_output',
+            'call_id': 'c3',
+            'status': 'failed',
+            'output': [{'type': 'input_text', 'text': 'Project not found: OSINT3'}],
+        },
         {'type': 'message', 'content': []},
     ]
     meta = {'chat_id': 'chat-1', 'message_id': 'm2', 'perf_started_ms': perf.now_ms() - 3000}
@@ -62,6 +75,23 @@ async def test_response_and_tool_events():
         ('search_project_evidence', 400, 'ok'),
         ('search_project_evidence', 500, 'error'),
     ]
+    failed = next(t for t in tools if t.status == 'error')
+    assert failed.meta['error'] == 'Project not found: OSINT3' and 'OSINT3' in failed.meta['arguments']
+
+
+def test_in_flight_counter_counts_each_call_once():
+    before, _ = perf_llm.in_flight_sample()
+    a = perf_llm.context({}, _User(), 'nai', 'http://h/v1')
+    b = perf_llm.context({}, _User(), 'nai', 'http://h/v1')
+    current, peak = perf_llm.in_flight_sample()
+    assert current == before + 2 and peak >= before + 2
+    timer = perf.Timer()
+    perf_llm.record(a, timer)
+    perf_llm.record(a, timer)  # recorded twice by mistake: released once
+    assert perf_llm.in_flight_sample()[0] == before + 1
+    perf_llm.record(b, perf.Timer())
+    assert perf_llm.in_flight_sample() == (before, before + 1), 'the peak since the last sample is kept once'
+    assert perf_llm.in_flight_sample() == (before, before)
 
 
 @pytest.mark.asyncio(loop_scope='module')

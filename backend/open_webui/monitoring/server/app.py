@@ -167,7 +167,17 @@ async def overview(range: str = '24h'):
             FROM perf_event WHERE kind = 'llm_call' AND ts >= :start GROUP BY 1 ORDER BY 2 DESC""",
         start=start,
     )
+    errors = await rows(
+        """SELECT p.ts, p.kind, p.name, p.model_id, p.source, p.chat_id, p.duration_ms,
+                coalesce(p.meta->>'error', p.meta->>'error_type', p.meta->>'http_status') AS error,
+                coalesce(u.name, u.email) AS user_name
+            FROM perf_event p LEFT JOIN "user" u ON u.id = p.user_id
+            WHERE p.status <> 'ok' AND p.ts >= :start AND p.kind IN ('llm_call', 'response', 'tool', 'tracker', 'ingest', 'rag')
+            ORDER BY p.ts DESC LIMIT 30""",
+        start=start,
+    )
     return {
+        'errors': clean(errors),
         'range': range,
         'start': start,
         'end': end,
@@ -260,7 +270,114 @@ async def tools(range: str = '24h', name: Optional[str] = None, limit: int = Que
         limit=limit,
         **({'name': name} if name else {}),
     )
-    return {'tools': clean(per_tool), 'distribution': clean(distribution), 'recent': clean(recent)}
+    errors = await rows(
+        """SELECT p.ts, p.name, p.model_id, p.source, p.chat_id, p.duration_ms,
+                p.meta->>'error_type' AS error_type, p.meta->>'error' AS error, p.meta->>'arguments' AS arguments,
+                coalesce(u.name, u.email) AS user_name
+            FROM perf_event p LEFT JOIN "user" u ON u.id = p.user_id
+            WHERE p.kind = 'tool' AND p.status <> 'ok' AND p.ts >= :start
+            ORDER BY p.ts DESC LIMIT 50""",
+        start=start,
+    )
+    return {
+        'tools': clean(per_tool),
+        'distribution': clean(distribution),
+        'recent': clean(recent),
+        'errors': clean(errors),
+    }
+
+
+CONCURRENCY_LEVELS = [
+    (0, 1, '0–1'),
+    (2, 3, '2–3'),
+    (4, 5, '4–5'),
+    (6, 10, '6–10'),
+    (11, 20, '11–20'),
+    (21, 10**9, '> 20'),
+]
+
+
+@app.get('/api/load', dependencies=[Depends(require_login)])
+async def load(range: str = '24h'):
+    """Users online and model calls running at the same time, and how response times change with them."""
+    start, _, bucket = window(range)
+    samples = """WITH s AS (
+            SELECT (ts / :bucket) * :bucket AS t, name, max(count) AS current,
+                max((meta->>'in_flight_peak')::int) AS peak, max((meta->>'online_users')::int) AS online,
+                max((meta->>'sessions')::int) AS sessions
+            FROM perf_event WHERE kind = 'load' AND ts >= :start GROUP BY 1, 2)
+        SELECT t, sum(peak) AS in_flight_peak, sum(current) AS in_flight, max(online) AS online_users,
+            max(sessions) AS sessions
+        FROM s GROUP BY t ORDER BY t"""
+    series = clean(await rows(samples, start=start, bucket=bucket))
+    activity = {
+        r['t']: r
+        for r in clean(
+            await rows(
+                """SELECT (ts / :bucket) * :bucket AS t, count(DISTINCT user_id) AS active_users,
+                    avg(CASE WHEN kind = 'llm_call' THEN ttft_ms END) AS avg_ttft,
+                    avg(CASE WHEN kind = 'response' THEN duration_ms END) AS avg_response_ms
+                FROM perf_event WHERE kind IN ('llm_call', 'response') AND ts >= :start GROUP BY 1""",
+                start=start,
+                bucket=bucket,
+            )
+        )
+    }
+    for point in series:
+        point.update({k: v for k, v in activity.get(point['t'], {}).items() if k != 't'})
+    latest = (
+        await rows(
+            """SELECT sum(count) AS in_flight, max((meta->>'online_users')::int) AS online_users,
+                max((meta->>'sessions')::int) AS sessions
+            FROM (SELECT DISTINCT ON (name) name, count, meta FROM perf_event
+                  WHERE kind = 'load' AND ts >= :recent ORDER BY name, ts DESC) last""",
+            recent=int(time.time() * 1000) - 90_000,
+        )
+    )[0]
+    # Per minute: concurrency peak vs. speed, grouped by concurrency level, to see where it slows down.
+    minutes = clean(await rows(samples, start=start, bucket=60_000))
+    speed = {
+        r['t']: r
+        for r in clean(
+            await rows(
+                """SELECT (ts / 60000) * 60000 AS t, avg(ttft_ms) AS ttft, avg(duration_ms) AS duration,
+                    avg((meta->>'tokens_per_second')::float) AS tps, count(*) AS calls,
+                    sum(CASE WHEN status <> 'ok' THEN 1 ELSE 0 END) AS errors
+                FROM perf_event WHERE kind = 'llm_call' AND ts >= :start GROUP BY 1""",
+                start=start,
+            )
+        )
+    }
+    levels = []
+    for low, high, label in CONCURRENCY_LEVELS:
+        picked = [speed[m['t']] for m in minutes if low <= (m['in_flight_peak'] or 0) <= high and m['t'] in speed]
+        if not picked:
+            continue
+
+        def avg(key):
+            values = [p[key] for p in picked if p[key] is not None]
+            return sum(values) / len(values) if values else None
+
+        calls = sum(p['calls'] for p in picked)
+        levels.append(
+            {
+                'level': label,
+                'minutes': len(picked),
+                'calls': calls,
+                'avg_ttft': avg('ttft'),
+                'avg_ms': avg('duration'),
+                'tokens_per_second': avg('tps'),
+                'errors': sum(p['errors'] for p in picked),
+            }
+        )
+    return {
+        'series': series,
+        'bucket': bucket,
+        'now': clean([latest])[0],
+        'peak_online': max((p['online_users'] or 0 for p in series), default=0),
+        'peak_in_flight': max((p['in_flight_peak'] or 0 for p in series), default=0),
+        'levels': levels,
+    }
 
 
 async def webui(path: str, method: str = 'GET', timeout: int = 20, **params):
@@ -462,7 +579,21 @@ async def system():
     status, docker, database, redis = await asyncio.gather(
         webui('/status'), docker_stats(), database_stats(), redis_stats()
     )
-    return {'status': status, 'docker': docker, 'database': database, 'redis': redis, 'time': time.time()}
+    try:
+        last = await rows(
+            """SELECT ts, name, model_id, meta->>'url' AS url, status FROM perf_event
+                WHERE kind = 'tracker' AND status = 'ok' ORDER BY ts DESC LIMIT 1"""
+        )
+    except Exception:
+        last = []
+    return {
+        'status': status,
+        'docker': docker,
+        'database': database,
+        'redis': redis,
+        'tracker_last': clean(last)[0] if last else None,
+        'time': time.time(),
+    }
 
 
 @app.post('/api/probe', dependencies=[Depends(require_login)])

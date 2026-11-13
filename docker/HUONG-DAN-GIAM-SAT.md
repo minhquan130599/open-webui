@@ -26,19 +26,40 @@ sudo docker compose up -d          # tạo thêm container ncs-monitor, khởi �
 sudo docker compose logs -f monitor
 ```
 
-Trang chỉ mở trên chính server: `http://127.0.0.1:8090`. Để xem từ máy khác, chọn một trong hai cách:
+Mặc định trang chỉ mở trên chính server: `http://127.0.0.1:8090`.
 
-- Qua SSH tunnel: `ssh -L 8090:127.0.0.1:8090 <user>@<server>`, rồi mở `http://localhost:8090` trên máy mình.
-- Qua nginx: thêm một `location` hoặc subdomain trỏ tới `http://127.0.0.1:8090`. Trang đã có mật khẩu riêng.
+### Mở cho các máy trong mạng LAN
+
+1. Xem IP LAN của server: `ip -4 addr` (vd `192.168.1.20`).
+2. Trong `.env` đặt:
+   ```env
+   MONITOR_BIND=192.168.1.20
+   MONITOR_PORT=8090
+   ```
+3. `sudo docker compose up -d monitor`
+4. Từ máy khác trong LAN mở `http://192.168.1.20:8090`, đăng nhập bằng `MONITOR_USERNAME` / `MONITOR_PASSWORD`.
+
+Lưu ý:
+- **Không đặt `MONITOR_BIND=0.0.0.0`** nếu server có IP public (vd server đang phục vụ `ai.ncsgroup.vn`). Docker tự mở
+  cổng và **bỏ qua tường lửa ufw**, nên `0.0.0.0` sẽ mở trang ra Internet. Gắn vào đúng IP LAN thì chỉ card mạng LAN nhận.
+- Trang dùng HTTP thường: mật khẩu đi trong mạng LAN không mã hóa. Đặt mật khẩu riêng, đủ mạnh, không trùng mật khẩu khác.
+- Server có nhiều card mạng LAN (nhiều VLAN) thì chỉ VLAN chứa IP đã đặt truy cập được.
+
+### Từ ngoài LAN
+
+- SSH tunnel: `ssh -L 8090:127.0.0.1:8090 <user>@<server>` rồi mở `http://localhost:8090` (với `MONITOR_BIND=127.0.0.1`;
+  nếu đã bind IP LAN thì dùng `ssh -L 8090:192.168.1.20:8090 ...`).
+- Hoặc qua nginx có HTTPS: thêm `location`/subdomain trỏ tới `http://<MONITOR_BIND>:8090`.
 
 ## 3. Các tab
 
 | Tab | Nội dung |
 |---|---|
 | Tổng quan | Số lượt trả lời, thời gian trả lời TB/p95, thời gian ra chữ đầu tiên, tốc độ sinh (token/s), token vào/ra, số function call, tỷ lệ lỗi, biểu đồ theo thời gian |
+| Người dùng & tải | Số người đang online, số yêu cầu tới model chạy cùng lúc (lấy mẫu mỗi 30 giây), các đỉnh trong kỳ, và bảng **tốc độ theo mức tải** cho biết từ mức đồng thời nào thì hệ thống bắt đầu chậm |
 | Token | Bảng người dùng × model: số lần gọi, token vào/ra. Lọc theo chat, kênh, tác vụ nền, tracker |
 | Tốc độ model | Mỗi model: thời gian ra chữ đầu (TB/p95), tổng thời gian, token/s, lỗi; biểu đồ theo giờ; các lần gọi chậm nhất |
-| Function call | Mỗi function: số lần gọi, thời gian TB/p95/lâu nhất, lỗi; phân bố số function trên mỗi lượt; chi tiết từng lượt (gọi function nào, bao nhiêu lần, mất bao lâu) |
+| Function call | Mỗi function: số lần gọi, thời gian TB/p95/lâu nhất, lỗi; bảng **function bị lỗi** kèm nội dung lỗi và tham số AI đã truyền; phân bố số function trên mỗi lượt; chi tiết từng lượt (gọi function nào, bao nhiêu lần, mất bao lâu) |
 | Kiến thức | Cách tài liệu đang được xử lý theo cấu hình thật, model đang dùng, thời gian trích xuất chữ/embedding, file vừa xử lý, các công cụ đọc kiến thức mà AI đã gọi |
 | Tracker | Số lần tổng hợp, token, thời gian, lỗi, số lần chuyển kết nối, kết nối và model đang dùng, số tin chờ |
 | Thành phần & tài nguyên | Mọi thành phần đang dùng (LLM, embedding, reranker, STT, TTS, terminal, DB, Redis, lưu file), RAM/CPU từng container, dung lượng DB, Redis, nút **Đo ngay** để kiểm tra tốc độ trực tiếp |

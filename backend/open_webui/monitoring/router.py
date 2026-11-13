@@ -123,6 +123,9 @@ async def _settings() -> dict:
         'ollama.enable',
         'ollama.base_urls',
         'terminal_server.connections',
+        'tool_server.connections',
+        'web.search.enable',
+        'web.search.engine',
     ]
     values = await Config.get_many(*keys)
     connections = []
@@ -147,9 +150,23 @@ async def _settings() -> dict:
         }
         for t in values.get('terminal_server.connections') or []
     ]
-    settings = {k: v for k, v in values.items() if not k.startswith(('openai.', 'terminal_server.'))}
+    tool_servers = [
+        {
+            'name': (t.get('info') or {}).get('name') or (t.get('info') or {}).get('id') or _mask_url(t.get('url', '')),
+            'type': t.get('type', 'openapi'),
+            'url': _mask_url(t.get('url', '')),
+            'enabled': (t.get('config') or {}).get('enable', True),
+        }
+        for t in values.get('tool_server.connections') or []
+    ]
+    settings = {k: v for k, v in values.items() if not k.startswith(('openai.', 'terminal_server.', 'tool_server.'))}
     settings['ollama.base_urls'] = [_mask_url(u) for u in values.get('ollama.base_urls') or []]
-    return {'settings': settings, 'openai_connections': connections, 'terminals': terminals}
+    return {
+        'settings': settings,
+        'openai_connections': connections,
+        'terminals': terminals,
+        'tool_servers': tool_servers,
+    }
 
 
 @router.get('/status')
@@ -163,6 +180,16 @@ async def status(request: Request, x_monitor_key: Optional[str] = Header(None)):
     data = await _settings()
     ef = getattr(state, 'ef', None)
     rf = getattr(state, 'rf', None)
+    # Models NCS AI currently lists for each connection (what users can pick), from the shared model cache.
+    try:
+        listed: dict[int, list[str]] = {}
+        for model in list((getattr(state, 'MODELS', None) or {}).values()):
+            if isinstance(model, dict) and 'urlIdx' in model:
+                listed.setdefault(int(model['urlIdx']) + 1, []).append(model.get('name') or model.get('id'))
+        for connection in data['openai_connections']:
+            connection['models'] = sorted(listed.get(connection['index'], []))
+    except Exception:
+        pass
     data['loaded'] = {
         'embedding_model': type(ef).__name__ if ef is not None else None,
         'reranker': type(rf).__name__ if rf is not None else None,
