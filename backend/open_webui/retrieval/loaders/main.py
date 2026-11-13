@@ -708,6 +708,7 @@ class Loader:
                 api_url=self.config['rag.paddleocr_vl_base_url'],
                 token=self.config['rag.paddleocr_vl_token'],
                 file_path=file_path,
+                auth_scheme=self.config.get('rag.paddleocr_vl_auth_scheme') or 'token',
             )
         else:
             if USE_SLIM:

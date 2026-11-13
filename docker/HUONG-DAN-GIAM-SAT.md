@@ -63,7 +63,7 @@ Lưu ý:
 | Function call | Mỗi function: số lần gọi, thời gian TB/p95/lâu nhất, lỗi; bảng **function bị lỗi** kèm nội dung lỗi và tham số AI đã truyền; phân bố số function trên mỗi lượt; chi tiết từng lượt (gọi function nào, bao nhiêu lần, mất bao lâu) |
 | Kiến thức | Cách tài liệu đang được xử lý theo cấu hình thật, model đang dùng, thời gian trích xuất chữ/embedding, file vừa xử lý, các công cụ đọc kiến thức mà AI đã gọi |
 | Tracker | Số lần tổng hợp, token, thời gian, lỗi, số lần chuyển kết nối, kết nối và model đang dùng, số tin chờ |
-| Thành phần & tài nguyên | Mọi thành phần đang dùng (LLM, embedding, reranker, STT, TTS, terminal, DB, Redis, lưu file), RAM/CPU từng container, dung lượng DB, Redis, nút **Đo ngay** để kiểm tra tốc độ trực tiếp |
+| Thành phần & tài nguyên | Mọi thành phần đang dùng (LLM, embedding, reranker, STT, TTS, terminal, DB, Redis, lưu file), RAM/CPU từng container, dung lượng DB, Redis, nút **Đo ngay** (cơ sở dữ liệu, Redis, kho file, embedding, reranker, trích xuất tài liệu/OCR bằng PDF mẫu, một model mỗi kết nối), **Đo tất cả model** (thử từng model chat của mọi kết nối) và **Đo nhanh** (không gọi model) |
 
 Lưu ý về số liệu:
 
@@ -209,7 +209,9 @@ Với Tracker, giá trị lưu trong database được ưu tiên hơn `.env`. Đ
 
 Nhóm **Trích xuất tài liệu** có nút **Kiểm tra**: NCS AI tạo file mẫu có nội dung biết trước (PDF có chữ, PDF scan, ảnh PNG),
 chạy qua đúng engine đang chọn (kể cả giá trị chưa lưu) và báo % chữ đọc đúng, thời gian, chữ đọc được.
-**Đạt** khi PDF có chữ đọc đúng ≥ 80%. PDF scan và ảnh để tham khảo: engine có OCR tốt cho tiếng Việt phải đọc được
+**Đạt** khi PDF có chữ đọc đúng ≥ 80%.
+Với PaddleOCR-VL chọn được **Cách gửi khóa**: `token <khóa>` (mặc định) hoặc `Bearer <khóa>` (pod có xác thực bằng API key);
+khi cài mới có thể đặt sẵn bằng `PADDLEOCR_VL_AUTH_SCHEME=bearer` trong `.env`. PDF scan và ảnh để tham khảo: engine có OCR tốt cho tiếng Việt phải đọc được
 phần lớn; nếu % khi bỏ dấu cao hơn nhiều thì engine đang làm mất dấu tiếng Việt.
 
 Mục **Tài liệu kiến thức: trích xuất và embedding** (bấm **Kiểm tra tài liệu**) liệt kê mọi file trong kho kiến

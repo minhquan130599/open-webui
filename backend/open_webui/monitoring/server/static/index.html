@@ -1023,22 +1023,29 @@
         </dl>
         ${(db.tables || []).length ? `<h2 style="margin-top:12px">Bảng lớn nhất</h2>${bars(db.tables.map((t) => ({ label: `${t.name} (${n(t.rows)} dòng)`, value: t.size })), { format: bytes })}` : ''}`)}
       </div>
-      ${card('Đo tốc độ trực tiếp', `<p class="muted" style="margin:0 0 10px">Gọi thử từng thành phần ngay bây giờ: cơ sở dữ liệu, Redis, kho file, model embedding, và mỗi kết nối model (lấy danh sách model + một câu trả lời ngắn để đo thời gian ra chữ đầu và tốc độ sinh). Một lần đo tốn khoảng 30–100 token mỗi kết nối.</p>
-        <button class="btn primary" type="button" id="probe">Đo ngay</button> <button class="btn" type="button" id="probe-lite">Đo nhanh (không gọi model)</button>
+      ${card('Đo tốc độ trực tiếp', `<p class="muted" style="margin:0 0 10px">Gọi thử từng thành phần ngay bây giờ: cơ sở dữ liệu, Redis, kho file, model embedding, reranker, trích xuất tài liệu/OCR (chạy một PDF mẫu), và mỗi kết nối model (lấy danh sách model + một câu trả lời ngắn để đo thời gian ra chữ đầu và tốc độ sinh). "Đo tất cả model" thử từng model chat của mọi kết nối. Mỗi lần gọi model tốn khoảng 30–100 token.</p>
+        <button class="btn primary" type="button" data-probe="one">Đo ngay</button>
+        <button class="btn" type="button" data-probe="all" title="Gọi thử một câu trả lời ngắn với từng model chat của mọi kết nối (tối đa 10 model mỗi kết nối)">Đo tất cả model</button>
+        <button class="btn" type="button" data-probe="list">Đo nhanh (không gọi model)</button>
         <div id="probe-out" style="margin-top:12px">${pr ? probeTable(pr) : ''}</div>`)}`;
   }
 
+  const PROBE_NAMES = { database: 'Cơ sở dữ liệu', redis: 'Redis', storage: 'Kho file', embedding: 'Model embedding', reranker: 'Reranker', extraction: 'Trích xuất tài liệu (OCR)' };
+  const speed = (cp) => (cp.error ? `<span style="color:var(--red)">${esc(cp.error)}</span>` : `ra chữ đầu ${ms(cp.ttft_ms)}, xong ${ms(cp.total_ms)}, ${n(cp.output_tokens)} token, <b>${cp.tokens_per_second ?? '—'} token/s</b>`);
   function probeTable(pr) {
     if (pr.error) return `<div class="error-box">${esc(pr.error)}</div>`;
     const rows = Object.entries(pr.results || {}).map(([name, r]) => ({ name, ...r }));
     return table([
-      { label: 'Thành phần', render: (r) => `<b>${esc(r.name)}</b>` },
+      { label: 'Thành phần', render: (r) => `<b>${esc(PROBE_NAMES[r.name] || r.name.replace(/^connection #/, 'Kết nối #'))}</b>` },
       { label: 'Kết quả', render: (r) => (r.ok ? '<span class="pill ok">OK</span>' : `<span class="pill err">Lỗi</span> <span class="muted">${esc(r.error)}</span>`) },
       { label: 'Thời gian', num: true, render: (r) => ms(r.ms) },
       { label: 'Chi tiết', render: (r) => {
         const det = r.detail;
         if (!det || typeof det !== 'object') return `<span class="muted">${esc(det || '')}</span>`;
-        if (det.completion) { const cp = det.completion; return `danh sách model ${ms(det.models_ms)} · <b>${esc(cp.model)}</b>: ra chữ đầu ${ms(cp.ttft_ms)}, xong ${ms(cp.total_ms)}, ${n(cp.output_tokens)} token, <b>${cp.tokens_per_second ?? '—'} token/s</b>`; }
+        if (det.completions) return `danh sách model ${ms(det.models_ms)}${det.completions.map((cp) => `<div><b>${esc(cp.model)}</b>: ${speed(cp)}</div>`).join('') || ' · không có model chat'}`;
+        if (det.completion) return `danh sách model ${ms(det.models_ms)} · <b>${esc(det.completion.model)}</b>: ${speed(det.completion)}`;
+        if (det.relevant !== undefined) return `<b>${esc(det.model)}</b>: đoạn đúng ${det.relevant} · đoạn không liên quan ${det.irrelevant} · ${det.correct ? '<span class="pill ok">xếp hạng đúng</span>' : '<span class="pill err">xếp hạng sai</span>'}${det.hybrid ? '' : ' · <span class="muted">chưa bật Tìm kiếm kết hợp nên chưa được dùng</span>'}`;
+        if (det.engine) return `engine <b>${esc(det.engine === 'default' ? 'Mặc định' : det.engine)}</b> · đọc đúng <b>${det.score}%</b> chữ PDF mẫu · ${n(det.chars)} ký tự`;
         if (det.models) return `danh sách model ${ms(det.models_ms)} · ${esc(det.models.slice(0, 6).join(', '))}`;
         if (det.dimensions) return `vector ${n(det.dimensions)} chiều`;
         return esc(JSON.stringify(det));
@@ -1139,14 +1146,14 @@
     else if (b.dataset.source !== undefined) { tokenSource = b.dataset.source; load(); }
     else if (b.dataset.tool !== undefined) { toolFilter = b.dataset.tool; load(); }
     else if (b.id === 'refresh') load();
-    else if (b.id === 'probe' || b.id === 'probe-lite') {
+    else if (b.dataset.probe) {
       const out = $('#probe-out');
       out.innerHTML = '<span class="spin"></span> Đang đo… (có thể mất đến 1 phút)';
-      document.querySelectorAll('#probe, #probe-lite').forEach((x) => (x.disabled = true));
-      try { probeResult = await api(`/api/probe?llm=${b.id === 'probe'}`, { method: 'POST' }); }
+      document.querySelectorAll('[data-probe]').forEach((x) => (x.disabled = true));
+      try { probeResult = await api(`/api/probe?llm=${b.dataset.probe}`, { method: 'POST' }); }
       catch (err) { probeResult = { error: err.message }; }
       out.innerHTML = probeTable(probeResult);
-      document.querySelectorAll('#probe, #probe-lite').forEach((x) => (x.disabled = false));
+      document.querySelectorAll('[data-probe]').forEach((x) => (x.disabled = false));
     }
   });
   $('#auto').addEventListener('change', schedule);

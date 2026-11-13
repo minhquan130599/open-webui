@@ -280,7 +280,56 @@ async def _embed(request: Request):
     return {'dimensions': len(result) if isinstance(result, list) else None}
 
 
-async def _llm_connection(session: aiohttp.ClientSession, url: str, key: str, chat_model: Optional[str]):
+NON_CHAT = ('embed', 'rerank', 'whisper', 'tts', 'dall-e', 'moderation', 'bge-', 'e5-', 'ocr')
+
+
+async def _completion(session: aiohttp.ClientSession, url: str, headers: dict, model: str) -> dict:
+    """A tiny streamed completion: time to first token and generation speed."""
+    import json
+
+    payload = {
+        'model': model,
+        'messages': [{'role': 'user', 'content': 'Đếm từ 1 đến 20, cách nhau bởi dấu phẩy.'}],
+        'max_tokens': 64,
+        'stream': True,
+        'stream_options': {'include_usage': True},
+        'chat_template_kwargs': {'enable_thinking': False},
+    }
+    started = time.perf_counter()
+    first = None
+    chunks = 0
+    usage = None
+    async with session.post(f'{url}/chat/completions', json=payload, headers=headers) as response:
+        if response.status != 200:
+            return {'model': model, 'error': f'HTTP {response.status}: {(await response.text())[:200]}'}
+        async for raw in response.content:
+            line = raw.decode('utf-8', 'ignore').strip()
+            if not line.startswith('data:') or line.endswith('[DONE]'):
+                continue
+            try:
+                event = json.loads(line[5:])
+            except ValueError:
+                continue
+            usage = event.get('usage') or usage
+            delta = ((event.get('choices') or [{}])[0].get('delta') or {}) if event.get('choices') else {}
+            if delta.get('content') or delta.get('reasoning_content'):
+                chunks += 1
+                if first is None:
+                    first = time.perf_counter()
+    total = time.perf_counter() - started
+    tokens = (usage or {}).get('completion_tokens') or chunks
+    gen = total - (first - started) if first else total
+    return {
+        'model': model,
+        'ttft_ms': round((first - started) * 1000, 1) if first else None,
+        'total_ms': round(total * 1000, 1),
+        'output_tokens': tokens,
+        'tokens_per_second': round(tokens / gen, 1) if gen > 0 and tokens else None,
+    }
+
+
+async def _llm_connection(session: aiohttp.ClientSession, url: str, key: str, chat_model: Optional[str], mode: str):
+    """mode: 'list' = model list only, 'one' = one short answer, 'all' = one short answer from every chat model."""
     headers = {'Authorization': f'Bearer {key}'} if key else {}
     started = time.perf_counter()
     async with session.get(f'{url}/models', headers=headers) as response:
@@ -290,59 +339,90 @@ async def _llm_connection(session: aiohttp.ClientSession, url: str, key: str, ch
     models_ms = round((time.perf_counter() - started) * 1000, 1)
     ids = [m.get('id') for m in (body.get('data') or []) if isinstance(m, dict)] if isinstance(body, dict) else []
     result = {'models_ms': models_ms, 'models': ids[:50]}
-    model = chat_model if chat_model in ids else (ids[0] if ids else None)
-    if model:
-        # A tiny streamed completion: time to first token and generation speed.
-        payload = {
-            'model': model,
-            'messages': [{'role': 'user', 'content': 'Đếm từ 1 đến 20, cách nhau bởi dấu phẩy.'}],
-            'max_tokens': 64,
-            'stream': True,
-            'stream_options': {'include_usage': True},
-            'chat_template_kwargs': {'enable_thinking': False},
-        }
-        started = time.perf_counter()
-        first = None
-        chunks = 0
-        usage = None
-        async with session.post(f'{url}/chat/completions', json=payload, headers=headers) as response:
-            if response.status != 200:
-                raise RuntimeError(f'chat/completions {response.status}: {(await response.text())[:200]}')
-            async for raw in response.content:
-                line = raw.decode('utf-8', 'ignore').strip()
-                if not line.startswith('data:') or line.endswith('[DONE]'):
-                    continue
-                import json
-
-                try:
-                    event = json.loads(line[5:])
-                except ValueError:
-                    continue
-                usage = event.get('usage') or usage
-                delta = ((event.get('choices') or [{}])[0].get('delta') or {}) if event.get('choices') else {}
-                if delta.get('content') or delta.get('reasoning_content'):
-                    chunks += 1
-                    if first is None:
-                        first = time.perf_counter()
-        total = time.perf_counter() - started
-        tokens = (usage or {}).get('completion_tokens') or chunks
-        gen = total - (first - started) if first else total
-        result['completion'] = {
-            'model': model,
-            'ttft_ms': round((first - started) * 1000, 1) if first else None,
-            'total_ms': round(total * 1000, 1),
-            'output_tokens': tokens,
-            'tokens_per_second': round(tokens / gen, 1) if gen > 0 and tokens else None,
-        }
+    chat = [m for m in ids if m and not any(word in m.lower() for word in NON_CHAT)]
+    if mode == 'one':
+        model = chat_model if chat_model in ids else (chat[0] if chat else None)
+        if model:
+            result['completion'] = await _completion(session, url, headers, model)
+            if result['completion'].get('error'):
+                raise RuntimeError(f'{model}: {result["completion"]["error"]}')
+    elif mode == 'all':
+        result['completions'] = [await _completion(session, url, headers, m) for m in chat[:10]]
+        failed = [c for c in result['completions'] if c.get('error')]
+        if failed and len(failed) == len(result['completions']):
+            raise RuntimeError('; '.join(f'{c["model"]}: {c["error"]}' for c in failed)[:300])
     return result
 
 
+async def _rerank(request: Request):
+    """Score two passages against a question with the configured reranker."""
+    values = await Config.get_many(
+        'rag.reranking_engine',
+        'rag.reranking_model',
+        'rag.external_reranker_url',
+        'rag.external_reranker_api_key',
+        'rag.enable_hybrid_search',
+    )
+    model = values.get('rag.reranking_model')
+    if not model:
+        return 'chưa cấu hình reranker'
+    query = 'Hạn nộp báo cáo tuần là khi nào?'
+    documents = ['Báo cáo tuần phải nộp trước 17h thứ Sáu hằng tuần.', 'Căn tin mở cửa từ 7h đến 19h.']
+    if values.get('rag.reranking_engine') == 'external':
+        url = values.get('rag.external_reranker_url')
+        if not url:
+            raise RuntimeError('chưa nhập URL reranker')
+        key = values.get('rag.external_reranker_api_key') or ''
+        headers = {'Authorization': f'Bearer {key}'} if key else {}
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session:
+            async with session.post(
+                url, json={'model': model, 'query': query, 'documents': documents, 'top_n': 2}, headers=headers
+            ) as response:
+                body = await response.json(content_type=None)
+                if response.status != 200:
+                    raise RuntimeError(f'HTTP {response.status}: {str(body)[:200]}')
+        scores = {r.get('index'): r.get('relevance_score') for r in (body.get('results') or [])}
+    else:
+        rf = getattr(request.app.state, 'rf', None)
+        if rf is None:
+            raise RuntimeError('reranker local chưa được nạp (cần bật Tìm kiếm kết hợp)')
+        values_ = await asyncio.to_thread(rf.predict, [(query, d) for d in documents])
+        scores = {i: float(v) for i, v in enumerate(values_)}
+    if not scores or scores.get(0) is None:
+        raise RuntimeError('reranker không trả về điểm')
+    correct = scores.get(0, 0) > scores.get(1, 0)
+    return {
+        'model': model,
+        'relevant': round(scores.get(0, 0), 3),
+        'irrelevant': round(scores.get(1, 0), 3),
+        'correct': correct,
+        'hybrid': bool(values.get('rag.enable_hybrid_search')),
+    }
+
+
+async def _extraction():
+    """Run the PDF sample through the document extraction engine."""
+    from open_webui.models.users import Users
+    from open_webui.monitoring.extraction_test import _config, _run, _text_pdf
+
+    config = await _config({})
+    engine = config.get('rag.content_extraction_engine') or 'default'
+    result = await _run(config, await Users.get_super_admin_user(), 'ncs-kiem-tra.pdf', 'application/pdf', _text_pdf())
+    if not result.get('ok'):
+        raise RuntimeError(f'{engine}: {result.get("error")}')
+    if result.get('score', 0) < 80:
+        raise RuntimeError(f'{engine}: chỉ đọc đúng {result.get("score")}% chữ của PDF mẫu')
+    return {'engine': engine, 'score': result['score'], 'chars': result['chars']}
+
+
 @router.post('/probe')
-async def probe(request: Request, llm: bool = True, x_monitor_key: Optional[str] = Header(None)):
-    """Measure live response times: database, Redis, file storage, embedding, every model connection."""
+async def probe(request: Request, llm: str = 'one', x_monitor_key: Optional[str] = Header(None)):
+    """Measure live response times: database, Redis, file storage, embedding, reranker, document extraction and
+    every model connection. llm: 'list' (no completion), 'one' (one model per connection), 'all' (every chat model)."""
     _check(x_monitor_key)
     from open_webui.tracker.config import runtime as tracker_runtime
 
+    mode = {'false': 'list', 'true': 'one'}.get(llm, llm) if llm in ('false', 'true', 'list', 'one', 'all') else 'one'
     TRACKER_MODEL = (await tracker_runtime())['model']
 
     values = await Config.get_many('openai.api_base_urls', 'openai.api_keys', 'openai.api_configs')
@@ -356,24 +436,29 @@ async def probe(request: Request, llm: bool = True, x_monitor_key: Optional[str]
         'redis': _timed(_ping_redis()),
         'storage': _timed(_ping_s3()),
         'embedding': _timed(_embed(request)),
+        'reranker': _timed(_rerank(request)),
+        'extraction': _timed(_extraction()),
     }
-    timeout = aiohttp.ClientTimeout(total=60, sock_connect=10)
+    timeout = aiohttp.ClientTimeout(total=300 if mode == 'all' else 90, sock_connect=10)
     async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
         llm_tasks = {}
         for idx, url in enumerate(urls):
             cfg = configs.get(str(idx), configs.get(url, {})) or {}
-            if not url or not cfg.get('enable', True):
+            label = f'connection #{idx + 1} ({_mask_url(url)})'
+            if not url:
+                continue
+            if not cfg.get('enable', True):
+                llm_tasks[label] = _timed(_disabled())
                 continue
             key = keys[idx] if idx < len(keys) else ''
-            coro = (
-                _llm_connection(session, url.rstrip('/'), key, preferred)
-                if llm
-                else _llm_connection(session, url.rstrip('/'), key, '__none__')
-            )
-            llm_tasks[f'connection #{idx + 1} ({_mask_url(url)})'] = _timed(coro)
+            llm_tasks[label] = _timed(_llm_connection(session, url.rstrip('/'), key, preferred, mode))
         names = list(results) + list(llm_tasks)
         done = await asyncio.gather(*results.values(), *llm_tasks.values())
-    return {'time': time.time(), 'results': dict(zip(names, done))}
+    return {'time': time.time(), 'mode': mode, 'results': dict(zip(names, done))}
+
+
+async def _disabled():
+    return 'kết nối đang tắt'
 
 
 @router.post('/reindex')

@@ -950,6 +950,9 @@ MISTRAL_OCR_PARAMS = mistral_ocr_params
 PADDLEOCR_VL_BASE_URL = os.getenv('PADDLEOCR_VL_BASE_URL', 'http://localhost:8080')
 
 PADDLEOCR_VL_TOKEN = os.getenv('PADDLEOCR_VL_TOKEN', '')
+# How the token is sent: 'token' (Authorization: token <x>, PaddleOCR AI Studio) or 'bearer'
+# (Authorization: Bearer <x>, e.g. a PaddleOCR-VL server behind an API-key proxy on RunPod).
+PADDLEOCR_VL_AUTH_SCHEME = (os.getenv('PADDLEOCR_VL_AUTH_SCHEME', 'token') or 'token').strip().lower()
 
 BYPASS_EMBEDDING_AND_RETRIEVAL = os.getenv('BYPASS_EMBEDDING_AND_RETRIEVAL', 'False').lower() == 'true'
 
@@ -3038,6 +3041,7 @@ DEFAULT_CONFIG = {
     'rag.mistral_ocr_params': MISTRAL_OCR_PARAMS,
     'rag.paddleocr_vl_base_url': PADDLEOCR_VL_BASE_URL,
     'rag.paddleocr_vl_token': PADDLEOCR_VL_TOKEN,
+    'rag.paddleocr_vl_auth_scheme': PADDLEOCR_VL_AUTH_SCHEME,
     'rag.bypass_embedding_and_retrieval': BYPASS_EMBEDDING_AND_RETRIEVAL,
     'rag.top_k': RAG_TOP_K,
     'rag.top_k_reranker': RAG_TOP_K_RERANKER,

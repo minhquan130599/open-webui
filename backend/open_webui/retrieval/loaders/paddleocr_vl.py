@@ -23,6 +23,7 @@ class PaddleOCRVLLoader:
         api_url: str,
         token: str,
         file_path: str,
+        auth_scheme: str = 'token',
     ):
         if not api_url or not token:
             raise ValueError('PaddleOCR-vl API URL and Token are required.')
@@ -31,6 +32,8 @@ class PaddleOCRVLLoader:
 
         self.api_url = api_url.rstrip('/')
         self.token = token
+        # 'bearer' -> Authorization: Bearer <token>; anything else -> Authorization: token <token>
+        self.auth_scheme = 'Bearer' if (auth_scheme or '').strip().lower() == 'bearer' else 'token'
         self.file_path = file_path
         self.file_name = os.path.basename(file_path)
 
@@ -45,7 +48,7 @@ class PaddleOCRVLLoader:
             log.error(f'Failed to read file {self.file_path}: {e}')
             raise
 
-        headers = {'Authorization': f'token {self.token}', 'Content-Type': 'application/json'}
+        headers = {'Authorization': f'{self.auth_scheme} {self.token}', 'Content-Type': 'application/json'}
 
         # Detect fileType based on file extension
         ext = self.file_path.lower().split('.')[-1]

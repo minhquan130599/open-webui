@@ -823,8 +823,10 @@ async def system():
 
 
 @app.post('/api/probe', dependencies=[Depends(require_login)])
-async def probe(llm: bool = True):
-    return await webui('/probe', method='POST', timeout=120, llm=str(llm).lower())
+async def probe(llm: str = 'one'):
+    """llm: list (no model call), one (one model per connection), all (every chat model)."""
+    mode = llm if llm in ('list', 'one', 'all') else {'false': 'list'}.get(llm, 'one')
+    return await webui('/probe', method='POST', timeout=420 if mode == 'all' else 180, llm=mode)
 
 
 # Settings editing (admin key + Google Authenticator code, see admin.py); also behind the page login.
