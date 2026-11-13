@@ -4673,5 +4673,7 @@
 	"settings.admin.documents.paddleocrVlConcurrency.description": "Page batches sent to OCR at the same time. Lower to 1 if the OCR server is often overloaded (429/503).",
 	"settings.admin.documents.paddleocrVlConcurrency.label": "Batches at a time",
 	"settings.admin.documents.paddleocrVlPagesPerRequest.description": "Long PDFs are cut into batches of pages so each request stays small and fast. 0 = whole file in one request. Lower it on 524/504/413 errors.",
-	"settings.admin.documents.paddleocrVlPagesPerRequest.label": "PDF pages per request"
+	"settings.admin.documents.paddleocrVlPagesPerRequest.label": "PDF pages per request",
+	"settings.personal.notifications.trackerEmailReminders.description": "Get one email a day listing your work items due today or tomorrow.",
+	"settings.personal.notifications.trackerEmailReminders.label": "Due-date reminder emails"
 }

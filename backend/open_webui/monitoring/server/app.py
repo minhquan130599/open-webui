@@ -827,7 +827,7 @@ async def system():
     try:
         last = await rows(
             """SELECT ts, name, model_id, meta->>'url' AS url, status FROM perf_event
-                WHERE kind = 'tracker' AND status = 'ok' ORDER BY ts DESC LIMIT 1"""
+                WHERE kind = 'tracker' AND status = 'ok' AND model_id IS NOT NULL ORDER BY ts DESC LIMIT 1"""
         )
     except Exception:
         last = []

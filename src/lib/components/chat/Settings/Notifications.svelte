@@ -34,6 +34,7 @@
 	export let saveSettings: Function;
 
 	let notificationEnabled = false;
+	let trackerEmailReminders = true;
 	let notificationSound = true;
 	let notificationSoundType: NotificationSoundStyle = 'chime';
 	const previewSound = async () => {
@@ -205,6 +206,7 @@
 
 	onMount(async () => {
 		notificationEnabled = $settings.notificationEnabled ?? false;
+		trackerEmailReminders = $settings?.trackerEmailReminders ?? true;
 		notificationSound = $settings?.notificationSound ?? true;
 		const savedSound = $settings?.notificationSoundType ?? 'chime';
 		notificationSoundType = notificationSoundStyles.includes(savedSound) ? savedSound : 'chime';
@@ -282,6 +284,23 @@
 							<Play className="size-3.5" strokeWidth="2" />
 						</button>
 					</div>
+				</UserSettingRow>
+			{/if}
+
+			{#if $config?.features?.enable_project_tracker}
+				<UserSettingRow
+					description={$i18n.t('settings.personal.notifications.trackerEmailReminders.description')}
+					let:labelId
+				>
+					<span slot="label">
+						{$i18n.t('settings.personal.notifications.trackerEmailReminders.label')}
+					</span>
+					<Switch
+						ariaLabelledbyId={labelId}
+						bind:state={trackerEmailReminders}
+						ariaLabel={$i18n.t('settings.personal.notifications.trackerEmailReminders.label')}
+						on:change={() => saveSettings({ trackerEmailReminders })}
+					/>
 				</UserSettingRow>
 			{/if}
 

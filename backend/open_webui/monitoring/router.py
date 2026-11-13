@@ -535,6 +535,51 @@ async def file_original(file_id: str, x_monitor_key: Optional[str] = Header(None
     return FileResponse(path, media_type=content_type, filename=name, content_disposition_type='inline')
 
 
+class MailTestForm(BaseModel):
+    to: str
+    overrides: dict = {}
+
+
+@router.post('/mail/test')
+async def mail_test(form: MailTestForm, x_monitor_key: Optional[str] = Header(None)):
+    """Send a sample due-reminder email to one address with the given (unsaved) email settings."""
+    _check(x_monitor_key)
+    from open_webui.tracker import mailer
+    from open_webui.tracker.mywork import WorkEntry, today
+
+    current = await mailer.settings()
+    names = {
+        mailer.SENDER_KEY: 'sender',
+        mailer.TENANT_KEY: 'tenant_id',
+        mailer.CLIENT_ID_KEY: 'client_id',
+        mailer.CLIENT_SECRET_KEY: 'client_secret',
+    }
+    for key, value in (form.overrides or {}).items():
+        if key in names and isinstance(value, str) and value.strip():
+            current[names[key]] = value.strip()
+    import datetime as dt
+
+    tomorrow = (dt.date.fromisoformat(today()) + dt.timedelta(days=1)).isoformat()
+    sample = [
+        ('today', WorkEntry('', 'tien-do-du-an-mau', 'x', 'Hoàn thiện báo cáo tuần (email thử)', [], [], 'dang_lam', 60,
+                            today(), None, None)),
+        ('tomorrow', WorkEntry('', 'tien-do-du-an-mau', 'y', 'Gửi hồ sơ nghiệm thu (email thử)', [], [], 'dang_lam', 30,
+                               tomorrow, 'Chờ khách hàng ký', None)),
+    ]
+    base = ((await Config.get('webui.url')) or os.getenv('OPEN_WEBUI_PUBLIC_URL', '') or '').rstrip('/')
+    started = time.perf_counter()
+    try:
+        await mailer.send(
+            form.to,
+            '[NCS AI] Email thử: nhắc việc đến hạn',
+            mailer.reminder_html(form.to, sample, f'{base}/my-work' if base else ''),
+            current,
+        )
+    except mailer.MailError as e:
+        return {'ok': False, 'error': str(e), 'sender': current['sender']}
+    return {'ok': True, 'ms': round((time.perf_counter() - started) * 1000), 'sender': current['sender']}
+
+
 @router.post('/files/{file_id}/reprocess')
 async def file_reprocess(file_id: str, request: Request, x_monitor_key: Optional[str] = Header(None)):
     """Extract and embed one file again with the current settings."""

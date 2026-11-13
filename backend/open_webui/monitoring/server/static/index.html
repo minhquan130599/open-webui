@@ -478,7 +478,7 @@
     }
     const d = editor.data;
     const left = Math.max(0, editor.expires - Math.floor(Date.now() / 1000));
-    const groups = d.groups.map((g) => `<section class="card" style="box-shadow:none"><h2>${esc(g.label)} <span style="display:flex;gap:6px">${g.key === 'extraction' ? '<button class="btn" type="button" data-test-extraction title="Chạy file mẫu qua engine đang chọn (kể cả giá trị chưa lưu)">Kiểm tra</button>' : ''}<button class="btn primary" type="button" data-save-group="${esc(g.key)}">Lưu</button></span></h2>${g.note ? `<p class="muted" style="font-size:12px;margin:-4px 0 10px">${esc(g.note)}</p>` : ''}<div data-group="${esc(g.key)}">${d.settings.filter((f) => f.group === g.key).map(fieldHtml).join('')}</div>${g.key === 'extraction' ? `<div id="extraction-test">${extractionTestHtml()}</div>` : ''}</section>`).join('');
+    const groups = d.groups.map((g) => `<section class="card" style="box-shadow:none"><h2>${esc(g.label)} <span style="display:flex;gap:6px">${g.key === 'extraction' ? '<button class="btn" type="button" data-test-extraction title="Chạy file mẫu qua engine đang chọn (kể cả giá trị chưa lưu)">Kiểm tra</button>' : ''}${g.key === 'email' ? '<button class="btn" type="button" data-test-email title="Gửi một email nhắc việc mẫu bằng các giá trị đang nhập (kể cả chưa lưu)">Gửi thử</button>' : ''}<button class="btn primary" type="button" data-save-group="${esc(g.key)}">Lưu</button></span></h2>${g.note ? `<p class="muted" style="font-size:12px;margin:-4px 0 10px">${esc(g.note)}</p>` : ''}<div data-group="${esc(g.key)}">${d.settings.filter((f) => f.group === g.key).map(fieldHtml).join('')}</div>${g.key === 'extraction' ? `<div id="extraction-test">${extractionTestHtml()}</div>` : ''}${g.key === 'email' ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="muted" style="font-size:12px">Gửi thử tới</span><input class="btn" id="email-test-to" type="email" placeholder="ban@ncsgroup.vn" value="${esc(emailTest.to)}" style="min-width:240px"></div><div id="email-test">${emailTestHtml()}</div>` : ''}</section>`).join('');
     const history = table([
       { label: 'Lúc', render: (r) => when(r.ts) },
       { label: 'Cấu hình', render: (r) => `<b>${esc((r.meta || {}).label || r.name)}</b><div class="muted" style="font-size:11px">${esc(r.name)}</div>` },
@@ -637,6 +637,31 @@
     try { extractionTest = await api('/api/admin/extraction/test', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ values }) }); }
     catch (err) { extractionTest = { error: err.message }; }
     const out2 = $('#extraction-test'); if (out2) out2.innerHTML = extractionTestHtml();
+  }
+
+  const emailTest = { to: '', pending: false, result: null };
+  function emailTestHtml() {
+    const t = emailTest;
+    if (t.pending) return '<div style="margin-top:8px"><span class="spin"></span> Đang gửi…</div>';
+    if (!t.result) return '';
+    const r = t.result;
+    if (r.error && r.ok === undefined) return `<div class="error-box" style="margin-top:8px">${esc(r.error)}</div>`;
+    return r.ok
+      ? `<div class="notice info" style="margin-top:8px"><span class="pill ok">Đã gửi</span> từ <b>${esc(r.sender)}</b> tới <b>${esc(t.sentTo)}</b> trong ${ms(r.ms)}. Mở hộp thư (kể cả thư mục Junk) để xem email mẫu. Nhớ bật "Gửi email nhắc việc đến hạn" và bấm Lưu.</div>`
+      : `<div class="error-box" style="margin-top:8px">Gửi từ <b>${esc(r.sender || '(chưa có hộp thư gửi)')}</b> thất bại: ${esc(r.error)}</div>`;
+  }
+  async function testEmail() {
+    const to = ($('#email-test-to') || {}).value || '';
+    emailTest.to = to.trim();
+    if (!emailTest.to) { emailTest.result = { error: 'Nhập địa chỉ nhận email thử.' }; const o = $('#email-test'); if (o) o.innerHTML = emailTestHtml(); return; }
+    const values = {};
+    document.querySelector('[data-group="email"]').querySelectorAll('[data-key]').forEach((el) => { values[el.dataset.key] = el.dataset.type === 'bool' ? el.checked : el.value; });
+    emailTest.pending = true; emailTest.sentTo = emailTest.to;
+    const out = $('#email-test'); if (out) out.innerHTML = emailTestHtml();
+    try { emailTest.result = await api('/api/admin/email/test', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ to: emailTest.to, values }) }); }
+    catch (err) { emailTest.result = { error: err.message }; }
+    emailTest.pending = false;
+    const out2 = $('#email-test'); if (out2) out2.innerHTML = emailTestHtml();
   }
 
   // ---------- knowledge files: embedding coverage and extracted (OCR) text ----------
@@ -1149,6 +1174,7 @@
     if (b.dataset.viewerClose !== undefined) { const P = filePanels[b.dataset.panel]; if (P.viewer?.url) URL.revokeObjectURL(P.viewer.url); P.viewer = null; drawFiles(b.dataset.panel); return; }
     if (b.dataset.fileReprocess) { await reprocessFile(b.dataset.panel, b.dataset.fileReprocess); return; }
     if (b.dataset.testExtraction !== undefined) { b.disabled = true; await testExtraction(); b.disabled = false; return; }
+    if (b.dataset.testEmail !== undefined) { b.disabled = true; await testEmail(); b.disabled = false; return; }
     if (b.dataset.modelPublic) {
       const toPublic = b.dataset.to === '1';
       if (!toPublic && !confirm(`Đặt "${b.dataset.modelName}" thành riêng tư? Người dùng thường (không được chia sẻ riêng) sẽ không chọn được model này nữa.`)) return;

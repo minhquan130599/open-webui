@@ -145,6 +145,17 @@ SETTINGS: list[dict[str, Any]] = [
      'show_if': {'rag.content_extraction_engine': ['external']}},
     {'key': 'rag.external_document_loader_api_key', 'label': 'Khóa dịch vụ trích xuất ngoài', 'type': 'secret', 'group': 'extraction',
      'show_if': {'rag.content_extraction_engine': ['external']}},
+    # Due-reminder emails (Microsoft 365, Microsoft Graph)
+    {'key': 'tracker.reminder.email.enable', 'label': 'Gửi email nhắc việc đến hạn', 'type': 'bool', 'group': 'email',
+     'help': 'Mỗi người nhận một email gom các việc đến hạn hôm nay/ngày mai, cùng lúc với thông báo nhắc việc trong NCS AI.'},
+    {'key': 'tracker.reminder.email.sender', 'label': 'Hộp thư gửi', 'type': 'text', 'group': 'email',
+     'help': 'vd ncs-ai@ncsgroup.vn: hộp thư Microsoft 365 có license Exchange Online, hoặc shared mailbox (không cần license).'},
+    {'key': 'tracker.reminder.email.tenant_id', 'label': 'Tenant ID', 'type': 'text', 'group': 'email',
+     'help': 'Để trống = dùng của ứng dụng đăng nhập Microsoft.'},
+    {'key': 'tracker.reminder.email.client_id', 'label': 'Client ID (Application ID)', 'type': 'text', 'group': 'email',
+     'help': 'Để trống = dùng ứng dụng đăng nhập Microsoft. Ứng dụng cần quyền Microsoft Graph Mail.Send loại Application, đã Grant admin consent.'},
+    {'key': 'tracker.reminder.email.client_secret', 'label': 'Client secret', 'type': 'secret', 'group': 'email',
+     'help': 'Để trống = dùng secret của ứng dụng đăng nhập Microsoft.'},
     # Speech to text
     {'key': 'audio.stt.engine', 'label': 'Engine nhận dạng giọng nói', 'type': 'select', 'group': 'stt',
      'options': [['', 'Local (faster-whisper)'], ['openai', 'API dạng OpenAI'], ['web', 'Trình duyệt'], ['deepgram', 'Deepgram'], ['azure', 'Azure']]},
@@ -191,6 +202,11 @@ SETTINGS: list[dict[str, Any]] = [
 ]  # fmt: skip
 GROUPS = [
     ('tracker', 'Tracker tiến độ', 'Áp dụng trong tối đa 15 giây, không cần khởi động lại.'),
+    (
+        'email',
+        'Email nhắc việc (Microsoft 365)',
+        'Gửi qua Microsoft Graph từ một hộp thư chung tới email đăng nhập của người phụ trách. Bấm "Gửi thử" để kiểm tra trước khi bật.',
+    ),
     ('task', 'Model tác vụ nền', ''),
     (
         'embedding',
@@ -765,6 +781,34 @@ async def extraction_test(form: ExtractionTestForm, token: str = Depends(require
     result = await webui('/extraction/test', method='POST', timeout=420, json_body={'overrides': overrides})
     if result.get('error'):
         raise HTTPException(502, result['error'])
+    return result
+
+
+class EmailTestForm(BaseModel):
+    to: str
+    values: dict[str, Any] = {}
+
+
+@router.post('/api/admin/email/test')
+async def email_test(form: EmailTestForm, request: Request, token: str = Depends(require_session)):
+    """Send a sample reminder email with the values on the form (saved secret used when left empty)."""
+    from open_webui.monitoring.server.app import webui
+
+    to = form.to.strip()
+    if '@' not in to or len(to) > 254 or ' ' in to:
+        raise HTTPException(400, 'Địa chỉ nhận không hợp lệ')
+    overrides = {}
+    for key, value in form.values.items():
+        setting = BY_KEY.get(key)
+        if not setting or setting['group'] != 'email':
+            continue
+        if setting['type'] == 'secret' and not value:
+            continue
+        overrides[key] = value
+    result = await webui('/mail/test', method='POST', timeout=60, json_body={'to': to, 'overrides': overrides})
+    if result.get('error'):
+        raise HTTPException(502, result['error'])
+    log.info('Monitor admin: %s sent a test reminder email to %s', _client(request), to)
     return result
 
 

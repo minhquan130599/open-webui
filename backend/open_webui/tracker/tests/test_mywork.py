@@ -185,3 +185,54 @@ async def test_board_groups_by_channel_with_unassigned_items():
     assert team['people'][member.id]['name'] == f'Lan {tag}'
     assert any(c['id'] == channel.id and c['can_manage'] for c in team['channels'])
     assert all(c['id'] != channel.id for c in (await mywork.board(member, 'team'))['channels'])
+
+
+@pytest.mark.asyncio(loop_scope='module')
+async def test_reminder_emails_one_per_person(monkeypatch):
+    from open_webui.models.config import Config
+    from open_webui.models.users import Users
+    from open_webui.tracker import mailer
+
+    sent = []
+
+    async def fake_send(to, subject, html_body, s=None):
+        sent.append((to, subject, html_body))
+
+    monkeypatch.setattr(mailer, 'send', fake_send)
+    await Config.upsert(
+        {
+            'notifications.enable': True,
+            'channels.enable': True,
+            mailer.ENABLE_KEY: True,
+            mailer.SENDER_KEY: 'ncs-ai@t.local',
+            mailer.TENANT_KEY: 't',
+            mailer.CLIENT_ID_KEY: 'c',
+            mailer.CLIENT_SECRET_KEY: 's',
+        }
+    )
+    tag = uuid.uuid4().hex[:4]
+    owner = await Users.insert_new_user(str(uuid.uuid4()), f'Chủ {tag}', f'{uuid.uuid4().hex}@t.local', role='user')
+    an = await Users.insert_new_user(str(uuid.uuid4()), f'An {tag}', f'an{tag}@t.local', role='user')
+    binh = await Users.insert_new_user(str(uuid.uuid4()), f'Bình {tag}', f'binh{tag}@t.local', role='user')
+    await Users.update_user_settings_by_id(binh.id, {'ui': {mailer.USER_OPT_OUT: False}})
+    await _project(
+        owner,
+        [an, binh],
+        [
+            {'ten': 'Chốt hợp đồng <A&B>', 'phu_trach': [f'An {tag}'], 'han': _day(0)},
+            {'ten': 'Gửi báo giá', 'phu_trach': [f'An {tag}'], 'han': _day(1)},
+            {'ten': 'Họp khách', 'phu_trach': [f'Bình {tag}'], 'han': _day(0)},
+        ],
+    )
+    try:
+        await reminders.send_due_reminders(day_before=True)
+        mine = [m for m in sent if m[0] == an.email]
+        assert len(mine) == 1, 'all of one person’s reminders go in one email'
+        assert '1 việc đến hạn hôm nay, 1 việc ngày mai' in mine[0][1]
+        assert 'Chốt hợp đồng &lt;A&amp;B&gt;' in mine[0][2] and 'Gửi báo giá' in mine[0][2]
+        assert not [m for m in sent if m[0] == binh.email], 'a person who turned emails off gets none'
+        sent.clear()
+        await reminders.send_due_reminders(day_before=True)
+        assert not [m for m in sent if m[0] in (an.email, binh.email)], 'no second email for the same reminders'
+    finally:
+        await Config.upsert({mailer.ENABLE_KEY: False})

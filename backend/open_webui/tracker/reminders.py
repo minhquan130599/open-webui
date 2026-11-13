@@ -1,5 +1,6 @@
 """Due-date reminders: a personal inbox notification to each owner of an open work item that is due today
-or (optionally) tomorrow, once a day at the configured time (tracker timezone).
+or (optionally) tomorrow, once a day at the configured time (tracker timezone), plus one email per person with
+all their reminders when reminder emails are enabled (see mailer.py).
 
 Each reminder has a unique event key per item, due date and kind, so a restart, a second app instance or a
 second run on the same day never notifies twice.
@@ -69,11 +70,16 @@ async def send_due_reminders(day_before: bool = True) -> int:
     """Notify owners of items due today (and tomorrow). Returns the number of notifications created."""
     from open_webui.models.channels import Channels
     from open_webui.models.notifications import emit_changes, insert_notifications
+    from open_webui.tracker import mailer
 
     channels = mywork.project_channels(await Channels.get_channels())
     kinds = {0: 'today', 1: 'tomorrow'} if day_before else {0: 'today'}
+    inbox_enabled = bool(await Config.get('notifications.enable'))
     created = 0
     notified: set[str] = set()
+    # Emails follow the inbox: only people newly notified for an item get it in their email, so a second run
+    # on the same day sends nothing again. Without the inbox, the once-a-day run is the only guard.
+    emails: dict[str, list] = {}
     for entry in await mywork.collect(channels):
         kind = kinds.get(entry.days_left)
         if not kind or entry.bucket == 'done' or not entry.owner_ids:
@@ -93,10 +99,17 @@ async def send_due_reminders(day_before: bool = True) -> int:
                 await db.commit()
             created += len(recipients)
             notified |= recipients
+            for user_id in recipients if inbox_enabled else entry.owner_ids:
+                emails.setdefault(user_id, []).append((kind, entry))
         except Exception:
             log.exception('Due reminder failed for item %s in channel %s', entry.id, entry.channel_id)
     if notified:
         await emit_changes(notified)
+    if emails:
+        try:
+            await mailer.send_reminders(emails)
+        except Exception:
+            log.exception('Reminder emails failed')
     return created
 
 
