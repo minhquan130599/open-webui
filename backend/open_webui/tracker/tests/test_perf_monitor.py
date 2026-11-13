@@ -116,3 +116,100 @@ def test_monitor_api_requires_key(monkeypatch):
     assert wrong.value.status_code == 401
     router._check('secret-key')
     assert router._mask_url('https://user:pass@api.example.com:8443/v1?key=1') == 'https://api.example.com:8443/v1'
+
+
+@pytest.mark.asyncio(loop_scope='module')
+async def test_tracker_settings_from_database_and_watch_apply():
+    from open_webui.models.config import Config
+    from open_webui.monitoring import config_watch
+    from open_webui.tracker import config as tracker_config
+
+    tracker_config.reset_runtime_cache()
+    defaults = await tracker_config.runtime()
+    await Config.upsert(
+        {'tracker.model': 'nai,gpt-4o-mini', 'tracker.max_concurrency': 5, 'tracker.llm_failover': False}
+    )
+    assert (await tracker_config.runtime()) == defaults, 'cached until the watcher applies the change'
+
+    class _App:
+        class state:
+            faster_whisper_model = object()
+
+    await config_watch.apply(_App, {'tracker', 'stt'})
+    settings = await tracker_config.runtime()
+    assert (settings['model'], settings['max_concurrency'], settings['failover']) == ('nai,gpt-4o-mini', 5, False)
+    assert _App.state.faster_whisper_model is None, 'whisper is reloaded with the new model on next use'
+    await Config.upsert({'tracker.model': '', 'tracker.max_concurrency': None, 'tracker.llm_failover': None})
+    tracker_config.reset_runtime_cache()
+    assert (await tracker_config.runtime())['model'] == defaults['model'], 'empty value falls back to .env'
+
+
+def test_totp_codes_work_once_and_secret_is_encrypted():
+    import pyotp
+
+    from open_webui.monitoring.server import security
+
+    secret = security.new_secret()
+    token = security.encrypt_secret(secret, 'key-1')
+    assert secret not in token and security.decrypt_secret(token, 'key-1') == secret
+    assert security.decrypt_secret(token, 'other-key') is None
+    code = pyotp.TOTP(secret).now()
+    step = security.verify_code(secret, code, -1)
+    assert step is not None and security.verify_code(secret, code, step) is None, 'a used code is rejected'
+    assert security.verify_code(secret, '12345', -1) is None
+
+
+@pytest.mark.asyncio(loop_scope='module')
+async def test_connection_change_clears_model_caches():
+    from open_webui.monitoring import config_watch
+
+    class _App:
+        class state:
+            redis = None
+            BASE_MODELS = ['old']
+            OPENAI_MODELS = {'old': {}}
+            MODELS = {'old': {}}
+
+    await config_watch.apply(_App, {'connections'})
+    assert _App.state.BASE_MODELS == [] and _App.state.OPENAI_MODELS == {} and _App.state.MODELS == {}
+
+
+@pytest.mark.asyncio(loop_scope='module')
+async def test_reindex_runs_once_in_background(monkeypatch):
+    from open_webui.models.config import Config
+    from open_webui.models.users import Users
+    from open_webui.monitoring import reindex
+    from open_webui.routers import knowledge, memories
+
+    if not await Users.get_super_admin_user():
+        await Users.insert_new_user('admin-reindex', 'Admin', 'admin-reindex@t.local', role='admin')
+    calls = []
+    gate = asyncio.Event()
+
+    async def files(request, user, db):
+        calls.append('files')
+        await gate.wait()
+
+    async def search(request, user):
+        calls.append('search')
+
+    async def mems(request, user):
+        calls.append('memories')
+
+    monkeypatch.setattr(knowledge, 'reindex_knowledge_files', files)
+    monkeypatch.setattr(knowledge, 'reindex_knowledge_base_metadata_embeddings', search)
+    monkeypatch.setattr(memories, 'reindex_memories_from_vector_db', mems)
+    await Config.upsert({reindex.STATE_KEY: {}})
+
+    class _App:
+        class state:
+            pass
+
+    first = await reindex.start(_App)
+    assert first['state'] == 'running'
+    second = await reindex.start(_App)
+    assert second.get('already_running'), 'a second run is refused while one is going'
+    gate.set()
+    await _App.state.monitor_reindex_task
+    state = await Config.get(reindex.STATE_KEY)
+    assert state['state'] == 'done' and calls == ['files', 'search', 'memories']

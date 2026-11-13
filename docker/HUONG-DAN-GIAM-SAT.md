@@ -153,3 +153,62 @@ Tắt "Bỏ qua embedding và truy xuất", rồi chọn model embedding:
 
 Khi đó tab Kiến thức sẽ có thêm thời gian embedding lúc tải lên, và thời gian embedding câu hỏi, tìm vector
 lúc trả lời.
+
+## 7. Sửa cấu hình ngay trên trang giám sát
+
+Tab **Thành phần & tài nguyên → Chỉnh sửa cấu hình** sửa được các nhóm sau mà không cần sửa `.env`, không
+build lại, không khởi động lại. NCS AI tự áp dụng ở mọi worker trong tối đa 15 giây:
+
+- Tracker: model ưu tiên, tự chuyển kết nối, số kênh tổng hợp cùng lúc, thời gian chờ, số tin.
+- Model tác vụ nền.
+- Kiến thức: bỏ qua embedding, engine/model/URL/khóa embedding, chia đoạn, Top K, tìm kiếm kết hợp.
+- Reranker, trích xuất tài liệu, STT, TTS, tìm kiếm web, tạo ảnh, chạy code.
+
+- **Kết nối model** (RunPod, OpenAI…): URL, khóa API, bật/tắt, prefix, thứ tự, thêm/xóa kết nối, nút **Kiểm tra**
+  để thử URL và khóa trước khi lưu. Lưu xong, NCS AI nạp lại danh sách model trong tối đa 15 giây. Pod RunPod đổi
+  địa chỉ thì chỉ cần sửa URL ở đây. Giữ nguyên **Prefix** để model, quyền truy cập và lịch sử chat vẫn dùng đúng
+  tên model cũ.
+
+Hạ tầng (kết nối database, Redis, lưu file) **không** sửa ở đây.
+
+Với Tracker, giá trị lưu trong database được ưu tiên hơn `.env`. Để trống thì dùng giá trị trong `.env`.
+
+### Cài đặt bảo mật (một lần)
+
+1. Thêm vào `.env` rồi chạy `sudo docker compose up -d monitor`:
+   ```env
+   MONITOR_ADMIN_KEY=<chuỗi ngẫu nhiên dài, vd: openssl rand -hex 32>
+   ```
+2. Tạo mã Google Authenticator **trên terminal của server**:
+   ```bash
+   sudo docker compose exec monitor python -m open_webui.monitoring.server.totp init
+   ```
+   - Lệnh hỏi khóa quản trị, rồi in **QR code và secret** ra terminal.
+   - Quét QR bằng Google Authenticator (hoặc Microsoft Authenticator, Authy), sau đó nhập mã 6 số để xác nhận.
+   - QR và secret **chỉ hiện một lần ở đây, không bao giờ hiện trên trang web**. Secret được lưu trong database
+     dưới dạng **đã mã hóa bằng `MONITOR_ADMIN_KEY`**.
+
+### Sửa cấu hình
+
+1. Trên trang giám sát, bấm **Chỉnh sửa cấu hình**.
+2. Nhập **khóa quản trị** và **mã 6 số** đang hiện trên ứng dụng.
+   - Mỗi mã chỉ dùng được một lần.
+   - Sai 5 lần thì bị khóa 10 phút.
+3. Sau khi xác thực, bạn có phiên chỉnh sửa **15 phút**. Bấm **Khóa lại** để đóng phiên sớm.
+4. Sửa từng nhóm rồi bấm **Lưu** của nhóm đó.
+   - Với ô khóa API, để trống nghĩa là giữ khóa cũ. Khóa không bao giờ hiện lại trên trang.
+5. Mọi thay đổi được ghi vào **Lịch sử thay đổi**: thời gian, giá trị cũ → mới, từ máy nào. Khóa bí mật chỉ ghi
+   "(đã đổi)". Lịch sử giữ theo `PERF_RETENTION_DAYS`.
+
+Đổi model embedding xong vẫn phải bấm **Lập chỉ mục lại** trong NCS AI (Cài đặt quản trị → Tài liệu).
+
+### Đổi hoặc khôi phục mã Google Authenticator
+
+| Việc | Lệnh (trong thư mục có docker-compose.yaml) |
+|---|---|
+| Xem trạng thái | `sudo docker compose exec monitor python -m open_webui.monitoring.server.totp status` |
+| Đổi QR/secret định kỳ (cần khóa quản trị **và** mã hiện tại) | `... totp rotate` |
+| Mất điện thoại (cần khóa quản trị, gõ XOA để xác nhận) | `... totp reset` rồi `... totp init` |
+| Đổi `MONITOR_ADMIN_KEY` | Secret cũ không giải mã được nữa: chạy `reset` rồi `init` |
+
+Sau khi `rotate` hoặc `reset`, mã trên ứng dụng cũ hết hiệu lực ngay. Xóa mục cũ trong ứng dụng để khỏi nhầm.

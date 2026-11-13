@@ -11,12 +11,10 @@ import time
 
 from open_webui.tracker.config import (
     ENABLE_PROJECT_TRACKER,
-    TRACKER_BATCH_SIZE,
-    TRACKER_IDLE_SECONDS,
     TRACKER_LEASE_SECONDS,
-    TRACKER_MAX_CONCURRENCY,
     TRACKER_POLL_INTERVAL,
 )
+from open_webui.tracker.config import runtime as tracker_runtime
 from open_webui.tracker.models import Trackers
 from open_webui.tracker.service import process_channel
 
@@ -24,17 +22,19 @@ log = logging.getLogger(__name__)
 
 
 async def tracker_worker_loop() -> None:
-    log.info('Project tracker worker started (max concurrency %s)', TRACKER_MAX_CONCURRENCY)
+    log.info('Project tracker worker started (max concurrency %s)', (await tracker_runtime())['max_concurrency'])
     running: set[asyncio.Task] = set()
 
     while True:
         try:
+            # Re-read every poll: these can be changed from the monitor page while running.
+            settings = await tracker_runtime()
             claimed = await Trackers.claim_due(
                 now=time.time_ns(),
-                batch_size=TRACKER_BATCH_SIZE,
-                idle_ns=TRACKER_IDLE_SECONDS * 1_000_000_000,
+                batch_size=settings['batch_size'],
+                idle_ns=settings['idle_seconds'] * 1_000_000_000,
                 lease_ns=TRACKER_LEASE_SECONDS * 1_000_000_000,
-                max_active=TRACKER_MAX_CONCURRENCY,
+                max_active=settings['max_concurrency'],
             )
             for channel_id, lease_id in claimed:
                 task = asyncio.create_task(process_channel(channel_id, lease_id))

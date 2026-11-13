@@ -45,25 +45,29 @@ async def endpoints(monkeypatch):
 
     monkeypatch.setattr(llm.Config, 'get_many', get_many)
     monkeypatch.setattr(llm, 'TRACKER_LLM_BASE_URL', '')
-    monkeypatch.setattr(llm, 'TRACKER_MODEL', 'nai')
-    monkeypatch.setattr(llm, 'TRACKER_LLM_FAILOVER', True)
+    settings = {'model': 'nai', 'failover': True, 'max_concurrency': 2, 'idle_seconds': 90, 'batch_size': 30}
+
+    async def runtime():
+        return settings
+
+    monkeypatch.setattr(llm, 'tracker_runtime', runtime)
     llm._model_cache.clear()
     llm._down_until.clear()
-    yield openai_state, runpod_state
+    yield openai_state, runpod_state, settings
     await openai.close()
     await runpod.close()
 
 
 @pytest.mark.asyncio
 async def test_uses_the_connection_that_serves_tracker_model(endpoints):
-    openai_state, runpod_state = endpoints
+    openai_state, runpod_state, settings = endpoints
     assert await llm.generate_text([{'role': 'user', 'content': 'hi'}]) == 'ok from nai'
     assert runpod_state['calls'] == ['nai'] and 'calls' not in openai_state
 
 
 @pytest.mark.asyncio
 async def test_fails_over_to_next_connection_and_back(endpoints):
-    openai_state, runpod_state = endpoints
+    openai_state, runpod_state, settings = endpoints
     runpod_state['down'] = True
     # nai is unavailable, so the other connection answers with its first chat model (not the embedding one).
     assert await llm.generate_text([{'role': 'user', 'content': 'hi'}]) == 'ok from gpt-4o-mini'
@@ -76,7 +80,7 @@ async def test_fails_over_to_next_connection_and_back(endpoints):
 
 @pytest.mark.asyncio
 async def test_listed_model_down_moves_on(endpoints):
-    openai_state, runpod_state = endpoints
+    openai_state, runpod_state, settings = endpoints
     await llm.generate_text([{'role': 'user', 'content': 'warm'}])  # model lists cached: runpod serves nai
     runpod_state['down'] = True
     assert await llm.generate_text([{'role': 'user', 'content': 'hi'}]) == 'ok from gpt-4o-mini'
@@ -88,8 +92,8 @@ async def test_listed_model_down_moves_on(endpoints):
 
 @pytest.mark.asyncio
 async def test_no_failover_reports_the_error(endpoints, monkeypatch):
-    openai_state, runpod_state = endpoints
-    monkeypatch.setattr(llm, 'TRACKER_LLM_FAILOVER', False)
+    openai_state, runpod_state, settings = endpoints
+    settings['failover'] = False
     await llm.generate_text([{'role': 'user', 'content': 'warm'}])
     runpod_state['down'] = True
     with pytest.raises(llm.TrackerLLMError, match='All LLM connections failed'):

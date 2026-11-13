@@ -71,3 +71,62 @@ TRACKER_ATTACHMENT_SUMMARY_MAX_CHARS = _int_env('TRACKER_ATTACHMENT_SUMMARY_MAX_
 TRACKER_FILE_WAIT_SECONDS = _int_env('TRACKER_FILE_WAIT_SECONDS', 600)
 TRACKER_IMAGE_MAX_SIDE = _int_env('TRACKER_IMAGE_MAX_SIDE', 1024)
 TRACKER_MAX_ATTACHMENTS_PER_MESSAGE = _int_env('TRACKER_MAX_ATTACHMENTS_PER_MESSAGE', 6)
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Settings that can be changed while running (monitor page). The database value wins; the environment
+# variable above is only the default. Every worker re-reads them at most every RUNTIME_CACHE_SECONDS.
+# ---------------------------------------------------------------------------------------------------------
+RUNTIME_KEYS = {
+    'tracker.model': ('model', str),
+    'tracker.llm_failover': ('failover', bool),
+    'tracker.max_concurrency': ('max_concurrency', int),
+    'tracker.idle_seconds': ('idle_seconds', int),
+    'tracker.batch_size': ('batch_size', int),
+}
+RUNTIME_CACHE_SECONDS = 10
+_runtime_cache: tuple[float, dict] = (0.0, {})
+
+
+def runtime_defaults() -> dict:
+    return {
+        'model': TRACKER_MODEL,
+        'failover': TRACKER_LLM_FAILOVER,
+        'max_concurrency': TRACKER_MAX_CONCURRENCY,
+        'idle_seconds': TRACKER_IDLE_SECONDS,
+        'batch_size': TRACKER_BATCH_SIZE,
+    }
+
+
+async def runtime() -> dict:
+    """Current tracker settings: database values over environment defaults (cached briefly)."""
+    import time
+
+    global _runtime_cache
+    cached_at, values = _runtime_cache
+    if values and time.monotonic() - cached_at < RUNTIME_CACHE_SECONDS:
+        return values
+    values = runtime_defaults()
+    try:
+        from open_webui.models.config import Config
+
+        stored = await Config.get_many(*RUNTIME_KEYS)
+        for key, (name, kind) in RUNTIME_KEYS.items():
+            value = stored.get(key)
+            if value is None or value == '':
+                continue
+            if kind is bool:
+                values[name] = value if isinstance(value, bool) else str(value).lower() == 'true'
+            elif kind is int:
+                values[name] = max(int(value), 1)
+            else:
+                values[name] = str(value)
+    except Exception:
+        pass  # database unavailable: keep the environment defaults
+    _runtime_cache = (time.monotonic(), values)
+    return values
+
+
+def reset_runtime_cache() -> None:
+    global _runtime_cache
+    _runtime_cache = (0.0, {})

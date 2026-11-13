@@ -465,6 +465,10 @@ async def lifespan(app: FastAPI):
 
     if ENABLE_PERF_MONITOR:
         app.state.perf_load_sampler = asyncio.create_task(load_sampler_loop())
+    # Settings changed from the monitor page are applied in every worker.
+    from open_webui.monitoring.config_watch import config_watch_loop
+
+    app.state.monitor_config_watch = asyncio.create_task(config_watch_loop(app))
     if ENABLE_PROJECT_TRACKER:
         from open_webui.tracker.reminders import reminder_loop
 
@@ -568,6 +572,8 @@ async def lifespan(app: FastAPI):
         app.state.tracker_reminder_loop.cancel()
     if hasattr(app.state, 'perf_load_sampler'):
         app.state.perf_load_sampler.cancel()
+    if hasattr(app.state, 'monitor_config_watch'):
+        app.state.monitor_config_watch.cancel()
     try:
         from open_webui.monitoring.recorder import flush as flush_perf_events
 
@@ -705,11 +711,18 @@ async def initialize_runtime_config(app: FastAPI):
             migrate_access_control(model.get('meta', {}))
         await Config.upsert({'evaluation.arena.models': arena_models})
 
-    app.state.EMBEDDING_FUNCTION = None
-    app.state.RERANKING_FUNCTION = None
-    app.state.ef = None
-    app.state.rf = None
-    app.state.YOUTUBE_LOADER_TRANSLATION = None
+    await load_rag_functions(app)
+
+
+async def load_rag_functions(app):
+    """Build the embedding and reranking functions from the stored settings.
+
+    Runs at startup and again in every worker when the monitor page changes knowledge settings; on a reload
+    the previous functions keep serving until the new ones are assigned.
+    """
+    for name in ('EMBEDDING_FUNCTION', 'RERANKING_FUNCTION', 'ef', 'rf', 'YOUTUBE_LOADER_TRANSLATION'):
+        if not hasattr(app.state, name):
+            setattr(app.state, name, None)
 
     try:
         rag_config = await Config.get_many(

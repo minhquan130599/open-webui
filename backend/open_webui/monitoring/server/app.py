@@ -822,6 +822,12 @@ async def probe(llm: bool = True):
     return await webui('/probe', method='POST', timeout=120, llm=str(llm).lower())
 
 
+# Settings editing (admin key + Google Authenticator code, see admin.py); also behind the page login.
+from open_webui.monitoring.server.admin import router as admin_router  # noqa: E402
+
+app.include_router(admin_router, dependencies=[Depends(require_login)])
+
+
 @app.get('/healthz')
 async def health():
     return {'ok': True}

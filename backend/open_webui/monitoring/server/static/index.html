@@ -101,6 +101,22 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
   [hidden] { display: none !important; }
+  .editor-groups { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); }
+  @media (max-width: 520px) { .editor-groups { grid-template-columns: 1fr; } }
+  .field { display: grid; gap: 3px; margin-bottom: 10px; }
+  .field label { font-size: 12.5px; font-weight: 550; }
+  .field small { color: var(--muted); font-size: 11.5px; }
+  .field input[type=text], .field input[type=number], .field input[type=password], .field select {
+    border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 9px; font-size: 13px; width: 100%; }
+  .field .check { display: flex; gap: 7px; align-items: center; font-size: 13px; font-weight: 400; }
+  .conn-row { display: grid; grid-template-columns: 34px minmax(220px, 2fr) minmax(170px, 1.2fr) 120px auto; gap: 8px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .conn-row:last-of-type { border-bottom: 0; }
+  @media (max-width: 860px) { .conn-row { grid-template-columns: 34px 1fr; } .conn-row > :nth-child(n+3) { grid-column: 2; } }
+  .conn-row input[type=text], .conn-row input[type=password] { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 9px; font-size: 13px; width: 100%; }
+  .conn-n { font-weight: 650; color: var(--muted); padding-top: 6px; font-variant-numeric: tabular-nums; }
+  .conn-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .conn-test { grid-column: 2 / -1; font-size: 12px; }
+  .lockbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
   .trace-row { cursor: pointer; }
   .trace-row:hover td { background: var(--raised); }
   .trace-row.active td { background: var(--blue-soft); }
@@ -390,6 +406,186 @@
     if (box) box.innerHTML = revealBox(id);
   });
 
+  // ---------- settings editor (admin key + Google Authenticator code) ----------
+  const editor = { open: false, token: '', expires: 0, data: null, status: null, error: '', note: '' };
+  const editHeaders = () => ({ 'X-Edit-Token': editor.token, 'Content-Type': 'application/json' });
+  async function openEditor() {
+    editor.open = true; editor.error = ''; editor.note = '';
+    try { editor.status = await api('/api/admin/status', { headers: editHeaders() }); } catch (e) { editor.error = e.message; }
+    if (editor.token && editor.status && editor.status.session_expires) await loadSettings();
+    drawEditor();
+    watchReindex();
+  }
+  async function loadSettings() {
+    try {
+      editor.data = await api('/api/admin/settings', { headers: editHeaders() });
+      editor.expires = editor.data.expires;
+      editor.reindex = await api('/api/admin/reindex', { headers: editHeaders() }).catch(() => null);
+      const c = await api('/api/admin/connections', { headers: editHeaders() });
+      editor.connections = c.connections.map((x) => ({ ...x, key: '', test: null }));
+    }
+    catch (e) { editor.token = ''; editor.data = null; editor.error = e.message; }
+  }
+  function drawEditor() { const el = $('#editor'); if (el) el.innerHTML = editorHtml(); const b = document.querySelector('[data-open-editor]'); if (b) b.textContent = editor.open ? 'Đóng chỉnh sửa' : 'Chỉnh sửa cấu hình'; }
+  function fieldHtml(f) {
+    const id = `cfg-${f.key.replace(/[^a-z0-9]/gi, '-')}`;
+    const help = f.help ? `<small>${esc(f.help)}</small>` : '';
+    if (f.type === 'bool') return `<div class="field"><label class="check"><input type="checkbox" id="${id}" data-key="${esc(f.key)}" data-type="bool" ${f.value === true || f.value === 'true' ? 'checked' : ''}> ${esc(f.label)}</label>${help}</div>`;
+    if (f.type === 'select') return `<div class="field"><label for="${id}">${esc(f.label)}</label><select id="${id}" data-key="${esc(f.key)}" data-type="select">${f.options.map(([v, l]) => `<option value="${esc(v)}" ${String(f.value ?? '') === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>${help}</div>`;
+    if (f.type === 'secret') return `<div class="field"><label for="${id}">${esc(f.label)}</label><input type="password" id="${id}" data-key="${esc(f.key)}" data-type="secret" autocomplete="new-password" placeholder="${f.value && f.value.set ? 'Đã đặt · để trống = giữ nguyên' : 'Chưa đặt'}">${help}</div>`;
+    if (f.type === 'int') return `<div class="field"><label for="${id}">${esc(f.label)}</label><input type="number" id="${id}" data-key="${esc(f.key)}" data-type="int" value="${esc(f.value ?? '')}" ${f.min !== undefined ? `min="${f.min}"` : ''} ${f.max !== undefined ? `max="${f.max}"` : ''}>${help}</div>`;
+    return `<div class="field"><label for="${id}">${esc(f.label)}</label><input type="text" id="${id}" data-key="${esc(f.key)}" data-type="text" value="${esc(f.value ?? '')}">${help}</div>`;
+  }
+  function editorHtml() {
+    if (!editor.open) return '';
+    const st = editor.status || {};
+    const msg = editor.error ? `<div class="error-box" style="margin-top:8px">${esc(editor.error)}</div>` : '';
+    const ok = editor.note ? `<div class="notice info" style="margin-top:8px">${esc(editor.note)}</div>` : '';
+    if (!st.admin_key_set) return card('Chỉnh sửa cấu hình', `<div class="notice warn">Chưa đặt <code>MONITOR_ADMIN_KEY</code> trong <code>.env</code> của server nên không thể sửa cấu hình. Đặt khóa rồi chạy <code>docker compose up -d monitor</code>.</div>${msg}`);
+    if (!st.totp_set) return card('Chỉnh sửa cấu hình', `<div class="notice warn">Chưa cài mã Google Authenticator. Trên server chạy lệnh dưới, quét QR in ra trong terminal (QR và secret không bao giờ hiện trên trang này):<br><code>docker compose exec monitor python -m open_webui.monitoring.server.totp init</code></div>${msg}`);
+    if (!editor.token || !editor.data) {
+      return card('Chỉnh sửa cấu hình', `<form id="unlock-form" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+          <span class="muted" style="font-size:12.5px">Nhập khóa quản trị và mã 6 số trên Google Authenticator. Mỗi mã chỉ dùng một lần; phiên chỉnh sửa kéo dài 15 phút.</span>
+          <input id="unlock-key" class="btn" type="password" autocomplete="off" placeholder="Khóa quản trị" style="min-width:220px">
+          <input id="unlock-code" class="btn" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="Mã 6 số" style="width:110px;letter-spacing:.2em">
+          <button class="btn primary" type="submit">Xác thực</button>
+        </form>${msg}`);
+    }
+    const d = editor.data;
+    const left = Math.max(0, editor.expires - Math.floor(Date.now() / 1000));
+    const groups = d.groups.map((g) => `<section class="card" style="box-shadow:none"><h2>${esc(g.label)} <button class="btn primary" type="button" data-save-group="${esc(g.key)}">Lưu</button></h2>${g.note ? `<p class="muted" style="font-size:12px;margin:-4px 0 10px">${esc(g.note)}</p>` : ''}<div data-group="${esc(g.key)}">${d.settings.filter((f) => f.group === g.key).map(fieldHtml).join('')}</div></section>`).join('');
+    const history = table([
+      { label: 'Lúc', render: (r) => when(r.ts) },
+      { label: 'Cấu hình', render: (r) => `<b>${esc((r.meta || {}).label || r.name)}</b><div class="muted" style="font-size:11px">${esc(r.name)}</div>` },
+      { label: 'Cũ', render: (r) => `<code>${esc(JSON.stringify((r.meta || {}).old ?? null))}</code>` },
+      { label: 'Mới', render: (r) => `<code>${esc(JSON.stringify((r.meta || {}).new ?? null))}</code>` },
+      { label: 'Từ máy', render: (r) => esc((r.meta || {}).client || '') },
+    ], d.history || [], 'Chưa có thay đổi nào.');
+    return card('Chỉnh sửa cấu hình', `<div class="lockbar"><span class="muted" style="font-size:12.5px">Phiên chỉnh sửa còn <b id="edit-left">${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}</b>. Lưu xong, NCS AI áp dụng trong tối đa 15 giây, không cần khởi động lại.</span><button class="btn" type="button" data-lock>Khóa lại</button></div>${ok}${msg}
+      ${connectionsHtml()}
+      <div class="editor-groups" style="margin-top:12px">${groups}</div>
+      <div id="reindex-box">${reindexHtml()}</div>
+      <h2 style="margin-top:14px">Lịch sử thay đổi</h2>${history}`);
+  }
+  const REINDEX_STEP = { starting: 'đang bắt đầu', knowledge_files: 'tạo lại vector cho file trong kho kiến thức', knowledge_search: 'tạo lại chỉ mục tìm kho kiến thức', memories: 'tạo lại vector bộ nhớ' };
+  function reindexHtml() {
+    const r = editor.reindex || {};
+    let status = '<span class="muted">Chưa chạy lần nào từ trang này.</span>';
+    if (r.state === 'running') {
+      const pctDone = r.files_total ? Math.min(100, Math.round((r.files_done / r.files_total) * 100)) : 0;
+      status = `<span class="spin"></span> Đang chạy: ${esc(REINDEX_STEP[r.step] || r.step || '')} · ${n(r.files_done)}/${n(r.files_total)} file (${pctDone}%) · bắt đầu ${when(r.started_at * 1000)}
+        <div class="meter" style="margin-top:6px"><div style="width:${pctDone}%"></div></div>`;
+    } else if (r.state === 'done') {
+      status = `<span class="pill ok">Xong</span> lúc ${when(r.finished_at * 1000)} · ${n(r.files_done)} file · mất ${ms((r.finished_at - r.started_at) * 1000)}`;
+    } else if (r.state === 'failed') {
+      status = `<span class="pill err">Lỗi</span> ${esc(r.error || '')}`;
+    }
+    return `<section class="card" style="box-shadow:none;margin-top:12px"><h2>Lập chỉ mục lại vector kiến thức và bộ nhớ <button class="btn primary" type="button" data-reindex ${r.state === 'running' ? 'disabled' : ''}>Lập chỉ mục lại</button></h2>
+      <p class="muted" style="font-size:12px;margin:-4px 0 8px">Xây dựng lại vector cho các tệp kiến thức hiện có, chỉ mục tìm kho kiến thức và bộ nhớ. Bắt buộc sau khi đổi model embedding hoặc tắt "Bỏ qua embedding". Chạy nền trong NCS AI, có thể đóng trang; không chạy hai lần cùng lúc.</p>
+      <div style="font-size:12.5px">${status}</div></section>`;
+  }
+  let reindexPoll = null;
+  function watchReindex() {
+    clearInterval(reindexPoll);
+    if (!editor.reindex || editor.reindex.state !== 'running') return;
+    reindexPoll = setInterval(async () => {
+      if (!editor.token) { clearInterval(reindexPoll); return; }
+      try { editor.reindex = await api('/api/admin/reindex', { headers: editHeaders() }); } catch { return; }
+      const box = $('#reindex-box'); if (box) box.innerHTML = reindexHtml();
+      if (editor.reindex.state !== 'running') clearInterval(reindexPoll);
+    }, 3000);
+  }
+
+  function connectionsHtml() {
+    const rows = (editor.connections || []).map((c, i) => `<div class="conn-row" data-conn="${i}">
+        <div class="conn-n">#${i + 1}</div>
+        <div><input type="text" data-conn-field="url" value="${esc(c.url)}" placeholder="https://<pod-id>-8000.proxy.runpod.net/v1"></div>
+        <div><input type="password" data-conn-field="key" value="${esc(c.key)}" autocomplete="new-password" placeholder="${c.key_set ? 'Khóa API: đã đặt · trống = giữ nguyên' : 'Khóa API (chưa đặt)'}"></div>
+        <div><input type="text" data-conn-field="prefix_id" value="${esc(c.prefix_id)}" placeholder="Prefix (tùy chọn)" title="Prefix ID: thêm vào trước tên model. Giữ nguyên prefix khi đổi URL để model và quyền truy cập không đổi."></div>
+        <div class="conn-actions">
+          <label class="check" style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="checkbox" data-conn-field="enable" ${c.enable ? 'checked' : ''}> Bật</label>
+          <button class="btn" type="button" data-conn-test="${i}">Kiểm tra</button>
+          <button class="btn" type="button" data-conn-up="${i}" ${i === 0 ? 'disabled' : ''} title="Lên trên (kết nối đầu tiên được ưu tiên)">↑</button>
+          <button class="btn" type="button" data-conn-remove="${i}" title="Xóa kết nối">✕</button>
+        </div>
+        ${c.test ? `<div class="conn-test">${c.test.pending ? '<span class="spin"></span> Đang kiểm tra…' : c.test.ok ? `<span class="pill ok">OK</span> ${ms(c.test.ms)} · ${c.test.models.length ? `model: ${c.test.models.map((m) => `<span class="chip">${esc(m)}</span>`).join('')}` : 'không có model'}` : `<span class="pill err">Lỗi</span> <span class="muted">${esc(c.test.error)}</span>`}</div>` : ''}
+      </div>`).join('');
+    return `<section class="card" style="box-shadow:none"><h2>Kết nối model (RunPod / OpenAI…) <span style="display:flex;gap:6px"><button class="btn" type="button" data-conn-add>+ Thêm kết nối</button><button class="btn primary" type="button" data-conn-save>Lưu kết nối</button></span></h2>
+      <p class="muted" style="font-size:12px;margin:-4px 0 6px">URL kết thúc bằng <code>/v1</code>. Ô khóa để trống = giữ khóa cũ. Bấm <b>Kiểm tra</b> để thử URL và khóa trước khi lưu. Lưu xong, NCS AI nạp lại danh sách model trong tối đa 15 giây. Muốn model cũ (và quyền truy cập, lịch sử) giữ nguyên tên thì giữ nguyên Prefix khi đổi URL.</p>
+      ${rows || '<div class="empty">Chưa có kết nối.</div>'}</section>`;
+  }
+  document.addEventListener('input', (e) => {
+    const field = e.target.dataset?.connField;
+    if (!field) return;
+    const i = +e.target.closest('[data-conn]').dataset.conn;
+    editor.connections[i][field] = field === 'enable' ? e.target.checked : e.target.value;
+  });
+  document.addEventListener('change', (e) => {
+    if (e.target.dataset?.connField === 'enable') editor.connections[+e.target.closest('[data-conn]').dataset.conn].enable = e.target.checked;
+  });
+  async function connectionAction(b) {
+    const list = editor.connections;
+    if (b.dataset.connAdd !== undefined) { list.push({ index: null, url: '', key: '', key_set: false, enable: true, prefix_id: '', test: null }); }
+    else if (b.dataset.connUp !== undefined) { const i = +b.dataset.connUp; [list[i - 1], list[i]] = [list[i], list[i - 1]]; }
+    else if (b.dataset.connRemove !== undefined) {
+      const i = +b.dataset.connRemove;
+      if (list[i].index !== null && !confirm(`Xóa kết nối #${i + 1} (${list[i].url})? Các model của kết nối này sẽ không dùng được nữa sau khi lưu.`)) return;
+      list.splice(i, 1);
+    } else if (b.dataset.connTest !== undefined) {
+      const c = list[+b.dataset.connTest];
+      c.test = { pending: true }; drawEditor();
+      try { c.test = await api('/api/admin/connections/test', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ url: c.url, key: c.key, index: c.key ? null : c.index }) }); }
+      catch (err) { c.test = { ok: false, error: err.message }; }
+    } else if (b.dataset.connSave !== undefined) {
+      if (!confirm('Lưu thay đổi kết nối model? NCS AI sẽ dùng ngay URL và khóa mới.')) return;
+      try {
+        const res = await api('/api/admin/connections', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ connections: list.map((c) => ({ index: c.index, url: c.url, key: c.key, enable: c.enable, prefix_id: c.prefix_id })) }) });
+        editor.error = '';
+        editor.note = res.changed.length ? `Đã lưu kết nối: ${res.changed.join('; ')}. NCS AI nạp lại danh sách model trong tối đa 15 giây.` : 'Kết nối không có gì thay đổi.';
+        await loadSettings();
+      } catch (err) { editor.error = err.message; if (/hết hạn/.test(err.message)) { editor.token = ''; editor.data = null; } }
+    }
+    drawEditor();
+  }
+
+  async function saveGroup(group) {
+    const box = document.querySelector(`[data-group="${group}"]`);
+    const changes = {};
+    box.querySelectorAll('[data-key]').forEach((el) => {
+      const t = el.dataset.type;
+      if (t === 'bool') changes[el.dataset.key] = el.checked;
+      else if (t === 'secret') { if (el.value) changes[el.dataset.key] = el.value; }
+      else if (t === 'int') changes[el.dataset.key] = el.value === '' ? null : Number(el.value);
+      else changes[el.dataset.key] = el.value;
+    });
+    for (const k of Object.keys(changes)) if (changes[k] === null) delete changes[k];
+    try {
+      const res = await api('/api/admin/settings', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ changes }) });
+      editor.error = '';
+      editor.note = res.changed.length ? `Đã lưu ${res.changed.length} thay đổi. NCS AI sẽ áp dụng trong tối đa 15 giây.` : 'Không có gì thay đổi.';
+      await loadSettings();
+    } catch (e) { editor.error = e.message; if (/hết hạn/.test(e.message)) { editor.token = ''; editor.data = null; } }
+    drawEditor();
+  }
+  document.addEventListener('submit', async (e) => {
+    if (e.target.id !== 'unlock-form') return;
+    e.preventDefault();
+    try {
+      const res = await api('/api/admin/unlock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ admin_key: $('#unlock-key').value, code: $('#unlock-code').value }) });
+      editor.token = res.token; editor.expires = res.expires; editor.error = '';
+      await loadSettings();
+    } catch (err) { editor.error = err.message; }
+    drawEditor();
+    watchReindex();
+  });
+  setInterval(() => {
+    const el = $('#edit-left');
+    if (!el || !editor.token) return;
+    const left = Math.max(0, editor.expires - Math.floor(Date.now() / 1000));
+    el.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    if (!left) { editor.token = ''; editor.data = null; editor.error = 'Phiên chỉnh sửa đã hết hạn.'; drawEditor(); }
+  }, 1000);
+
   async function renderLoad() {
     const d = await api(`/api/load?range=${range}`);
     const now = d.now || {};
@@ -639,7 +835,8 @@
     const redis = d.redis || {};
     const pr = probeResult;
     return `${st.error ? `<div class="notice warn">Không lấy được trạng thái từ NCS AI: ${esc(st.error)}</div>` : ''}
-      ${card('Thành phần đang dùng', table([
+      <div id="editor">${editorHtml()}</div>
+      ${card(`Thành phần đang dùng <button class="btn" type="button" data-open-editor>${editor.open ? 'Đóng chỉnh sửa' : 'Chỉnh sửa cấu hình'}</button>`, table([
         { label: 'Thành phần', render: (r) => `<b>${r[0]}</b>` },
         { label: 'Đang dùng', render: (r) => r[1] },
         { label: 'Chạy ở đâu', render: (r) => `<span class="muted">${r[2]}</span>` },
@@ -710,7 +907,7 @@
   function schedule() {
     clearInterval(timer);
     // Skip a refresh while the viewer is typing (search, reveal key), so the input is not wiped.
-    if ($('#auto').checked) timer = setInterval(() => document.visibilityState === 'visible' && !document.activeElement?.matches('input') && load(), 30000);
+    if ($('#auto').checked) timer = setInterval(() => document.visibilityState === 'visible' && !document.activeElement?.matches('input, select') && !(tab === 'system' && editor.open) && load(), 30000);
   }
 
   document.addEventListener('input', (e) => {
@@ -723,6 +920,16 @@
     if (row && !e.target.closest('a')) { revealed = { id: '', question: '', answer: '' }; revealError = ''; traceId = row.dataset.trace; tab = 'trace'; history.replaceState(null, '', `#trace-${traceId}`); renderChrome(); load(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
     const b = e.target.closest('button');
     if (!b) return;
+    if (b.dataset.openEditor !== undefined) { if (editor.open) { editor.open = false; drawEditor(); } else { await openEditor(); } return; }
+    if (b.dataset.saveGroup) { await saveGroup(b.dataset.saveGroup); return; }
+    if (b.dataset.reindex !== undefined) {
+      if (!confirm('Lập chỉ mục lại toàn bộ vector kiến thức và bộ nhớ bằng model embedding hiện tại? Việc này có thể mất từ vài phút đến hàng giờ và gọi model embedding cho mọi file.')) return;
+      try { editor.reindex = await api('/api/admin/reindex', { method: 'POST', headers: editHeaders() }); editor.error = ''; editor.note = editor.reindex.already_running ? 'Đang có một lần lập chỉ mục lại chạy, theo dõi tiến độ bên dưới.' : 'Đã bắt đầu lập chỉ mục lại.'; }
+      catch (err) { editor.error = err.message; }
+      drawEditor(); watchReindex(); return;
+    }
+    if (b.dataset.connAdd !== undefined || b.dataset.connUp !== undefined || b.dataset.connRemove !== undefined || b.dataset.connTest !== undefined || b.dataset.connSave !== undefined) { await connectionAction(b); return; }
+    if (b.dataset.lock !== undefined) { try { await api('/api/admin/lock', { method: 'POST', headers: editHeaders() }); } catch {} editor.token = ''; editor.data = null; editor.note = ''; drawEditor(); return; }
     if (b.dataset.hideContent !== undefined) { const id = revealed.id; revealed = { id: '', question: '', answer: '' }; const box = $('#reveal-box'); if (box) box.innerHTML = revealBox(id); return; }
     if (b.dataset.traceMin !== undefined) { traceMin = +b.dataset.traceMin; traceId = ''; load(); return; }
     if (b.dataset.traceSource !== undefined) { traceSource = b.dataset.traceSource; traceId = ''; load(); return; }

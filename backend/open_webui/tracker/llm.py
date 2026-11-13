@@ -16,11 +16,10 @@ from open_webui.tracker.config import (
     TRACKER_LLM_API_KEY,
     TRACKER_LLM_BASE_URL,
     TRACKER_LLM_COOLDOWN,
-    TRACKER_LLM_FAILOVER,
     TRACKER_LLM_TIMEOUT,
     TRACKER_MAX_TOKENS,
-    TRACKER_MODEL,
 )
+from open_webui.tracker.config import runtime as tracker_runtime
 from open_webui.tracker.schema import StateDelta, update_json_schema
 from open_webui.utils.json_codec import JSONCodec
 
@@ -61,7 +60,7 @@ async def _endpoints() -> list[Endpoint]:
     endpoints = []
     if TRACKER_LLM_BASE_URL:
         endpoints.append(Endpoint(TRACKER_LLM_BASE_URL, TRACKER_LLM_API_KEY, 'TRACKER_LLM_BASE_URL'))
-        if not TRACKER_LLM_FAILOVER:
+        if not (await tracker_runtime())['failover']:
             return endpoints
 
     values = await Config.get_many('openai.enable', 'openai.api_base_urls', 'openai.api_keys', 'openai.api_configs')
@@ -109,7 +108,8 @@ async def _candidates(session: aiohttp.ClientSession) -> list[tuple[Endpoint, st
     the others with their first chat model. Endpoints that failed recently go last. Without failover only
     the best pair is returned.
     """
-    preferred = [m.strip() for m in TRACKER_MODEL.split(',') if m.strip()]
+    settings = await tracker_runtime()
+    preferred = [m.strip() for m in settings['model'].split(',') if m.strip()]
     ranked: list[tuple[tuple, Endpoint, str]] = []
     now = time.monotonic()
     for order, endpoint in enumerate(await _endpoints()):
@@ -131,7 +131,7 @@ async def _candidates(session: aiohttp.ClientSession) -> list[tuple[Endpoint, st
     pairs = [(endpoint, model) for _, endpoint, model in ranked]
     if not pairs:
         raise TrackerLLMError('No connection serves a usable model (check TRACKER_MODEL and the admin connections)')
-    return pairs if TRACKER_LLM_FAILOVER else pairs[:1]
+    return pairs if settings['failover'] else pairs[:1]
 
 
 _last_used: Optional[tuple[str, str]] = None

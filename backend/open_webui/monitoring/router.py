@@ -185,7 +185,7 @@ async def status(request: Request, x_monitor_key: Optional[str] = Header(None)):
         listed: dict[int, list[str]] = {}
         for model in list((getattr(state, 'MODELS', None) or {}).values()):
             if isinstance(model, dict) and 'urlIdx' in model:
-                listed.setdefault(int(model['urlIdx']) + 1, []).append(model.get('name') or model.get('id'))
+                listed.setdefault(int(model['urlIdx']) + 1, []).append(model.get('id'))
         for connection in data['openai_connections']:
             connection['models'] = sorted(listed.get(connection['index'], []))
     except Exception:
@@ -205,9 +205,7 @@ async def status(request: Request, x_monitor_key: Optional[str] = Header(None)):
     }
     data['tracker'] = {
         'enabled': tracker_config.ENABLE_PROJECT_TRACKER,
-        'model': tracker_config.TRACKER_MODEL,
-        'failover': getattr(tracker_config, 'TRACKER_LLM_FAILOVER', None),
-        'max_concurrency': tracker_config.TRACKER_MAX_CONCURRENCY,
+        **(await tracker_config.runtime()),
         'base_url': _mask_url(tracker_config.TRACKER_LLM_BASE_URL),
     }
     try:
@@ -342,7 +340,9 @@ async def _llm_connection(session: aiohttp.ClientSession, url: str, key: str, ch
 async def probe(request: Request, llm: bool = True, x_monitor_key: Optional[str] = Header(None)):
     """Measure live response times: database, Redis, file storage, embedding, every model connection."""
     _check(x_monitor_key)
-    from open_webui.tracker.config import TRACKER_MODEL
+    from open_webui.tracker.config import runtime as tracker_runtime
+
+    TRACKER_MODEL = (await tracker_runtime())['model']
 
     values = await Config.get_many('openai.api_base_urls', 'openai.api_keys', 'openai.api_configs')
     urls = values.get('openai.api_base_urls') or []
@@ -373,3 +373,12 @@ async def probe(request: Request, llm: bool = True, x_monitor_key: Optional[str]
         names = list(results) + list(llm_tasks)
         done = await asyncio.gather(*results.values(), *llm_tasks.values())
     return {'time': time.time(), 'results': dict(zip(names, done))}
+
+
+@router.post('/reindex')
+async def reindex(request: Request, x_monitor_key: Optional[str] = Header(None)):
+    """Rebuild knowledge and memory vectors in the background (same as the Documents settings button)."""
+    _check(x_monitor_key)
+    from open_webui.monitoring.reindex import start
+
+    return await start(request.app)
