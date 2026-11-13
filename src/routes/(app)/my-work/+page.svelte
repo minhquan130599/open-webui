@@ -1,11 +1,14 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte';
+	import { getContext, onDestroy, onMount } from 'svelte';
+	import { slide } from 'svelte/transition';
+	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import dayjs from 'dayjs';
 
 	import { WEBUI_NAME, config, mobile, showSidebar, user } from '$lib/stores';
 	import {
+		archiveTrackerItems,
 		getMyWork,
 		getTeam,
 		type MyWork,
@@ -15,6 +18,8 @@
 	} from '$lib/apis/tracker';
 
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
+	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+	import EllipsisHorizontal from '$lib/components/icons/EllipsisHorizontal.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import SidebarIcon from '$lib/components/icons/Sidebar.svelte';
 	import SearchIcon from '$lib/components/layout/Sidebar/icons/Search.svelte';
@@ -69,6 +74,12 @@
 	let query = '';
 	let channelFilter = '';
 	let showDone = false;
+	let menuFor: string | null = null;
+	let busy = false;
+	// Item waiting for the cancel confirmation.
+	let pendingCancel: MyWorkItem | null = null;
+	let showConfirm = false;
+	let timer: ReturnType<typeof setInterval> | null = null;
 
 	const normalize = (text = '') =>
 		text.toLocaleLowerCase('vi').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
@@ -86,6 +97,32 @@
 			loading = false;
 		}
 	};
+
+	// Reload what is on screen without a spinner (after an action, on focus, periodically), so changes made
+	// in a channel's progress panel show up here and the other way round.
+	const reload = async () => {
+		if (tab === 'team' && !memberId) {
+			team = await getTeam(localStorage.token).catch(() => team);
+		} else {
+			work = await getMyWork(localStorage.token, memberId || undefined).catch(() => work);
+		}
+	};
+
+	const archive = async (item: MyWorkItem, kind: 'dong' | 'huy') => {
+		busy = true;
+		menuFor = null;
+		try {
+			await archiveTrackerItems(localStorage.token, item.channel_id, [item.id], kind);
+			toast.success(kind === 'dong' ? $i18n.t('Work item closed') : $i18n.t('Work item cancelled'));
+			await reload();
+		} catch (e: any) {
+			toast.error(`${e?.detail ?? e}`);
+		} finally {
+			busy = false;
+		}
+	};
+
+	const onVisible = () => document.visibilityState === 'visible' && reload();
 
 	const loadTeam = async () => {
 		loading = true;
@@ -169,7 +206,16 @@
 			? work.user.name
 			: (team?.people.find((p) => p.id === memberId)?.name ?? '');
 
+	onDestroy(() => {
+		if (timer) clearInterval(timer);
+		document.removeEventListener('visibilitychange', onVisible);
+		window.removeEventListener('focus', onVisible);
+	});
+
 	onMount(async () => {
+		timer = setInterval(reload, 30_000);
+		document.addEventListener('visibilitychange', onVisible);
+		window.addEventListener('focus', onVisible);
 		const params = $page.url.searchParams;
 		if (params.get('tab') === 'team') {
 			// Learn whether the viewer may see the team before opening it.
@@ -193,6 +239,11 @@
 		{$i18n.t('My work')} / {$WEBUI_NAME}
 	</title>
 </svelte:head>
+
+<svelte:window
+	on:click={() => (menuFor = null)}
+	on:keydown={(e) => e.key === 'Escape' && (menuFor = null)}
+/>
 
 <div
 	class="flex flex-col w-full h-screen max-h-[100dvh] transition-width duration-200 ease-in-out {$showSidebar
@@ -431,13 +482,62 @@
 														class="text-xs text-gray-500 hover:underline"># {item.channel_name}</a
 													>
 												</div>
-												<span
-													class="shrink-0 rounded-full px-2 py-0.5 text-[0.6875rem] {STATUS[
-														item.trang_thai
-													]?.className ?? STATUS.dang_lam.className}"
-												>
-													{$i18n.t(STATUS[item.trang_thai]?.label ?? 'In progress')}
-												</span>
+												<div class="flex shrink-0 items-center gap-0.5">
+													<span
+														class="rounded-full px-2 py-0.5 text-[0.6875rem] {STATUS[
+															item.trang_thai
+														]?.className ?? STATUS.dang_lam.className}"
+													>
+														{$i18n.t(STATUS[item.trang_thai]?.label ?? 'In progress')}
+													</span>
+													{#if item.can_manage}
+														{@const key = item.channel_id + item.id}
+														<div class="relative">
+															<button
+																type="button"
+																class="flex size-6 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-white"
+																aria-label={$i18n.t('Options')}
+																aria-haspopup="menu"
+																aria-expanded={menuFor === key}
+																disabled={busy}
+																on:click|stopPropagation={() =>
+																	(menuFor = menuFor === key ? null : key)}
+															>
+																<EllipsisHorizontal className="size-4" />
+															</button>
+															{#if menuFor === key}
+																<div
+																	class="absolute right-0 top-7 z-20 flex min-w-40 flex-col rounded-xl border border-gray-100 bg-white p-1 shadow-lg dark:border-gray-800 dark:bg-gray-900"
+																	role="menu"
+																	transition:slide={{ duration: 120 }}
+																>
+																	<button
+																		type="button"
+																		role="menuitem"
+																		class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/40"
+																		on:click|stopPropagation={() => archive(item, 'dong')}
+																		><span aria-hidden="true">✓</span>{$i18n.t(
+																			'Complete & close'
+																		)}</button
+																	>
+																	<button
+																		type="button"
+																		role="menuitem"
+																		class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+																		on:click|stopPropagation={() => {
+																			menuFor = null;
+																			pendingCancel = item;
+																			showConfirm = true;
+																		}}
+																		><span aria-hidden="true">✕</span>{$i18n.t(
+																			'Cancel item'
+																		)}</button
+																	>
+																</div>
+															{/if}
+														</div>
+													{/if}
+												</div>
 											</div>
 											{#if item.tien_do !== null && item.tien_do !== undefined}
 												<div class="flex items-center gap-2 mt-1.5">
@@ -488,3 +588,19 @@
 		</div>
 	</div>
 </div>
+
+<ConfirmDialog
+	bind:show={showConfirm}
+	title={$i18n.t('Cancel work item')}
+	message={$i18n.t(
+		'Cancel "{{name}}"? It leaves the progress panel and reports; you can reopen it later.',
+		{ name: pendingCancel?.ten ?? '' }
+	)}
+	onConfirm={() => {
+		// The dialog closes before calling this, so read the pending item here, then clear it.
+		const item = pendingCancel;
+		pendingCancel = null;
+		if (item) archive(item, 'huy');
+	}}
+	on:cancel={() => (pendingCancel = null)}
+/>

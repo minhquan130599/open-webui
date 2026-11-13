@@ -232,7 +232,7 @@ def person_stats(items: list[ReportItem], today: str) -> dict[str, dict]:
 def _item_line(item: ReportItem, today: str) -> str:
     status = STATUS_LABELS.get(item.trang_thai, item.trang_thai)
     if item.archived:
-        status = ('Đã hủy' if item.archived == 'huy' else 'Đã đóng') + f' ({status})'
+        status = ('Đã hủy' if item.archived == 'huy' else 'Hoàn thành (đã đóng)') + f' ({status})'
     fields = [
         item.ref,
         item.ten,
@@ -399,7 +399,7 @@ def export_markdown(report: Report, narrative: str) -> str:
         for index, item in enumerate(project.items, 1):
             status = STATUS_LABELS.get(item.trang_thai, item.trang_thai)
             if item.archived:
-                status = 'Đã hủy' if item.archived == 'huy' else 'Đã đóng'
+                status = 'Đã hủy' if item.archived == 'huy' else 'Hoàn thành (đã đóng)'
             due = item.han or ''
             if item.overdue(report.today):
                 due += ' (quá hạn)'

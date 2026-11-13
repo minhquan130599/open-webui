@@ -317,11 +317,17 @@
 
 	const RING = 2 * Math.PI * 34;
 
+	const onVisible = () => document.visibilityState === 'visible' && load();
+
 	onMount(() => {
 		timer = setInterval(load, POLL_MS);
+		document.addEventListener('visibilitychange', onVisible);
+		window.addEventListener('focus', onVisible);
 	});
 	onDestroy(() => {
 		if (timer) clearInterval(timer);
+		document.removeEventListener('visibilitychange', onVisible);
+		window.removeEventListener('focus', onVisible);
 	});
 </script>
 
@@ -658,9 +664,11 @@
 														<button
 															type="button"
 															role="menuitem"
-															class="rounded-lg px-2.5 py-1.5 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-850"
+															class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/40"
 															on:click|stopPropagation={() => closeItem(item)}
-															>{$i18n.t('Close work item')}</button
+															><span aria-hidden="true">✓</span>{$i18n.t(
+																'Complete & close'
+															)}</button
 														>
 														<button
 															type="button"
@@ -670,7 +678,10 @@
 																menuFor = null;
 																confirm = { kind: 'cancel', item };
 																showConfirm = true;
-															}}>{$i18n.t('Cancel work item')}</button
+															}}
+															><span aria-hidden="true" class="mr-1.5">✕</span>{$i18n.t(
+																'Cancel item'
+															)}</button
 														>
 													</div>
 												{/if}
@@ -951,7 +962,9 @@
 									<li class="flex items-start justify-between gap-2 text-xs">
 										<div class="min-w-0">
 											<div
-												class="break-words text-gray-500 line-through decoration-gray-400 dark:text-gray-400"
+												class="break-words {entry.archive_kind === 'huy'
+													? 'text-gray-500 line-through decoration-gray-400 dark:text-gray-400'
+													: 'text-gray-700 dark:text-gray-300'}"
 											>
 												{entry.ten}
 											</div>
@@ -960,9 +973,11 @@
 													class="rounded-full px-1.5 py-px text-[0.625rem] {entry.archive_kind ===
 													'huy'
 														? STATUS.bi_chan.pill
-														: STATUS.chua_bat_dau.pill}"
+														: STATUS.hoan_thanh.pill}"
 												>
-													{entry.archive_kind === 'huy' ? $i18n.t('Cancelled') : $i18n.t('Closed')}
+													{entry.archive_kind === 'huy'
+														? `✕ ${$i18n.t('Cancelled')}`
+														: `✓ ${$i18n.t('Completed (closed)')}`}
 												</span>
 												{fromNs(entry.archived_at)}
 												{#if entry.phu_trach?.length}· {entry.phu_trach.join(', ')}{/if}

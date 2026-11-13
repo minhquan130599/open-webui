@@ -4711,7 +4711,7 @@
 	"Time zone: {{timezone}}": "Múi giờ: {{timezone}}",
 	"Work due": "Công việc đến hạn",
 	"Work item cancelled": "Đã hủy hạng mục",
-	"Work item closed": "Đã đóng hạng mục",
+	"Work item closed": "Đã đánh dấu hoàn thành và đóng hạng mục",
 	"Work item reopened": "Đã mở lại hạng mục",
 	"Work items already reminded today are not sent again.": "Công việc đã được nhắc hôm nay sẽ không gửi lại.",
 	"Work of the members in the channels you own.": "Công việc của thành viên trong các kênh bạn làm chủ.",
@@ -4735,6 +4735,9 @@
 	"Close work item": "Đóng hạng mục",
 	"{{count}} items": "{{count}} việc",
 	"{{count}} overdue": "{{count}} quá hạn",
-	"Closed / cancelled": "Đã đóng / đã hủy",
-	"30 days": "30 ngày"
+	"Closed / cancelled": "Đã hoàn thành / đã hủy",
+	"30 days": "30 ngày",
+	"Complete & close": "Hoàn thành & đóng",
+	"Cancel item": "Hủy",
+	"Completed (closed)": "Đã hoàn thành"
 }

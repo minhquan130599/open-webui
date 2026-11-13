@@ -186,7 +186,7 @@ def to_xlsx(report: Report, narrative: str) -> bytes:
     for item in report.items:
         status = STATUS_LABELS.get(item.trang_thai, item.trang_thai)
         if item.archived:
-            status = 'Đã hủy' if item.archived == 'huy' else 'Đã đóng'
+            status = 'Đã hủy' if item.archived == 'huy' else 'Hoàn thành (đã đóng)'
         sheet.append(
             [
                 item.project,

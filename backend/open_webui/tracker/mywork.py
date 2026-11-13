@@ -34,6 +34,8 @@ class WorkEntry:
     cap_nhat_luc: Optional[str]
     bucket: str = ''
     days_left: Optional[int] = None
+    channel_owner_id: Optional[str] = None
+    can_manage: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -70,6 +72,12 @@ async def collect(channels: list) -> list[WorkEntry]:
     """Every open (not closed or cancelled) work item of the channels, with resolved owner ids."""
     by_id = {c.id: c for c in channels}
     rows = await Trackers.get_states(list(by_id)) if by_id else []
+    # States stored before items had ids get them now, so every listed item can be closed or cancelled.
+    missing = [r.channel_id for r in rows if any(not i.get('id') for i in (r.state or {}).get('hang_muc') or [])]
+    for channel_id in missing:
+        await Trackers.ensure_item_ids(channel_id)
+    if missing:
+        rows = await Trackers.get_states(list(by_id))
     day = today()
     entries: list[WorkEntry] = []
     for row in rows:
@@ -101,6 +109,7 @@ async def collect(channels: list) -> list[WorkEntry]:
                 han=item.get('han'),
                 vuong_mac=item.get('vuong_mac'),
                 cap_nhat_luc=item.get('cap_nhat_luc'),
+                channel_owner_id=channel.user_id,
             )
             classify(entry, day)
             entries.append(entry)
@@ -132,7 +141,10 @@ async def work_of(viewer, target_id: str) -> Optional[list[WorkEntry]]:
         channels = await managed_channels(viewer)
         if not channels:
             return None
-    return [e for e in await collect(channels) if target_id in e.owner_ids]
+    entries = [e for e in await collect(channels) if target_id in e.owner_ids]
+    for entry in entries:
+        entry.can_manage = viewer.role == 'admin' or entry.channel_owner_id == viewer.id
+    return entries
 
 
 async def team_of(viewer) -> dict:

@@ -143,6 +143,8 @@ export type MyWorkItem = {
 	cap_nhat_luc: string | null;
 	bucket: WorkBucket;
 	days_left: number | null;
+	channel_owner_id: string | null;
+	can_manage: boolean; // channel owner or admin: may complete & close or cancel
 };
 
 export type MyWork = {

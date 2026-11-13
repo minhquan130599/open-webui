@@ -19,6 +19,14 @@ from open_webui.internal.db import Base, get_async_db_context
 from open_webui.models.messages import Message
 from open_webui.tracker.schema import SCHEMA_VERSION, WorkItem, ensure_item_ids, load_state, reconcile
 
+
+def _today() -> str:
+    from open_webui.tracker.config import TRACKER_TIMEZONE
+    from open_webui.tracker.prompts import format_time, get_tz
+
+    return format_time(time.time_ns(), get_tz(TRACKER_TIMEZONE))[:10]
+
+
 log = logging.getLogger(__name__)
 
 
@@ -372,7 +380,11 @@ class TrackerTable:
     async def archive_items(
         self, channel_id: str, item_ids: list[str], kind: str, user_id: str, db: Optional[AsyncSession] = None
     ) -> int:
-        """Move open items to the archive (kind 'dong' = closed, 'huy' = cancelled). Returns how many moved."""
+        """Move open items to the archive. Returns how many moved.
+
+        'dong' closes an item as done: an unfinished item is marked completed (progress 100, completed today) so
+        reports count it as done; 'huy' cancels it as it stands. Reopen restores the status it had before.
+        """
         now = time.time_ns()
         wanted = set(item_ids)
         async with get_async_db_context(db) as db:
@@ -385,10 +397,17 @@ class TrackerTable:
             if not moved:
                 return 0
             state.hang_muc = [item for item in state.hang_muc if item.id not in wanted]
-            archived = [
-                {**item.model_dump(), 'archive_kind': kind, 'archived_at': now, 'archived_by': user_id}
-                for item in moved
-            ]
+            archived = []
+            for item in moved:
+                entry = {**item.model_dump(), 'archive_kind': kind, 'archived_at': now, 'archived_by': user_id}
+                if kind == 'dong' and item.trang_thai != 'hoan_thanh':
+                    entry['closed_from'] = {
+                        'trang_thai': item.trang_thai,
+                        'tien_do': item.tien_do,
+                        'hoan_thanh_luc': item.hoan_thanh_luc,
+                    }
+                    entry.update(trang_thai='hoan_thanh', tien_do=100, hoan_thanh_luc=_today(), cap_nhat_luc=_today())
+                archived.append(entry)
             row.archive = [*(row.archive or []), *archived]
             self._save_state(row, state, now)
             await db.commit()
@@ -405,7 +424,10 @@ class TrackerTable:
             if not entry:
                 return False
             state = load_state(row.state)
-            restored = {k: v for k, v in entry.items() if k not in ('archive_kind', 'archived_at', 'archived_by')}
+            restored = {
+                k: v for k, v in entry.items() if k not in ('archive_kind', 'archived_at', 'archived_by', 'closed_from')
+            }
+            restored.update(entry.get('closed_from') or {})
             state.hang_muc.append(WorkItem.model_validate(restored))
             row.archive = [e for e in row.archive or [] if e.get('id') != item_id] or None
             self._save_state(row, state, now)

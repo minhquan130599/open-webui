@@ -125,3 +125,25 @@ async def test_reminder_runs_once_a_day_after_the_configured_time(monkeypatch):
     await reminders.set_settings(False, '08:00', True)
     assert not await reminders.run_if_due(dt.datetime(2030, 1, 6, 9, 0, tzinfo=tz))
     await reminders.set_settings(True, '08:00', True)
+
+
+@pytest.mark.asyncio(loop_scope='module')
+async def test_close_marks_done_and_reopen_restores():
+    from open_webui.models.users import Users
+    from open_webui.tracker.models import Trackers
+
+    owner = await Users.insert_new_user(str(uuid.uuid4()), 'Chủ', f'{uuid.uuid4().hex}@t.local', role='user')
+    channel = await _project(owner, [owner], [{'ten': 'Viết báo cáo', 'tien_do': 40, 'trang_thai': 'dang_lam'}])
+    item = (await Trackers.get_state(channel.id)).state['hang_muc'][0]
+
+    assert await Trackers.archive_items(channel.id, [item['id']], 'dong', owner.id) == 1
+    closed = (await Trackers.get_state(channel.id)).archive[0]
+    assert (closed['trang_thai'], closed['tien_do'], closed['hoan_thanh_luc']) == ('hoan_thanh', 100, mywork.today())
+
+    assert await Trackers.reopen_item(channel.id, item['id'])
+    reopened = (await Trackers.get_state(channel.id)).state['hang_muc'][0]
+    assert (reopened['trang_thai'], reopened['tien_do'], reopened['hoan_thanh_luc']) == ('dang_lam', 40, None)
+
+    # Owner of the channel may manage the item from "my work".
+    entries = await mywork.work_of(owner, owner.id)
+    assert entries == [] or all(e.can_manage for e in entries if e.channel_id == channel.id)
