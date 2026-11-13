@@ -362,3 +362,16 @@ async def test_archive_survives_a_concurrent_run(project, monkeypatch):
     assert await Trackers.reopen_item(channel.id, items['Việc A'])
     row = await Trackers.get_state(channel.id)
     assert 'Việc A' in [i['ten'] for i in row.state['hang_muc']] and not row.archive
+
+
+def test_prompt_lists_channel_members():
+    from open_webui.tracker.prompts import build_update_messages
+    from open_webui.tracker.schema import ProjectState
+    from open_webui.tracker.service import TZ
+
+    message = PromptMessage(
+        id='a', user_name='quan', content='giao triển làm báo cáo khảo sát, hạn hôm nay', created_at=time.time_ns()
+    )
+    chat, _ = build_update_messages('dự án x', ProjectState(), [message], TZ, 12000, time.time_ns(), ['Long', 'Triển'])
+    assert 'THÀNH VIÊN KÊNH: Long, Triển' in chat[1]['content']
+    assert 'Triển làm X' in chat[0]['content']

@@ -1,7 +1,7 @@
-# Mở NCS AI bằng HTTPS với nginx (Ubuntu)
+# Mở NCS AI (Knight) bằng HTTPS với nginx (Ubuntu)
 
 Sau khi làm xong, người dùng truy cập **`https://ai.ncsgroup.vn`** (có ổ khóa). nginx nhận kết nối
-HTTPS ở cổng 443 rồi chuyển vào NCS AI đang chạy nội bộ ở `127.0.0.1:8000`.
+HTTPS ở cổng 443 rồi chuyển vào NCS AI (Knight) đang chạy nội bộ ở `127.0.0.1:8000`.
 
 ```
 Trình duyệt ──HTTPS:443──> nginx (chứng chỉ *.ncsgroup.vn) ──HTTP──> 127.0.0.1:8000 (container open-webui)
@@ -14,7 +14,7 @@ Thông tin dùng trong tài liệu (thay nếu khác):
 | Mục | Giá trị |
 |---|---|
 | Server | Ubuntu, IP `10.11.33.97`, user `dev01` |
-| Thư mục chạy NCS AI | `~/ncschatui/deploy` (chứa `docker-compose.yaml`, `.env`) |
+| Thư mục chạy NCS AI (Knight) | `~/ncschatui/deploy` (chứa `docker-compose.yaml`, `.env`) |
 | Tên miền | `ai.ncsgroup.vn` |
 | Chứng chỉ | `ai.ncsgroup.vn.crt` + `ai.ncsgroup.vn.key` (wildcard `*.ncsgroup.vn`, Sectigo) |
 | Thư mục chứng chỉ trên server | `/etc/ssl/ncschatui/` |
@@ -69,9 +69,9 @@ sudo openssl pkey -in /etc/ssl/ncschatui/privkey.pem -pubout | md5sum
 
 Không để bản sao file `.key` ở nơi khác trên server (thư mục home, thư mục repo...).
 
-## 4. Đưa NCS AI về cổng nội bộ 8000
+## 4. Đưa NCS AI (Knight) về cổng nội bộ 8000
 
-nginx cần cổng 80 và 443, và NCS AI không nên mở thẳng ra mạng (cổng do Docker mở **không bị
+nginx cần cổng 80 và 443, và NCS AI (Knight) không nên mở thẳng ra mạng (cổng do Docker mở **không bị
 `ufw` chặn**).
 
 Trong `~/ncschatui/deploy/.env`:
@@ -110,7 +110,7 @@ sudo apt install -y nginx
 nginx -v
 ```
 
-## 6. Tạo cấu hình nginx cho NCS AI
+## 6. Tạo cấu hình nginx cho NCS AI (Knight)
 
 Chạy nguyên khối lệnh sau (tạo file `/etc/nginx/sites-available/chatui`):
 
@@ -167,7 +167,7 @@ EOF
 |---|---|
 | `return 301 https://...` | Ai gõ `http://` cũng được chuyển sang `https://` |
 | `Upgrade` / `Connection` | WebSocket — thiếu thì tin nhắn kênh, trạng thái realtime không cập nhật |
-| `X-Forwarded-Proto https` | NCS AI biết đang chạy sau HTTPS (cookie, đăng nhập Microsoft) |
+| `X-Forwarded-Proto https` | NCS AI (Knight) biết đang chạy sau HTTPS (cookie, đăng nhập Microsoft) |
 | `proxy_buffering off` | Câu trả lời của model hiện dần thay vì đợi xong mới hiện |
 | `proxy_read_timeout 600s` | Câu trả lời dài hoặc tác vụ chạy lâu không bị ngắt ở 60 giây |
 | `client_max_body_size 100m` | Mặc định nginx chỉ cho upload 1 MB |
@@ -233,7 +233,7 @@ Kiểm tra lại ngày hết hạn đang dùng:
 echo | openssl s_client -connect ai.ncsgroup.vn:443 -servername ai.ncsgroup.vn 2>/dev/null | openssl x509 -noout -dates
 ```
 
-Không cần khởi động lại NCS AI khi đổi chứng chỉ.
+Không cần khởi động lại NCS AI (Knight) khi đổi chứng chỉ.
 
 ## 10. Thêm tên miền khác (cùng chứng chỉ wildcard)
 
@@ -250,8 +250,8 @@ trên tên miền khớp với `PUBLIC_URL` và redirect URI đã đăng ký.
 |---|---|
 | `nginx -t` báo `cannot load certificate` / `no such file` | Sai đường dẫn hoặc tên file ở mục 3; kiểm tra `ls -l /etc/ssl/ncschatui/` |
 | `nginx -t` báo `key values mismatch` | File `.key` không thuộc chứng chỉ này; chạy lại kiểm tra `md5sum` ở mục 3 |
-| `bind() to 0.0.0.0:443 failed (Address already in use)` | Cổng 443 đang bị chiếm (thường là container NCS AI cũ); làm lại mục 4, xem ai đang giữ cổng: `sudo ss -ltnp \| grep -E ':80 \|:443 '` |
-| Trình duyệt báo **502 Bad Gateway** | NCS AI chưa chạy hoặc không ở `127.0.0.1:8000`; `curl -I http://127.0.0.1:8000`, `sudo docker compose ps`, xem log `sudo tail -50 /var/log/nginx/error.log` |
+| `bind() to 0.0.0.0:443 failed (Address already in use)` | Cổng 443 đang bị chiếm (thường là container NCS AI (Knight) cũ); làm lại mục 4, xem ai đang giữ cổng: `sudo ss -ltnp \| grep -E ':80 \|:443 '` |
+| Trình duyệt báo **502 Bad Gateway** | NCS AI (Knight) chưa chạy hoặc không ở `127.0.0.1:8000`; `curl -I http://127.0.0.1:8000`, `sudo docker compose ps`, xem log `sudo tail -50 /var/log/nginx/error.log` |
 | Trình duyệt báo **504 Gateway Timeout** khi AI trả lời lâu | Tăng `proxy_read_timeout` trong mục 6 |
 | Upload file báo **413 Request Entity Too Large** | Tăng `client_max_body_size` |
 | Tin nhắn kênh không tự cập nhật, phải tải lại trang | Thiếu 2 dòng `Upgrade` / `Connection` hoặc khối `map` ở mục 6 |
@@ -260,4 +260,4 @@ trên tên miền khớp với `PUBLIC_URL` và redirect URI đã đăng ký.
 | Vẫn vào được bằng `http://10.11.33.97:8000` từ máy khác | `ports` chưa có `127.0.0.1:` ở mục 4 |
 
 Log nginx: `/var/log/nginx/access.log`, `/var/log/nginx/error.log`.
-Log NCS AI: `cd ~/ncschatui/deploy && sudo docker compose logs --tail 200 open-webui`.
+Log NCS AI (Knight): `cd ~/ncschatui/deploy && sudo docker compose logs --tail 200 open-webui`.

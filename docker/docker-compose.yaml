@@ -13,7 +13,7 @@ x-owui-build: &owui-build
   args:
     BUILD_HASH: ${BUILD_HASH:-dev-build}
     # Đổi thương hiệu khi build (logo, favicon, splash, tên). Đổi giá trị trong .env rồi chạy update.ps1.
-    BRAND_NAME: ${BRAND_NAME:-NCS AI}
+    BRAND_NAME: ${BRAND_NAME:-NCS AI (Knight)}
     LOGO_STYLE: ${LOGO_STYLE:-light}       # light | blue
 
 services:
@@ -120,7 +120,7 @@ services:
       - open-webui:/app/backend/data
     environment:
       # --- Thương hiệu (tên hiển thị trên giao diện, tiêu đề tab, email...) ---
-      - WEBUI_NAME=${BRAND_NAME:-NCS AI}
+      - WEBUI_NAME=${BRAND_NAME:-NCS AI (Knight)}
 
       # --- Bảo mật ---
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}

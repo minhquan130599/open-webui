@@ -35,7 +35,7 @@
 					"text": "Use New Chat to talk privately with the AI, Channels to work with your team, and Search to find earlier conversations."
 				}
 			],
-			"tip": "In these guides, @nai is an example name for the AI assistant; use the name of the assistant your administrator created.",
+			"tip": "In these guides, @Knight is an example name for the AI assistant; use the name of the assistant your administrator created.",
 			"images": [
 				{
 					"src": "/help-center/images/dang-nhap.png",
@@ -173,7 +173,7 @@
 				"admin"
 			],
 			"title": "Asking the AI assistant in a channel",
-			"desc": "How to mention @nai and read the result",
+			"desc": "How to mention @Knight and read the result",
 			"minutes": 3,
 			"icon": "✨",
 			"steps": [
@@ -183,14 +183,14 @@
 				},
 				{
 					"title": "Mention the assistant",
-					"text": "In the message box, type @, choose the AI assistant (for example nai), then write your request and send it."
+					"text": "In the message box, type @, choose the AI assistant (for example Knight), then write your request and send it."
 				},
 				{
 					"title": "Read the result",
 					"text": "The AI's answer appears in the thread of your message. Click the answer to open the thread on the right and see it in full."
 				}
 			],
-			"example": "@nai summarize my work reports",
+			"example": "@Knight summarize my work reports",
 			"tip": "In a channel, the AI only reads and searches the current channel; reports from other channels are not mixed in. For the AI to see the full channel history, ask in a new message in the main channel view, not inside a thread or by editing an old message.",
 			"images": [
 				{
@@ -228,7 +228,7 @@
 					"text": "In a channel, click the Work progress button to have the AI summarize progress. Click Update now to have it summarize new messages and show the result right away."
 				}
 			],
-			"example": "@nai make a progress table: owner, work item, % complete, blockers",
+			"example": "@Knight make a progress table: owner, work item, % complete, blockers",
 			"tip": "More examples: \"summarize my reports for 11/11\", \"who has not sent a report today?\", \"compare today's progress with yesterday\", \"summarize this week's reports as a table: Date | Person | Done | Pending\". To summarize several channels at once, use a chat outside the channel.",
 			"images": [
 				{
@@ -259,18 +259,18 @@
 			"steps": [
 				{
 					"title": "Ask about past discussions",
-					"text": "Mention @nai and ask about a time range or topic, for example \"what did I report?\" or \"summarize the discussion since this morning\"."
+					"text": "Mention @Knight and ask about a time range or topic, for example \"what did I report?\" or \"summarize the discussion since this morning\"."
 				},
 				{
 					"title": "Focus on one message",
-					"text": "Click Reply on that message, then mention @nai in your reply."
+					"text": "Click Reply on that message, then mention @Knight in your reply."
 				},
 				{
 					"title": "Follow up on an AI reply",
 					"text": "Keep typing in the thread that holds the reply. The AI remembers the original question and its earlier answers in the thread."
 				}
 			],
-			"example": "@nai what have I completed today?",
+			"example": "@Knight what have I completed today?",
 			"tip": "The AI understands \"today\", \"yesterday\", \"this week\" and specific dates in day/month format.",
 			"images": [
 				{
@@ -293,7 +293,7 @@
 			"steps": [
 				{
 					"title": "In a channel",
-					"text": "Mention @nai and state the format you need. The AI uses the Terminal automatically if you have access to it."
+					"text": "Mention @Knight and state the format you need. The AI uses the Terminal automatically if you have access to it."
 				},
 				{
 					"title": "In a private chat",
@@ -304,7 +304,7 @@
 					"text": "The file is attached right below the AI's reply. Click it to preview or download."
 				}
 			],
-			"example": "@nai create this week's report for this channel as a PDF",
+			"example": "@Knight create this week's report for this channel as a PDF",
 			"tip": "If the AI only replies with text and attaches no file, your account may not have Terminal access. Contact an administrator."
 		},
 		{
@@ -332,7 +332,7 @@
 					"text": "Mention the AI and name the file and the task. The AI picks files in this order: files attached to your request → files in the message you Reply to → files in the thread → otherwise the 5 newest files in the channel."
 				}
 			],
-			"example": "@nai summarize the PowerPoint presentation, one line per slide",
+			"example": "@Knight summarize the PowerPoint presentation, one line per slide",
 			"tip": "When a channel has many files, the surest way is to Reply to the message that holds the file and mention the AI there. Save old formats (.doc, .xls, .ppt) as .docx, .xlsx, .pptx first. Reading images requires an assistant with Vision capability.",
 			"images": [
 				{
@@ -366,7 +366,7 @@
 					"text": "Use the channel's magnifying glass to find the original message by keyword, sender name or the file name the AI mentioned."
 				}
 			],
-			"example": "@nai summarize my progress today, with the time and file name for each point",
+			"example": "@Knight summarize my progress today, with the time and file name for each point",
 			"images": [
 				{
 					"src": "/help-center/images/truy-vet.png",
@@ -392,7 +392,7 @@
 				},
 				{
 					"title": "Choose the assistant",
-					"text": "Select the AI assistant at the top of the chat (for example nai) and type your question. No @ is needed outside channels; attach files with the + button."
+					"text": "Select the AI assistant at the top of the chat (for example Knight) and type your question. No @ is needed outside channels; attach files with the + button."
 				},
 				{
 					"title": "Ask across channels",
@@ -433,14 +433,14 @@
 				},
 				{
 					"title": "Ask in a channel",
-					"text": "If an administrator has attached the knowledge base to the AI assistant, just mention @nai as usual; the assistant looks it up when the question is related."
+					"text": "If an administrator has attached the knowledge base to the AI assistant, just mention @Knight as usual; the assistant looks it up when the question is related."
 				},
 				{
 					"title": "Check the sources",
 					"text": "Click the sources shown below the answer to see the original passage."
 				}
 			],
-			"example": "@nai according to the procedure, how long are residential proxies issued for?",
+			"example": "@Knight according to the procedure, how long are residential proxies issued for?",
 			"tip": "Be specific and use keywords from the documents (procedure name, form code, project name). To summarize a whole long document, send the file in the chat instead. If # does not show the knowledge base you need, you do not have access yet; contact an administrator."
 		},
 		{
@@ -546,7 +546,7 @@
 			"steps": [
 				{
 					"title": "Open the model settings",
-					"text": "Admin Panel → Settings → Models, and choose the assistant to configure (for example nai)."
+					"text": "Admin Panel → Settings → Models, and choose the assistant to configure (for example Knight)."
 				},
 				{
 					"title": "Write the System Prompt",
@@ -698,14 +698,14 @@
 				},
 				{
 					"title": "Attach it to the assistant",
-					"text": "Admin Panel → Settings → Models, choose the assistant (for example nai). Under Knowledge, click Select Knowledge and choose the knowledge base."
+					"text": "Admin Panel → Settings → Models, choose the assistant (for example Knight). Under Knowledge, click Select Knowledge and choose the knowledge base."
 				},
 				{
 					"title": "Save",
 					"text": "Click Save & Update. From then on the assistant consults the knowledge base whenever it answers, including in channels, and users do not need to type #."
 				}
 			],
-			"example": "@nai according to the procedure, how long are residential proxies issued for, and can they be extended?",
+			"example": "@Knight according to the procedure, how long are residential proxies issued for, and can they be extended?",
 			"tip": "Everyone who can use the assistant can receive information from the knowledge bases attached to it; keep sensitive documents in a Private knowledge base searched only with #. To make the AI answer only from the documents, add to the System Prompt: \"Answer only from the knowledge base documents; if the information is not there, say so clearly.\""
 		}
 	]

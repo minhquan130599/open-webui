@@ -15,7 +15,7 @@ import shutil
 import sys
 from pathlib import Path
 
-BRAND = os.environ.get('BRAND_NAME', 'NCS AI')
+BRAND = os.environ.get('BRAND_NAME', 'NCS AI (Knight)')
 STYLE = os.environ.get('LOGO_STYLE', 'light')  # light | blue
 ASSETS = Path('/tmp/branding/assets') / STYLE
 if not ASSETS.is_dir():

@@ -390,7 +390,7 @@
 		</div>
 	</div>
 
-	<div class="flex-1 overflow-y-auto px-3 pb-4 text-sm flex flex-col gap-3">
+	<div class="flex-1 overflow-y-auto px-3 pb-4 text-sm flex flex-col gap-3 [&>*]:shrink-0">
 		{#if loading && !tracker}
 			<!-- Skeleton while the first state loads -->
 			<div class="flex flex-col gap-3 animate-pulse" aria-busy="true">

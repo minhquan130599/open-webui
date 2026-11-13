@@ -22,7 +22,7 @@ Quy tắc:
 4. Tin nhắn đính chính ("đính chính", "sửa lại", "nhầm", "thực ra") được ưu tiên hơn thông tin cũ. Tin nhắn đánh dấu (đã sửa) thay thế nội dung trước đó của chính tin nhắn ấy. Tin nhắn đánh dấu (đã xóa) không còn hiệu lực: sửa lại thông tin chỉ dựa vào tin đó.
 5. Không bịa. Chỉ ghi tien_do (0-100) và han (YYYY-MM-DD) khi tin nhắn nêu rõ hoặc suy ra chắc chắn (ví dụ "thứ 6 tuần này" tính theo ngày hôm nay).
 6. trang_thai là một trong: chua_bat_dau, dang_lam, bi_chan, tam_dung, hoan_thanh. muc_do rủi ro: thap, trung_binh, cao.
-7. phu_trach ghi họ tên người như trong tin nhắn (người được giao, hoặc người tự báo cáo việc của mình). Dòng bắt đầu bằng "↳" là tóm tắt tệp hoặc ảnh đính kèm của tin nhắn ngay trên, dùng như bằng chứng của tin nhắn đó; đầu việc liệt kê trong tệp cũng phải được ghi nhận.
+7. phu_trach ghi họ tên người như trong tin nhắn (người được giao, hoặc người tự báo cáo việc của mình). Đối chiếu với THÀNH VIÊN KÊNH: tên người có thể viết thường hoặc không dấu ("giao triển làm X" là giao cho Triển làm X, không phải "triển khai X"). Tên người không thuộc tên công việc. Người gửi tin chỉ là người phụ trách khi tự nhận hoặc tự báo cáo việc; tin giao việc cho người khác thì người được giao mới là phu_trach. Dòng bắt đầu bằng "↳" là tóm tắt tệp hoặc ảnh đính kèm của tin nhắn ngay trên, dùng như bằng chứng của tin nhắn đó; đầu việc liệt kê trong tệp cũng phải được ghi nhận.
 8. nguon: mã tin nhắn MỚI (m1, m2, ...) là bằng chứng cho thay đổi đó.
 9. tong_quan: 1-3 câu về tình hình chung, chỉ ghi khi cần cập nhật. tom_tat_lo: 1-3 câu tóm tắt riêng các tin nhắn mới.
 10. quyet_dinh_moi: quyết định mới trong lô này. rui_ro và viec_tiep_theo: nếu có thay đổi thì ghi lại TOÀN BỘ danh sách mới; nếu không đổi thì bỏ trường đó.
@@ -100,6 +100,7 @@ def build_update_messages(
     tz,
     message_max_chars: int,
     now_ns: int,
+    members: Optional[list[str]] = None,
 ) -> tuple[list[dict], dict[str, str]]:
     """Return the chat messages for one batch and the ref -> source id map."""
     ref_by_id = {m.id: f'm{i + 1}' for i, m in enumerate(messages)}
@@ -109,7 +110,8 @@ def build_update_messages(
     previous = state_for_prompt(state)
     user_prompt = (
         f'Hôm nay: {format_time(now_ns, tz)[:10]}\n'
-        f'Kênh (dự án): {channel_name}\n\n'
+        f'Kênh (dự án): {channel_name}\n'
+        f'THÀNH VIÊN KÊNH: {", ".join(members) if members else "(không rõ)"}\n\n'
         f'TRẠNG THÁI HIỆN TẠI:\n{previous or "(chưa có)"}\n\n'
         f'TIN NHẮN MỚI:\n<du_lieu>\n' + '\n'.join(lines) + '\n</du_lieu>'
     )

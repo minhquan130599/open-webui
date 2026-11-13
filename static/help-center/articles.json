@@ -35,7 +35,7 @@
 					"text": "Dùng Tạo chat mới để trò chuyện riêng với AI, mục Kênh để trao đổi với nhóm, Tìm kiếm để tra cứu nội dung đã trao đổi."
 				}
 			],
-			"tip": "Trong hướng dẫn, @nai là tên ví dụ của trợ lý AI; hãy thay bằng tên trợ lý mà quản trị viên đã tạo.",
+			"tip": "Trong hướng dẫn, @Knight là tên ví dụ của trợ lý AI; hãy thay bằng tên trợ lý mà quản trị viên đã tạo.",
 			"images": [
 				{
 					"src": "/help-center/images/dang-nhap.png",
@@ -173,7 +173,7 @@
 				"admin"
 			],
 			"title": "Gọi trợ lý AI trong kênh",
-			"desc": "Cách nhắc @nai và nhận kết quả",
+			"desc": "Cách nhắc @Knight và nhận kết quả",
 			"minutes": 3,
 			"icon": "✨",
 			"steps": [
@@ -183,14 +183,14 @@
 				},
 				{
 					"title": "Gọi trợ lý",
-					"text": "Trong ô nhập, gõ @, chọn trợ lý AI (ví dụ nai), sau đó viết yêu cầu và gửi."
+					"text": "Trong ô nhập, gõ @, chọn trợ lý AI (ví dụ Knight), sau đó viết yêu cầu và gửi."
 				},
 				{
 					"title": "Xem kết quả",
 					"text": "Câu trả lời của AI hiện trong Luồng của tin nhắn đó. Bấm vào câu trả lời để mở Luồng ở khung bên phải và xem đầy đủ."
 				}
 			],
-			"example": "@nai tổng hợp báo cáo công việc của tôi",
+			"example": "@Knight tổng hợp báo cáo công việc của tôi",
 			"tip": "Trong một kênh, AI chỉ đọc và tìm kiếm nội dung của kênh hiện tại; báo cáo ở kênh khác không bị trộn vào. Để AI thấy toàn bộ lịch sử kênh, hãy gọi bằng tin nhắn mới ở khung chat chính, không gọi trong Luồng và không sửa lại tin nhắn cũ.",
 			"images": [
 				{
@@ -228,7 +228,7 @@
 					"text": "Trong kênh, bấm nút Tiến độ công việc để AI tự tóm tắt tiến độ. Bấm Cập nhật ngay để AI tổng hợp các tin nhắn mới và hiển thị kết quả ngay."
 				}
 			],
-			"example": "@nai lập bảng tiến độ: người phụ trách, đầu việc, % hoàn thành, vướng mắc",
+			"example": "@Knight lập bảng tiến độ: người phụ trách, đầu việc, % hoàn thành, vướng mắc",
 			"tip": "Một số mẫu khác: \"tổng hợp báo cáo của tôi ngày 11/11\", \"hôm nay ai chưa gửi báo cáo?\", \"so sánh tiến độ hôm nay với hôm qua\", \"tổng hợp báo cáo tuần này thành bảng: Ngày | Người | Việc đã xong | Việc tồn\". Muốn tổng hợp nhiều kênh, hãy dùng chat bên ngoài kênh.",
 			"images": [
 				{
@@ -259,18 +259,18 @@
 			"steps": [
 				{
 					"title": "Hỏi về nội dung đã trao đổi",
-					"text": "Gọi @nai và hỏi về khoảng thời gian hoặc nội dung cần tìm, ví dụ \"tôi đã báo cáo gì?\" hay \"tóm tắt thảo luận từ sáng đến giờ\"."
+					"text": "Gọi @Knight và hỏi về khoảng thời gian hoặc nội dung cần tìm, ví dụ \"tôi đã báo cáo gì?\" hay \"tóm tắt thảo luận từ sáng đến giờ\"."
 				},
 				{
 					"title": "Tập trung vào một tin nhắn",
-					"text": "Bấm Trả lời (Reply) vào tin nhắn đó rồi gọi @nai trong tin trả lời."
+					"text": "Bấm Trả lời (Reply) vào tin nhắn đó rồi gọi @Knight trong tin trả lời."
 				},
 				{
 					"title": "Hỏi tiếp câu trả lời của AI",
 					"text": "Gõ tiếp trong Luồng chứa câu trả lời. AI nhớ câu hỏi ban đầu và các câu trả lời trước đó trong luồng."
 				}
 			],
-			"example": "@nai tôi đã hoàn thành những gì trong hôm nay",
+			"example": "@Knight tôi đã hoàn thành những gì trong hôm nay",
 			"tip": "AI hiểu các mốc \"hôm nay\", \"hôm qua\", \"tuần này\" và ngày cụ thể dạng ngày/tháng.",
 			"images": [
 				{
@@ -293,7 +293,7 @@
 			"steps": [
 				{
 					"title": "Trong kênh",
-					"text": "Gọi @nai và nêu rõ định dạng cần xuất. AI tự dùng Terminal nếu bạn được cấp quyền."
+					"text": "Gọi @Knight và nêu rõ định dạng cần xuất. AI tự dùng Terminal nếu bạn được cấp quyền."
 				},
 				{
 					"title": "Trong chat riêng",
@@ -304,7 +304,7 @@
 					"text": "File được đính kèm ngay dưới câu trả lời của AI. Bấm vào để xem hoặc tải về."
 				}
 			],
-			"example": "@nai tạo báo cáo tuần kênh này dạng PDF",
+			"example": "@Knight tạo báo cáo tuần kênh này dạng PDF",
 			"tip": "Nếu AI chỉ trả lời bằng chữ mà không đính kèm file, có thể tài khoản chưa được cấp quyền Terminal. Liên hệ quản trị viên."
 		},
 		{
@@ -332,7 +332,7 @@
 					"text": "Gọi AI và nêu rõ tệp, việc cần làm. AI đọc tệp theo thứ tự: tệp đính kèm trong tin gọi AI → tệp trong tin bạn Trả lời → tệp trong Luồng → nếu không có, 5 tệp mới nhất trong kênh."
 				}
 			],
-			"example": "@nai tóm tắt bài trình bày PowerPoint, mỗi slide một dòng",
+			"example": "@Knight tóm tắt bài trình bày PowerPoint, mỗi slide một dòng",
 			"tip": "Khi kênh có nhiều tệp, cách chắc chắn nhất là bấm Trả lời vào đúng tin nhắn chứa tệp rồi gọi AI. Tệp định dạng cũ (.doc, .xls, .ppt) nên lưu lại sang .docx, .xlsx, .pptx. Đọc ảnh cần trợ lý có khả năng Thị giác.",
 			"images": [
 				{
@@ -366,7 +366,7 @@
 					"text": "Dùng biểu tượng kính lúp của kênh để tìm lại tin nhắn gốc theo từ khóa, tên người gửi hoặc tên tệp mà AI đã nêu."
 				}
 			],
-			"example": "@nai tổng hợp tiến độ hôm nay của tôi, ghi rõ giờ gửi và tên tệp cho từng ý",
+			"example": "@Knight tổng hợp tiến độ hôm nay của tôi, ghi rõ giờ gửi và tên tệp cho từng ý",
 			"images": [
 				{
 					"src": "/help-center/images/truy-vet.png",
@@ -392,7 +392,7 @@
 				},
 				{
 					"title": "Chọn trợ lý",
-					"text": "Chọn trợ lý AI ở phía trên khung chat (ví dụ nai) rồi nhập câu hỏi. Không cần gõ @ khi chat bên ngoài kênh; có thể đính kèm tệp bằng nút +."
+					"text": "Chọn trợ lý AI ở phía trên khung chat (ví dụ Knight) rồi nhập câu hỏi. Không cần gõ @ khi chat bên ngoài kênh; có thể đính kèm tệp bằng nút +."
 				},
 				{
 					"title": "Hỏi về nhiều kênh",
@@ -433,14 +433,14 @@
 				},
 				{
 					"title": "Hỏi trong kênh",
-					"text": "Nếu quản trị viên đã gắn kho vào trợ lý AI, chỉ cần gọi @nai như bình thường; trợ lý tự tra cứu kho khi câu hỏi liên quan."
+					"text": "Nếu quản trị viên đã gắn kho vào trợ lý AI, chỉ cần gọi @Knight như bình thường; trợ lý tự tra cứu kho khi câu hỏi liên quan."
 				},
 				{
 					"title": "Kiểm tra nguồn",
 					"text": "Bấm vào phần nguồn hiển thị bên dưới câu trả lời để xem đoạn tài liệu gốc."
 				}
 			],
-			"example": "@nai theo quy trình, proxy dân cư được cấp bao lâu?",
+			"example": "@Knight theo quy trình, proxy dân cư được cấp bao lâu?",
 			"tip": "Hỏi cụ thể, nêu từ khóa có trong tài liệu (tên quy trình, mã biểu mẫu, tên dự án). Muốn tóm tắt trọn một tài liệu dài, hãy gửi thẳng tệp vào chat. Gõ # không thấy kho cần dùng nghĩa là bạn chưa được cấp quyền; liên hệ quản trị viên."
 		},
 		{
@@ -546,7 +546,7 @@
 			"steps": [
 				{
 					"title": "Vào cấu hình model",
-					"text": "Trang Quản trị → Cài đặt → Mô hình, chọn trợ lý cần cấu hình (ví dụ nai)."
+					"text": "Trang Quản trị → Cài đặt → Mô hình, chọn trợ lý cần cấu hình (ví dụ Knight)."
 				},
 				{
 					"title": "Viết Prompt Hệ thống",
@@ -698,14 +698,14 @@
 				},
 				{
 					"title": "Gắn cố định vào trợ lý",
-					"text": "Trang Quản trị → Cài đặt → Mô hình, chọn trợ lý (ví dụ nai). Ở mục Kiến thức, bấm Chọn Kiến thức và chọn kho cần gắn."
+					"text": "Trang Quản trị → Cài đặt → Mô hình, chọn trợ lý (ví dụ Knight). Ở mục Kiến thức, bấm Chọn Kiến thức và chọn kho cần gắn."
 				},
 				{
 					"title": "Lưu",
 					"text": "Bấm Lưu & Cập nhật. Từ đó trợ lý tự tra cứu kho mỗi khi trả lời, kể cả khi được gọi trong kênh, người dùng không cần gõ #."
 				}
 			],
-			"example": "@nai theo quy trình, proxy dân cư được cấp bao lâu và có gia hạn được không?",
+			"example": "@Knight theo quy trình, proxy dân cư được cấp bao lâu và có gia hạn được không?",
 			"tip": "Mọi người được dùng trợ lý đều có thể nhận thông tin từ kho đã gắn vào trợ lý đó; tài liệu nhạy cảm nên để trong kho Riêng tư và chỉ tra cứu qua #. Muốn AI chỉ trả lời theo tài liệu, thêm vào System Prompt: \"Chỉ trả lời dựa trên tài liệu trong kho kiến thức; nếu không có thông tin thì nói rõ là không có.\""
 		}
 	]

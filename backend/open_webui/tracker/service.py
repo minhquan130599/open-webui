@@ -234,10 +234,12 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         today = format_time(time.time_ns(), TZ)[:10]
         started = time.monotonic()
         state, merged_away, summaries = old_state, set(), []
+        people = await channel_people(channel)
+        members = sorted({p.name for p in people if p.name})
         # Usually one call; a message longer than the per-message limit is read in parts over several calls.
         for group in _prompt_groups(_split_long(prompt_messages)):
             chat_messages, ref_map = build_update_messages(
-                channel.name, state, group, TZ, TRACKER_MESSAGE_MAX_CHARS, time.time_ns()
+                channel.name, state, group, TZ, TRACKER_MESSAGE_MAX_CHARS, time.time_ns(), members
             )
             delta = await llm.generate_state_update(chat_messages)
             state, merged = apply_delta(state, delta, ref_map, today, archived_keys)
@@ -245,7 +247,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             if delta.tom_tat_lo:
                 summaries.append(delta.tom_tat_lo)
 
-        link_owners(state, await channel_people(channel))
+        link_owners(state, people)
         stored = {**state.model_dump(), 'schema_version': SCHEMA_VERSION}
         _drop_sources(stored, {f'msg:{d.get("id")}' for d in deletions})
         sources = [m.id for m in candidates]
