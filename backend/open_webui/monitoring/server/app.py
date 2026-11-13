@@ -25,6 +25,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+import logging
+
+log = logging.getLogger('ncs.monitor')
+logging.basicConfig(level=logging.INFO)
+
 DATABASE_URL = os.getenv('DATABASE_URL', '')
 OPEN_WEBUI_URL = os.getenv('OPEN_WEBUI_URL', 'http://open-webui:8080').rstrip('/')
 MONITOR_API_KEY = os.getenv('MONITOR_API_KEY', '')
@@ -481,9 +486,6 @@ async def traces(
             **params,
         )
     )
-    texts = await questions([(i['chat_id'], i['message_id']) for i in items if i['message_id']])
-    for item in items:
-        item['question'] = (texts.get(item['message_id']) or {}).get('question', '')[:200]
     return {'items': items}
 
 
@@ -522,7 +524,6 @@ async def trace(message_id: str):
             cursor = b
     first = steps[0]['ts'] if steps else end
     chat_id = (response or events[0]).get('chat_id')
-    text = (await questions([(chat_id, message_id)])).get(message_id, {})
     return {
         'message_id': message_id,
         'chat_id': chat_id,
@@ -547,9 +548,49 @@ async def trace(message_id: str):
         },
         'steps': steps,
         'tasks': tasks,
-        'question': text.get('question', ''),
-        'answer': text.get('answer', '')[:3000],
     }
+
+
+# Message content is only sent after the reveal key is entered; wrong keys lock the client out for a while.
+REVEAL_KEY = os.getenv('MONITOR_REVEAL_KEY', '') or MONITOR_API_KEY
+REVEAL_MAX_FAILURES = 5
+REVEAL_LOCK_SECONDS = 600
+_reveal_failures: dict[str, list[float]] = {}
+
+
+def _client(request: Request) -> str:
+    forwarded = request.headers.get('x-forwarded-for', '').split(',')[0].strip()
+    return forwarded or (request.client.host if request.client else '?')
+
+
+@app.post('/api/trace/{message_id}/content', dependencies=[Depends(require_login)])
+async def trace_content(message_id: str, request: Request):
+    """The user's question and the answer of one message, for whoever knows the reveal key."""
+    if not REVEAL_KEY:
+        raise HTTPException(
+            503, 'Chưa đặt MONITOR_REVEAL_KEY (hoặc MONITOR_API_KEY) nên không truy xuất được nội dung.'
+        )
+    client = _client(request)
+    now = time.time()
+    recent = [t for t in _reveal_failures.get(client, []) if now - t < REVEAL_LOCK_SECONDS]
+    _reveal_failures[client] = recent
+    if len(recent) >= REVEAL_MAX_FAILURES:
+        wait = int(REVEAL_LOCK_SECONDS - (now - recent[0]))
+        raise HTTPException(429, f'Nhập sai quá {REVEAL_MAX_FAILURES} lần. Thử lại sau {max(wait // 60, 1)} phút.')
+    key = request.headers.get('x-reveal-key', '')
+    if not key or not hmac.compare_digest(key, REVEAL_KEY):
+        recent.append(now)
+        log.warning('Monitor: wrong reveal key from %s for message %s', client, message_id)
+        raise HTTPException(403, f'Khóa không đúng (còn {REVEAL_MAX_FAILURES - len(recent)} lần thử).')
+    _reveal_failures.pop(client, None)
+    found = await rows(
+        'SELECT chat_id FROM perf_event WHERE message_id = :m AND chat_id IS NOT NULL LIMIT 1', m=message_id
+    )
+    if not found:
+        raise HTTPException(404, 'Không có số liệu cho message id này')
+    text = (await questions([(found[0]['chat_id'], message_id)])).get(message_id, {})
+    log.info('Monitor: message %s content revealed to %s (%s)', message_id, client, USERNAME)
+    return {'question': text.get('question', ''), 'answer': text.get('answer', '')[:5000]}
 
 
 async def webui(path: str, method: str = 'GET', timeout: int = 20, **params):

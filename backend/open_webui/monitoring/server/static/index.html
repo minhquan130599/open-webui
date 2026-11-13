@@ -283,7 +283,7 @@
       ${card('Các lượt trả lời', table([
         { label: 'Lúc', render: (r) => when(r.ts) },
         { label: 'Người dùng', render: (r) => esc(r.user_name || '—') },
-        { label: 'Câu hỏi', render: (r) => `<div style="max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.question)}">${esc(r.question || '—')}</div><div class="muted" style="font-size:11px">${esc(r.message_id || '')}</div>` },
+        { label: 'Message id', render: (r) => `<code style="font-size:11.5px">${esc(r.message_id || '—')}</code>` },
         { label: 'Model', render: (r) => esc(r.model_id || '—') },
         { label: 'Nguồn', render: (r) => SOURCE[r.source] || esc(r.source) },
         { label: 'Gọi LLM', num: true, render: (r) => n(r.llm_calls) },
@@ -340,7 +340,7 @@
         ${t.chat_id ? `<span>chat id: <code data-copy="${esc(t.chat_id)}" title="Bấm để sao chép">${esc(t.chat_id)}</code></span>` : ''}
         ${t.link ? `<a href="${esc(t.link)}" target="_blank" rel="noopener">Mở cuộc chat →</a>` : ''}
       </div>
-      ${t.question ? `<div class="muted" style="font-size:12px;margin-bottom:4px">Câu hỏi của người dùng</div><div class="qbox">${esc(t.question)}</div>` : '<div class="muted" style="font-size:12.5px">Không tìm thấy nội dung câu hỏi (cuộc chat tạm, đã xóa, hoặc gọi qua API).</div>'}
+      <div id="reveal-box">${revealBox(t.message_id)}</div>
       <div class="grid" style="margin:14px 0 10px">
         ${kpi('Tổng thời gian', ms(t.total_ms), `${n(sm.llm_calls)} lần gọi LLM · ${n(sm.tool_calls)} tool call`)}
         ${kpi('Thời gian LLM', ms(sm.llm_ms), `trong đó chờ chữ đầu ${ms(sm.ttft_ms)}`)}
@@ -353,9 +353,42 @@
       <div class="wf-axis"><div></div><div></div><div>${axis}</div><div></div></div>
       <div class="wf">${rows.map((r) => `<div class="wf-row"><div class="wf-n">${r.n}</div><div class="wf-label"><b>${r.label}</b><span>${r.sub}</span></div><div class="wf-track">${r.bar}</div><div class="wf-dur">${ms(r.dur)}</div></div>`).join('')}</div>
       <div class="legend"><span><i style="background:var(--faint)"></i>Chuẩn bị</span><span><i style="background:var(--violet)"></i>Gọi LLM (gạch chéo: chờ chữ đầu)</span><span><i style="background:var(--blue)"></i>Function call</span><span><i style="background:var(--red)"></i>Lỗi</span><span><i style="background:var(--line-strong)"></i>Tác vụ nền (tiêu đề, gợi ý…)</span></div>
-      ${t.answer ? `<details style="margin-top:12px"><summary class="muted" style="cursor:pointer;font-size:12.5px">Xem câu trả lời</summary><div class="qbox" style="margin-top:6px">${esc(t.answer)}</div></details>` : ''}
     `);
   }
+
+  // Message content is fetched on request only, kept in memory for this page view, never stored.
+  let revealed = { id: '', question: '', answer: '' };
+  let revealError = '';
+  function revealBox(id) {
+    if (revealed.id === id) {
+      return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px"><span class="muted" style="font-size:12px">Câu hỏi của người dùng</span><button class="btn" type="button" data-hide-content>Ẩn nội dung</button></div>
+        <div class="qbox">${esc(revealed.question || '(không tìm thấy: cuộc chat tạm, đã xóa hoặc gọi qua API)')}</div>
+        <div class="muted" style="font-size:12px;margin:10px 0 4px">Câu trả lời</div>
+        <div class="qbox">${esc(revealed.answer || '(không có)')}</div>`;
+    }
+    return `<form id="reveal-form" data-id="${esc(id)}" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+        <span class="muted" style="font-size:12.5px">Nội dung câu hỏi và câu trả lời đang được ẩn.</span>
+        <input id="reveal-key" class="btn" type="password" autocomplete="off" placeholder="Nhập khóa truy xuất" style="min-width:220px">
+        <button class="btn primary" type="submit">Truy xuất nội dung</button>
+        ${revealError ? `<span class="error-box">${esc(revealError)}</span>` : ''}
+      </form>`;
+  }
+  document.addEventListener('submit', async (e) => {
+    if (e.target.id !== 'reveal-form') return;
+    e.preventDefault();
+    const id = e.target.dataset.id;
+    const key = $('#reveal-key').value;
+    if (!key) return;
+    try {
+      const data = await api(`/api/trace/${encodeURIComponent(id)}/content`, { method: 'POST', headers: { 'X-Reveal-Key': key } });
+      revealed = { id, ...data };
+      revealError = '';
+    } catch (err) {
+      revealError = err.message;
+    }
+    const box = $('#reveal-box');
+    if (box) box.innerHTML = revealBox(id);
+  });
 
   async function renderLoad() {
     const d = await api(`/api/load?range=${range}`);
@@ -676,7 +709,8 @@
 
   function schedule() {
     clearInterval(timer);
-    if ($('#auto').checked) timer = setInterval(() => document.visibilityState === 'visible' && load(), 30000);
+    // Skip a refresh while the viewer is typing (search, reveal key), so the input is not wiped.
+    if ($('#auto').checked) timer = setInterval(() => document.visibilityState === 'visible' && !document.activeElement?.matches('input') && load(), 30000);
   }
 
   document.addEventListener('input', (e) => {
@@ -686,9 +720,10 @@
     const copy = e.target.closest('[data-copy]');
     if (copy) { try { await navigator.clipboard.writeText(copy.dataset.copy); copy.title = 'Đã sao chép'; } catch {} return; }
     const row = e.target.closest('tr[data-trace]');
-    if (row && !e.target.closest('a')) { traceId = row.dataset.trace; tab = 'trace'; history.replaceState(null, '', `#trace-${traceId}`); renderChrome(); load(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+    if (row && !e.target.closest('a')) { revealed = { id: '', question: '', answer: '' }; revealError = ''; traceId = row.dataset.trace; tab = 'trace'; history.replaceState(null, '', `#trace-${traceId}`); renderChrome(); load(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
     const b = e.target.closest('button');
     if (!b) return;
+    if (b.dataset.hideContent !== undefined) { const id = revealed.id; revealed = { id: '', question: '', answer: '' }; const box = $('#reveal-box'); if (box) box.innerHTML = revealBox(id); return; }
     if (b.dataset.traceMin !== undefined) { traceMin = +b.dataset.traceMin; traceId = ''; load(); return; }
     if (b.dataset.traceSource !== undefined) { traceSource = b.dataset.traceSource; traceId = ''; load(); return; }
     if (b.dataset.tab) { tab = b.dataset.tab; store('mon.tab', tab); history.replaceState(null, '', `#${tab}`); renderChrome(); $('#main').innerHTML = '<div class="empty"><span class="spin"></span> Đang tải…</div>'; load(); }

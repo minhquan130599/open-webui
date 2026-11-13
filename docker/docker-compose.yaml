@@ -220,6 +220,8 @@ services:
       - MONITOR_API_KEY=${MONITOR_API_KEY:-}
       - MONITOR_USERNAME=${MONITOR_USERNAME:-admin}
       - MONITOR_PASSWORD=${MONITOR_PASSWORD:-}
+      # Khóa để xem nội dung câu hỏi/câu trả lời trên timeline (trống = dùng MONITOR_API_KEY)
+      - MONITOR_REVEAL_KEY=${MONITOR_REVEAL_KEY:-}
       # Địa chỉ NCS AI người dùng mở (vd https://ai.ncsgroup.vn), để timeline có nút mở lại cuộc chat
       - OPEN_WEBUI_PUBLIC_URL=${OPEN_WEBUI_PUBLIC_URL:-}
     restart: unless-stopped
