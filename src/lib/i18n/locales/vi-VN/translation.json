@@ -4725,5 +4725,16 @@
 	"{{count}} open work items have no owner yet.": "{{count}} công việc đang mở chưa có người phụ trách.",
 	"{{count}} reminders sent": "Đã gửi {{count}} nhắc nhở",
 	"Work of everyone in the channels you are in.": "Công việc của mọi người trong các kênh bạn tham gia.",
-	"Assignee": "Phụ trách"
+	"Assignee": "Phụ trách",
+	"AI summary": "AI tổng hợp",
+	"average": "trung bình",
+	"Needs attention": "Cần chú ý",
+	"Overdue {{count}} days": "Quá {{count}} ngày",
+	"Tomorrow": "Ngày mai",
+	"{{count}} days left": "Còn {{count}} ngày",
+	"Close work item": "Đóng hạng mục",
+	"{{count}} items": "{{count}} việc",
+	"{{count}} overdue": "{{count}} quá hạn",
+	"Closed / cancelled": "Đã đóng / đã hủy",
+	"30 days": "30 ngày"
 }
