@@ -441,12 +441,12 @@
     const st = editor.status || {};
     const msg = editor.error ? `<div class="error-box" style="margin-top:8px">${esc(editor.error)}</div>` : '';
     const ok = editor.note ? `<div class="notice info" style="margin-top:8px">${esc(editor.note)}</div>` : '';
-    if (!st.admin_key_set) return card('Chỉnh sửa cấu hình', `<div class="notice warn">Chưa đặt <code>MONITOR_ADMIN_KEY</code> trong <code>.env</code> của server nên không thể sửa cấu hình. Đặt khóa rồi chạy <code>docker compose up -d monitor</code>.</div>${msg}`);
+    if (!st.admin_key_set) return card('Chỉnh sửa cấu hình', `<div class="notice warn">Chưa đặt <code>MONITOR_REVEAL_KEY</code> trong <code>.env</code> của server nên không thể sửa cấu hình. Đặt khóa rồi chạy <code>docker compose up -d monitor</code>.</div>${msg}`);
     if (!st.totp_set) return card('Chỉnh sửa cấu hình', `<div class="notice warn">Chưa cài mã Google Authenticator. Trên server chạy lệnh dưới, quét QR in ra trong terminal (QR và secret không bao giờ hiện trên trang này):<br><code>docker compose exec monitor python -m open_webui.monitoring.server.totp init</code></div>${msg}`);
     if (!editor.token || !editor.data) {
       return card('Chỉnh sửa cấu hình', `<form id="unlock-form" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-          <span class="muted" style="font-size:12.5px">Nhập khóa quản trị và mã 6 số trên Google Authenticator. Mỗi mã chỉ dùng một lần; phiên chỉnh sửa kéo dài 15 phút.</span>
-          <input id="unlock-key" class="btn" type="password" autocomplete="off" placeholder="Khóa quản trị" style="min-width:220px">
+          <span class="muted" style="font-size:12.5px">Nhập khóa truy xuất (MONITOR_REVEAL_KEY) và mã 6 số trên Google Authenticator. Mỗi mã chỉ dùng một lần; phiên chỉnh sửa kéo dài 15 phút.</span>
+          <input id="unlock-key" class="btn" type="password" autocomplete="off" placeholder="Khóa truy xuất" style="min-width:220px">
           <input id="unlock-code" class="btn" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="Mã 6 số" style="width:110px;letter-spacing:.2em">
           <button class="btn primary" type="submit">Xác thực</button>
         </form>${msg}`);

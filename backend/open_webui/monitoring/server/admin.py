@@ -1,6 +1,6 @@
 """Change NCS AI settings from the monitor page.
 
-Unlock with MONITOR_ADMIN_KEY + a Google Authenticator code (each code works once); that opens an edit session
+Unlock with MONITOR_REVEAL_KEY + a Google Authenticator code (each code works once); that opens an edit session
 of SESSION_SECONDS for this browser. Only the settings listed in SETTINGS can be changed. They are written to the
 config table and `monitor.config_version` is bumped so every NCS AI worker applies them (config_watch.py).
 Every change is recorded as a perf_event of kind 'config_change' (secrets are never stored in it).
@@ -159,7 +159,7 @@ def require_session(request: Request) -> str:
     if not session or session[0] < time.time() or session[1] != _client(request):
         _sessions.pop(token, None)
         raise HTTPException(
-            401, 'Phiên chỉnh sửa đã hết hạn. Xác thực lại bằng khóa quản trị và mã Google Authenticator.'
+            401, 'Phiên chỉnh sửa đã hết hạn. Xác thực lại bằng khóa truy xuất và mã Google Authenticator.'
         )
     return token
 
@@ -185,7 +185,7 @@ class UnlockForm(BaseModel):
 @router.post('/api/admin/unlock')
 async def unlock(form: UnlockForm, request: Request):
     if not security.ADMIN_KEY:
-        raise HTTPException(503, 'Chưa đặt MONITOR_ADMIN_KEY nên không thể sửa cấu hình.')
+        raise HTTPException(503, 'Chưa đặt MONITOR_REVEAL_KEY nên không thể sửa cấu hình.')
     client = _client(request)
     now = time.time()
     recent = [t for t in _failures.get(client, []) if now - t < LOCK_SECONDS]
@@ -201,7 +201,7 @@ async def unlock(form: UnlockForm, request: Request):
         return HTTPException(403, f'{message} (còn {MAX_FAILURES - len(recent)} lần thử).')
 
     if not security.check_admin_key(form.admin_key):
-        raise fail('Khóa quản trị hoặc mã xác thực không đúng')
+        raise fail('Khóa hoặc mã xác thực không đúng')
     async with _engine().begin() as conn:
         stored = (await _get(conn, [security.TOTP_KEY])).get(security.TOTP_KEY)
         if not stored:
@@ -213,11 +213,11 @@ async def unlock(form: UnlockForm, request: Request):
         secret = security.decrypt_secret(stored.get('enc', ''))
         if not secret:
             raise HTTPException(
-                409, 'Không giải mã được mã xác thực (MONITOR_ADMIN_KEY đã đổi?). Chạy totp reset rồi init.'
+                409, 'Không giải mã được mã xác thực (MONITOR_REVEAL_KEY đã đổi?). Chạy totp reset rồi init.'
             )
         step = security.verify_code(secret, form.code, int(stored.get('last_step', -1)))
         if step is None:
-            raise fail('Khóa quản trị hoặc mã xác thực không đúng')
+            raise fail('Khóa hoặc mã xác thực không đúng')
         await _put(conn, security.TOTP_KEY, {**stored, 'last_step': step})
     _failures.pop(client, None)
     for token, (expires, _) in list(_sessions.items()):

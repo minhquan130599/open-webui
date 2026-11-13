@@ -175,23 +175,24 @@ Với Tracker, giá trị lưu trong database được ưu tiên hơn `.env`. Đ
 
 ### Cài đặt bảo mật (một lần)
 
-1. Thêm vào `.env` rồi chạy `sudo docker compose up -d monitor`:
+1. Đảm bảo `.env` đã có `MONITOR_REVEAL_KEY` (khóa truy xuất, cũng là khóa sửa cấu hình), rồi chạy
+   `sudo docker compose up -d monitor`:
    ```env
-   MONITOR_ADMIN_KEY=<chuỗi ngẫu nhiên dài, vd: openssl rand -hex 32>
+   MONITOR_REVEAL_KEY=<chuỗi ngẫu nhiên dài, vd: openssl rand -hex 32>
    ```
 2. Tạo mã Google Authenticator **trên terminal của server**:
    ```bash
    sudo docker compose exec monitor python -m open_webui.monitoring.server.totp init
    ```
-   - Lệnh hỏi khóa quản trị, rồi in **QR code và secret** ra terminal.
+   - Lệnh hỏi khóa truy xuất, rồi in **QR code và secret** ra terminal.
    - Quét QR bằng Google Authenticator (hoặc Microsoft Authenticator, Authy), sau đó nhập mã 6 số để xác nhận.
    - QR và secret **chỉ hiện một lần ở đây, không bao giờ hiện trên trang web**. Secret được lưu trong database
-     dưới dạng **đã mã hóa bằng `MONITOR_ADMIN_KEY`**.
+     dưới dạng **đã mã hóa bằng `MONITOR_REVEAL_KEY`**.
 
 ### Sửa cấu hình
 
 1. Trên trang giám sát, bấm **Chỉnh sửa cấu hình**.
-2. Nhập **khóa quản trị** và **mã 6 số** đang hiện trên ứng dụng.
+2. Nhập **khóa truy xuất (`MONITOR_REVEAL_KEY`)** và **mã 6 số** đang hiện trên ứng dụng.
    - Mỗi mã chỉ dùng được một lần.
    - Sai 5 lần thì bị khóa 10 phút.
 3. Sau khi xác thực, bạn có phiên chỉnh sửa **15 phút**. Bấm **Khóa lại** để đóng phiên sớm.
@@ -207,8 +208,8 @@ Với Tracker, giá trị lưu trong database được ưu tiên hơn `.env`. Đ
 | Việc | Lệnh (trong thư mục có docker-compose.yaml) |
 |---|---|
 | Xem trạng thái | `sudo docker compose exec monitor python -m open_webui.monitoring.server.totp status` |
-| Đổi QR/secret định kỳ (cần khóa quản trị **và** mã hiện tại) | `... totp rotate` |
-| Mất điện thoại (cần khóa quản trị, gõ XOA để xác nhận) | `... totp reset` rồi `... totp init` |
-| Đổi `MONITOR_ADMIN_KEY` | Secret cũ không giải mã được nữa: chạy `reset` rồi `init` |
+| Đổi QR/secret định kỳ (cần khóa **và** mã hiện tại) | `... totp rotate` |
+| Mất điện thoại (cần khóa, gõ XOA để xác nhận) | `... totp reset` rồi `... totp init` |
+| Đổi `MONITOR_REVEAL_KEY` | Secret cũ không giải mã được nữa: chạy `reset` rồi `init` |
 
 Sau khi `rotate` hoặc `reset`, mã trên ứng dụng cũ hết hiệu lực ngay. Xóa mục cũ trong ứng dụng để khỏi nhầm.

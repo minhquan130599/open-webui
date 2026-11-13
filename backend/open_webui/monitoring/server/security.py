@@ -1,7 +1,7 @@
-"""Admin key + one-time code (Google Authenticator / TOTP) for changing settings from the monitor page.
+"""Admin key (MONITOR_REVEAL_KEY) + one-time code (Google Authenticator / TOTP) for changing settings from the monitor page.
 
 The TOTP secret is created once from the server terminal (see totp.py), stored only in the database,
-encrypted with a key derived from MONITOR_ADMIN_KEY, and never shown on the web page. Each code can be used
+encrypted with a key derived from the admin key, and never shown on the web page. Each code can be used
 once (the last accepted time step is stored).
 """
 
@@ -15,7 +15,11 @@ from typing import Optional
 import pyotp
 from cryptography.fernet import Fernet, InvalidToken
 
-ADMIN_KEY = os.getenv('MONITOR_ADMIN_KEY', '')
+# The key that unlocks message content (MONITOR_REVEAL_KEY, else MONITOR_API_KEY) also unlocks settings, always
+# together with a Google Authenticator code. MONITOR_ADMIN_KEY, if set, still takes precedence.
+ADMIN_KEY = (
+    os.getenv('MONITOR_ADMIN_KEY', '') or os.getenv('MONITOR_REVEAL_KEY', '') or os.getenv('MONITOR_API_KEY', '')
+)
 TOTP_KEY = 'monitor.totp'  # config row: {'enc': <Fernet token>, 'created_at': ts, 'last_step': int}
 ISSUER = os.getenv('MONITOR_TOTP_ISSUER', 'NCS AI Monitor')
 

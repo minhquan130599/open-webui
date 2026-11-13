@@ -3,12 +3,12 @@
 Run on the server (inside the monitor container):
 
     docker compose exec monitor python -m open_webui.monitoring.server.totp init     # first time
-    docker compose exec monitor python -m open_webui.monitoring.server.totp rotate   # new QR (needs current code)
+    docker compose exec monitor python -m open_webui.monitoring.server.totp rotate   # new QR (needs the key and the current code)
     docker compose exec monitor python -m open_webui.monitoring.server.totp status
-    docker compose exec monitor python -m open_webui.monitoring.server.totp reset    # lost phone: admin key only
+    docker compose exec monitor python -m open_webui.monitoring.server.totp reset    # lost phone: the key only
 
 The QR code and the secret are printed here once and never shown on the web page. The secret is stored only in
-the database, encrypted with MONITOR_ADMIN_KEY (changing that key requires running `reset` then `init`).
+the database, encrypted with MONITOR_REVEAL_KEY (changing that key requires running `reset` then `init`).
 """
 
 import getpass
@@ -47,10 +47,10 @@ def _save(conn, value: dict) -> None:
 
 def _ask_admin_key() -> str:
     if not security.ADMIN_KEY:
-        sys.exit('MONITOR_ADMIN_KEY is not set (add it to .env, then: docker compose up -d monitor).')
-    key = getpass.getpass('Khóa quản trị (MONITOR_ADMIN_KEY): ')
+        sys.exit('MONITOR_REVEAL_KEY is not set (add it to .env, then: docker compose up -d monitor).')
+    key = getpass.getpass('Khóa truy xuất (MONITOR_REVEAL_KEY): ')
     if not security.check_admin_key(key):
-        sys.exit('Khóa quản trị không đúng.')
+        sys.exit('Khóa không đúng.')
     return key
 
 
@@ -95,7 +95,7 @@ def main(argv: list[str]) -> None:
                 readable = security.decrypt_secret(current.get('enc', '')) is not None
                 print(
                     f'Đã cài mã xác thực từ {created}.'
-                    + ('' if readable else ' KHÔNG giải mã được với MONITOR_ADMIN_KEY hiện tại: chạy reset rồi init.')
+                    + ('' if readable else ' KHÔNG giải mã được với MONITOR_REVEAL_KEY hiện tại: chạy reset rồi init.')
                 )
             else:
                 print('Chưa cài mã xác thực. Chạy: python -m open_webui.monitoring.server.totp init')
@@ -110,7 +110,7 @@ def main(argv: list[str]) -> None:
             _ask_admin_key()
             secret = security.decrypt_secret(current.get('enc', ''))
             if not secret:
-                sys.exit('Không giải mã được secret hiện tại (MONITOR_ADMIN_KEY đã đổi?). Dùng `reset` rồi `init`.')
+                sys.exit('Không giải mã được secret hiện tại (MONITOR_REVEAL_KEY đã đổi?). Dùng `reset` rồi `init`.')
             code = input('Mã 6 số hiện tại trên ứng dụng: ').strip()
             if security.verify_code(secret, code, int(current.get('last_step', -1))) is None:
                 sys.exit('Mã hiện tại không đúng hoặc đã dùng. Không thay đổi gì.')
