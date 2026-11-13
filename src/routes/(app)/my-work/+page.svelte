@@ -1,112 +1,275 @@
 <script lang="ts">
-	import { getContext, onDestroy, onMount } from 'svelte';
+	import { getContext, onDestroy, onMount, tick } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { toast } from 'svelte-sonner';
-	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
-	import dayjs from 'dayjs';
 
 	import { WEBUI_NAME, config, mobile, showSidebar, user } from '$lib/stores';
 	import {
 		archiveTrackerItems,
-		getMyWork,
-		getTeam,
-		type MyWork,
+		getBoard,
+		type Board,
+		type BoardChannel,
 		type MyWorkItem,
-		type Team,
 		type WorkBucket
 	} from '$lib/apis/tracker';
 
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
-	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
-	import EllipsisHorizontal from '$lib/components/icons/EllipsisHorizontal.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
+	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import SidebarIcon from '$lib/components/icons/Sidebar.svelte';
+	import EllipsisHorizontal from '$lib/components/icons/EllipsisHorizontal.svelte';
 	import SearchIcon from '$lib/components/layout/Sidebar/icons/Search.svelte';
 
 	const i18n: any = getContext('i18n');
 
+	type Mode = 'mine' | 'team';
+
 	// Preserve dynamically translated labels for i18n extraction.
 	// t('Overdue') t('Due today') t('Next 7 days') t('Later') t('No due date') t('Done, waiting to be closed')
-	const BUCKETS: { key: WorkBucket; label: string; className: string }[] = [
-		{ key: 'overdue', label: 'Overdue', className: 'text-red-600 dark:text-red-400' },
-		{ key: 'today', label: 'Due today', className: 'text-amber-600 dark:text-amber-400' },
-		{ key: 'week', label: 'Next 7 days', className: 'text-gray-900 dark:text-gray-100' },
-		{ key: 'later', label: 'Later', className: 'text-gray-900 dark:text-gray-100' },
-		{ key: 'no_due', label: 'No due date', className: 'text-gray-900 dark:text-gray-100' },
+	const BUCKETS: { key: WorkBucket; label: string; dot: string; bar: string }[] = [
+		{ key: 'overdue', label: 'Overdue', dot: 'bg-red-500', bar: 'bg-red-500' },
+		{ key: 'today', label: 'Due today', dot: 'bg-amber-500', bar: 'bg-amber-500' },
+		{ key: 'week', label: 'Next 7 days', dot: 'bg-blue-500', bar: 'bg-blue-500' },
+		{ key: 'later', label: 'Later', dot: 'bg-gray-400', bar: 'bg-gray-400 dark:bg-gray-500' },
 		{
-			key: 'done',
-			label: 'Done, waiting to be closed',
-			className: 'text-green-700 dark:text-green-400'
+			key: 'no_due',
+			label: 'No due date',
+			dot: 'bg-gray-300',
+			bar: 'bg-gray-300 dark:bg-gray-600'
+		},
+		{ key: 'done', label: 'Done, waiting to be closed', dot: 'bg-green-500', bar: 'bg-green-500' }
+	];
+	const TILES: { key: WorkBucket; label: string; text: string; ring: string; line: string }[] = [
+		{
+			key: 'overdue',
+			label: 'Overdue',
+			text: 'text-red-600 dark:text-red-400',
+			ring: 'ring-red-500',
+			line: 'bg-red-500'
+		},
+		{
+			key: 'today',
+			label: 'Due today',
+			text: 'text-amber-600 dark:text-amber-400',
+			ring: 'ring-amber-500',
+			line: 'bg-amber-500'
+		},
+		{
+			key: 'week',
+			label: 'Next 7 days',
+			text: 'text-blue-600 dark:text-blue-400',
+			ring: 'ring-blue-500',
+			line: 'bg-blue-500'
+		},
+		{
+			key: 'no_due',
+			label: 'No due date',
+			text: 'text-gray-700 dark:text-gray-300',
+			ring: 'ring-gray-400',
+			line: 'bg-gray-400'
 		}
 	];
-
-	const STATUS: Record<string, { label: string; className: string }> = {
+	const STATUS: Record<string, { label: string; pill: string; stripe: string }> = {
 		chua_bat_dau: {
 			label: 'Not started',
-			className: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
+			pill: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
+			stripe: 'bg-gray-400 dark:bg-gray-500'
 		},
 		dang_lam: {
 			label: 'In progress',
-			className: 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+			pill: 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+			stripe: 'bg-blue-500'
 		},
 		bi_chan: {
 			label: 'Blocked',
-			className: 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'
+			pill: 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300',
+			stripe: 'bg-red-500'
 		},
 		tam_dung: {
 			label: 'Paused',
-			className: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+			pill: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+			stripe: 'bg-amber-500'
 		},
 		hoan_thanh: {
 			label: 'Done',
-			className: 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300'
+			pill: 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300',
+			stripe: 'bg-green-500'
 		}
 	};
+	const AVATAR_COLORS = [
+		'bg-violet-500',
+		'bg-cyan-600',
+		'bg-pink-500',
+		'bg-orange-500',
+		'bg-emerald-600',
+		'bg-indigo-500',
+		'bg-rose-500',
+		'bg-teal-600'
+	];
+	const avatarColor = (name: string) =>
+		AVATAR_COLORS[[...name].reduce((sum, c) => sum + c.charCodeAt(0), 0) % AVATAR_COLORS.length];
+	const initial = (name: string) => (name.trim().split(/\s+/).pop() ?? '?').charAt(0).toUpperCase();
+	const RING = 2 * Math.PI * 17;
 
-	let tab: 'mine' | 'team' = 'mine';
-	let work: MyWork | null = null;
-	let team: Team | null = null;
-	let canViewTeam = false;
-	let memberId = '';
+	// Open channels/members and the chosen view are remembered per browser.
+	const VIEW_KEY = 'myWorkView.v2';
+	const readView = () => {
+		try {
+			return JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}');
+		} catch {
+			return {};
+		}
+	};
+	const saved = readView();
+	let mode: Mode = saved.mode === 'team' ? 'team' : 'mine';
+	let open: Record<string, boolean> = saved.open ?? {};
+	let openMember: Record<string, boolean> = saved.openMember ?? {};
+	$: try {
+		localStorage.setItem(VIEW_KEY, JSON.stringify({ mode, open, openMember }));
+	} catch {}
+
+	let board: Board | null = null;
 	let loading = true;
 	let error = '';
 	let query = '';
-	let channelFilter = '';
-	let showDone = false;
+	let filter: WorkBucket | null = null;
+	let showDone: Record<string, boolean> = {};
 	let menuFor: string | null = null;
 	let busy = false;
-	// Item waiting for the cancel confirmation.
+	let barsReady = false;
 	let pendingCancel: MyWorkItem | null = null;
 	let showConfirm = false;
 	let timer: ReturnType<typeof setInterval> | null = null;
 
-	const normalize = (text = '') =>
-		text.toLocaleLowerCase('vi').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
-
-	const loadWork = async (userId = '') => {
-		loading = true;
+	const load = async (silent = false): Promise<void> => {
+		if (!silent) loading = true;
 		error = '';
 		try {
-			work = await getMyWork(localStorage.token, userId || undefined);
-			if (!userId) canViewTeam = work.can_view_team;
+			const data = await getBoard(localStorage.token, mode);
+			if (mode === 'team' && !data.can_view_team) {
+				mode = 'mine';
+				return load(silent);
+			}
+			board = data;
+			if (!barsReady) {
+				await tick();
+				requestAnimationFrame(() => (barsReady = true));
+			}
 		} catch (e: any) {
 			error = e?.detail ?? String(e);
-			work = null;
 		} finally {
 			loading = false;
 		}
 	};
 
-	// Reload what is on screen without a spinner (after an action, on focus, periodically), so changes made
-	// in a channel's progress panel show up here and the other way round.
-	const reload = async () => {
-		if (tab === 'team' && !memberId) {
-			team = await getTeam(localStorage.token).catch(() => team);
-		} else {
-			work = await getMyWork(localStorage.token, memberId || undefined).catch(() => work);
-		}
+	const setMode = (value: Mode) => {
+		if (value === mode) return;
+		mode = value;
+		filter = null;
+		board = null;
+		barsReady = false;
+		load();
 	};
+
+	const normalize = (text = '') =>
+		text.toLocaleLowerCase('vi').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
+
+	const isMine = (item: MyWorkItem) => !!$user?.id && item.owner_ids.includes($user.id);
+	const isOrphan = (item: MyWorkItem) => item.phu_trach.length === 0;
+	const count = (items: MyWorkItem[], bucket: WorkBucket) =>
+		items.filter((i) => i.bucket === bucket).length;
+	const average = (items: MyWorkItem[]) => {
+		const withProgress = items.filter(
+			(i) => i.bucket !== 'done' && i.tien_do !== null && i.tien_do !== undefined
+		);
+		return withProgress.length
+			? Math.round(withProgress.reduce((sum, i) => sum + (i.tien_do ?? 0), 0) / withProgress.length)
+			: 0;
+	};
+	const groups = (items: MyWorkItem[]) =>
+		BUCKETS.map((b) => ({ ...b, items: items.filter((i) => i.bucket === b.key) })).filter(
+			(g) => g.items.length > 0
+		);
+
+	$: searched = (board?.items ?? []).filter(
+		(item) =>
+			!query.trim() ||
+			normalize(
+				`${item.ten} ${item.channel_name} ${item.phu_trach.join(' ')} ${item.vuong_mac ?? ''}`
+			).includes(normalize(query.trim()))
+	);
+	// The summary tiles count the viewer's own work in "mine", everything in "team".
+	$: counted = mode === 'mine' ? searched.filter(isMine) : searched;
+	$: visible = filter ? searched.filter((i) => i.bucket === filter) : searched;
+	$: channels = (board?.channels ?? [])
+		.map((channel) => ({ channel, items: visible.filter((i) => i.channel_id === channel.id) }))
+		.filter(({ items }) => items.length > 0 || (mode === 'team' && !filter && !query.trim()))
+		.sort(
+			(a, b) =>
+				count(b.items, 'overdue') - count(a.items, 'overdue') ||
+				count(b.items, 'today') - count(a.items, 'today') ||
+				a.channel.name.localeCompare(b.channel.name, 'vi')
+		);
+	$: openCount = counted.filter((i) => i.bucket !== 'done').length;
+	$: channelCount = new Set(counted.map((i) => i.channel_id)).size;
+
+	// Team view: one group per owner account; names the tracker could not link to an account keep their
+	// own group. Unassigned items are listed separately.
+	const members = (items: MyWorkItem[]) => {
+		const byOwner = new Map<
+			string,
+			{ key: string; name: string; email: string; items: MyWorkItem[] }
+		>();
+		for (const item of items) {
+			if (isOrphan(item)) continue;
+			const owners = item.owner_ids.length
+				? item.owner_ids.map((id) => ({
+						key: id,
+						name: board?.people[id]?.name ?? id,
+						email: board?.people[id]?.email ?? ''
+					}))
+				: item.phu_trach.map((name) => ({
+						key: `name:${name}`,
+						name,
+						email: $i18n.t('Not linked to an account')
+					}));
+			for (const owner of owners) {
+				const entry = byOwner.get(owner.key) ?? { ...owner, items: [] as MyWorkItem[] };
+				entry.items.push(item);
+				byOwner.set(owner.key, entry);
+			}
+		}
+		return [...byOwner.values()].sort(
+			(a, b) =>
+				count(b.items, 'overdue') - count(a.items, 'overdue') || a.name.localeCompare(b.name, 'vi')
+		);
+	};
+
+	const GRAY_TAG = 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300';
+	const dueTag = (item: MyWorkItem) => {
+		const days = item.days_left;
+		if (item.bucket === 'done') return null;
+		if (days === null || days === undefined) return { text: $i18n.t('No due date'), cls: GRAY_TAG };
+		if (days < 0)
+			return {
+				text: $i18n.t('Overdue {{count}} days', { count: -days }),
+				cls: 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'
+			};
+		if (days <= 1)
+			return {
+				text: days === 0 ? $i18n.t('Today') : $i18n.t('Tomorrow'),
+				cls: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+			};
+		return { text: $i18n.t('{{count}} days left', { count: days }), cls: GRAY_TAG };
+	};
+	const barColor = (item: MyWorkItem) =>
+		item.bucket === 'done'
+			? 'bg-green-500'
+			: item.trang_thai === 'bi_chan' || item.bucket === 'overdue'
+				? 'bg-red-500'
+				: item.bucket === 'today'
+					? 'bg-amber-500'
+					: 'bg-blue-500';
 
 	const archive = async (item: MyWorkItem, kind: 'dong' | 'huy') => {
 		busy = true;
@@ -114,7 +277,7 @@
 		try {
 			await archiveTrackerItems(localStorage.token, item.channel_id, [item.id], kind);
 			toast.success(kind === 'dong' ? $i18n.t('Work item closed') : $i18n.t('Work item cancelled'));
-			await reload();
+			await load(true);
 		} catch (e: any) {
 			toast.error(`${e?.detail ?? e}`);
 		} finally {
@@ -122,115 +285,31 @@
 		}
 	};
 
-	const onVisible = () => document.visibilityState === 'visible' && reload();
-
-	const loadTeam = async () => {
-		loading = true;
-		error = '';
-		try {
-			team = await getTeam(localStorage.token);
-		} catch (e: any) {
-			error = e?.detail ?? String(e);
-		} finally {
-			loading = false;
-		}
+	const openAll = () => {
+		open = { ...open, ...Object.fromEntries((board?.channels ?? []).map((c) => [c.id, true])) };
 	};
-
-	const setUrl = (params: Record<string, string>) => {
-		const url = new URL($page.url);
-		url.search = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
-		goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
+	const pickFilter = (key: WorkBucket) => {
+		filter = filter === key ? null : key;
+		if (filter) openAll();
 	};
+	let lastQuery = '';
+	$: if (query.trim() && query !== lastQuery) {
+		lastQuery = query;
+		openAll();
+	}
 
-	const showMine = async () => {
-		tab = 'mine';
-		memberId = '';
-		channelFilter = '';
-		setUrl({});
-		await loadWork();
-	};
+	const onVisible = () => document.visibilityState === 'visible' && load(true);
 
-	const showTeam = async () => {
-		tab = 'team';
-		memberId = '';
-		setUrl({ tab: 'team' });
-		await loadTeam();
-	};
-
-	const openMember = async (id: string) => {
-		tab = 'team';
-		memberId = id;
-		channelFilter = '';
-		setUrl({ tab: 'team', user: id });
-		await loadWork(id);
-	};
-
-	$: channels = work
-		? [...new Map(work.items.map((i) => [i.channel_id, i.channel_name])).entries()].sort((a, b) =>
-				a[1].localeCompare(b[1], 'vi')
-			)
-		: [];
-
-	$: filtered = (work?.items ?? []).filter(
-		(item) =>
-			(!channelFilter || item.channel_id === channelFilter) &&
-			(!query.trim() ||
-				normalize(`${item.ten} ${item.channel_name} ${item.vuong_mac ?? ''}`).includes(
-					normalize(query.trim())
-				))
-	);
-
-	const byDue = (a: MyWorkItem, b: MyWorkItem) =>
-		(a.han ?? '9999').localeCompare(b.han ?? '9999') || a.ten.localeCompare(b.ten, 'vi');
-
-	$: sections = BUCKETS.map((bucket) => ({
-		...bucket,
-		items: filtered.filter((i) => i.bucket === bucket.key).sort(byDue)
-	})).filter((s) => s.items.length > 0);
-
-	$: openCount = filtered.filter((i) => i.bucket !== 'done').length;
-
-	const dueText = (item: MyWorkItem) => {
-		if (!item.han) return '';
-		const date = dayjs(item.han).format('DD/MM/YYYY');
-		const days = item.days_left;
-		if (item.bucket === 'done' || days === null) return date;
-		if (days < 0) return `${date} · ${$i18n.t('{{count}} days overdue', { count: -days })}`;
-		if (days === 0) return `${date} · ${$i18n.t('today')}`;
-		if (days === 1) return `${date} · ${$i18n.t('tomorrow')}`;
-		return `${date} · ${$i18n.t('in {{count}} days', { count: days })}`;
-	};
-
-	$: memberName =
-		memberId && work?.user?.id === memberId
-			? work.user.name
-			: (team?.people.find((p) => p.id === memberId)?.name ?? '');
-
+	onMount(() => {
+		load();
+		timer = setInterval(() => load(true), 30_000);
+		document.addEventListener('visibilitychange', onVisible);
+		window.addEventListener('focus', onVisible);
+	});
 	onDestroy(() => {
 		if (timer) clearInterval(timer);
 		document.removeEventListener('visibilitychange', onVisible);
 		window.removeEventListener('focus', onVisible);
-	});
-
-	onMount(async () => {
-		timer = setInterval(reload, 30_000);
-		document.addEventListener('visibilitychange', onVisible);
-		window.addEventListener('focus', onVisible);
-		const params = $page.url.searchParams;
-		if (params.get('tab') === 'team') {
-			// Learn whether the viewer may see the team before opening it.
-			await loadWork();
-			if (!canViewTeam) return;
-			tab = 'team';
-			if (params.get('user')) {
-				memberId = params.get('user') ?? '';
-				await Promise.all([loadTeam(), loadWork(memberId)]);
-			} else {
-				await loadTeam();
-			}
-		} else {
-			await loadWork();
-		}
 	});
 </script>
 
@@ -244,6 +323,193 @@
 	on:click={() => (menuFor = null)}
 	on:keydown={(e) => e.key === 'Escape' && (menuFor = null)}
 />
+
+{#snippet itemRow(item: MyWorkItem)}
+	{@const status = STATUS[item.trang_thai] ?? STATUS.dang_lam}
+	{@const tag = dueTag(item)}
+	{@const key = item.channel_id + item.id}
+	<li
+		class="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 rounded-xl border border-gray-100 bg-white py-2.5 pl-4 pr-2 transition-colors hover:border-gray-200 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-gray-700"
+	>
+		<span class="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-full {status.stripe}"></span>
+		<div class="min-w-0">
+			<div
+				class="break-words text-[0.8125rem] font-medium leading-snug text-gray-900 dark:text-gray-100"
+			>
+				{item.ten}
+			</div>
+			<div
+				class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-gray-400"
+			>
+				{#if item.tien_do !== null && item.tien_do !== undefined}
+					<span class="h-1.5 w-28 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+						<span
+							class="block h-full rounded-full transition-[width] duration-1000 ease-out {barColor(
+								item
+							)}"
+							style="width: {barsReady ? item.tien_do : 0}%"
+						></span>
+					</span>
+					<span class="tabular-nums">{item.tien_do}%</span>
+				{/if}
+				{#if tag}
+					<span class="whitespace-nowrap rounded-full px-1.5 py-0.5 text-[0.6875rem] {tag.cls}"
+						>{tag.text}</span
+					>
+				{/if}
+				{#if mode === 'mine' && item.phu_trach.length > 1}
+					<span>{$i18n.t('with {{names}}', { names: item.phu_trach.join(', ') })}</span>
+				{/if}
+			</div>
+			{#if item.vuong_mac}
+				<div class="mt-1.5 text-xs text-red-600 dark:text-red-400">
+					{$i18n.t('Blocker')}: {item.vuong_mac}
+				</div>
+			{/if}
+		</div>
+		<div class="flex shrink-0 items-center gap-0.5">
+			<span class="rounded-full px-2 py-0.5 text-[0.6875rem] {status.pill}"
+				>{$i18n.t(status.label)}</span
+			>
+			{#if item.can_manage}
+				<div class="relative">
+					<button
+						type="button"
+						class="flex size-7 items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-white"
+						aria-label={$i18n.t('Options')}
+						aria-haspopup="menu"
+						aria-expanded={menuFor === key}
+						disabled={busy}
+						on:click|stopPropagation={() => (menuFor = menuFor === key ? null : key)}
+					>
+						<EllipsisHorizontal className="size-4" />
+					</button>
+					{#if menuFor === key}
+						<div
+							class="absolute right-0 top-8 z-20 flex min-w-44 flex-col rounded-xl border border-gray-100 bg-white p-1 shadow-lg dark:border-gray-800 dark:bg-gray-900"
+							role="menu"
+							transition:slide={{ duration: 120 }}
+						>
+							<button
+								type="button"
+								role="menuitem"
+								class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/40"
+								on:click|stopPropagation={() => archive(item, 'dong')}
+								><span aria-hidden="true">✓</span>{$i18n.t('Complete & close')}</button
+							>
+							<button
+								type="button"
+								role="menuitem"
+								class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+								on:click|stopPropagation={() => {
+									menuFor = null;
+									pendingCancel = item;
+									showConfirm = true;
+								}}><span aria-hidden="true">✕</span>{$i18n.t('Cancel item')}</button
+							>
+						</div>
+					{/if}
+				</div>
+			{/if}
+		</div>
+	</li>
+{/snippet}
+
+{#snippet grouped(items: MyWorkItem[], key: string)}
+	{#each groups(items) as group (group.key)}
+		{#if group.key === 'done' && !showDone[key]}
+			<button
+				type="button"
+				class="block px-1.5 pt-2 text-xs text-gray-500 hover:text-gray-900 dark:hover:text-white"
+				on:click={() => (showDone = { ...showDone, [key]: true })}
+			>
+				+ {$i18n.t('{{count}} completed items waiting to be closed', {
+					count: group.items.length
+				})}
+			</button>
+		{:else}
+			<div
+				class="flex items-center gap-2 px-1.5 pb-1.5 pt-3 text-[0.6875rem] font-semibold uppercase tracking-wide text-gray-500"
+			>
+				<span class="size-1.5 rounded-full {group.dot}"></span>
+				{$i18n.t(group.label)} · {group.items.length}
+			</div>
+			<ul class="flex flex-col gap-1.5">
+				{#each group.items as item (item.channel_id + item.id)}
+					{@render itemRow(item)}
+				{/each}
+			</ul>
+		{/if}
+	{:else}
+		<div class="py-4 text-center text-xs text-gray-500">{$i18n.t('No work items.')}</div>
+	{/each}
+{/snippet}
+
+{#snippet orphanBlock(channel: BoardChannel, items: MyWorkItem[])}
+	{@const orphans = items.filter(isOrphan)}
+	{@const key = `${channel.id}:__none__`}
+	{#if channel.can_manage && orphans.length}
+		<div
+			class="mt-2 overflow-hidden rounded-xl border border-dashed border-amber-400 dark:border-amber-700"
+		>
+			<button
+				type="button"
+				class="grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-2.5 text-left hover:bg-amber-50/60 dark:hover:bg-amber-950/20"
+				aria-expanded={!!openMember[key]}
+				on:click={() => (openMember = { ...openMember, [key]: !openMember[key] })}
+			>
+				<span
+					class="grid size-8 place-items-center rounded-full border-[1.5px] border-dashed border-amber-500 text-sm font-semibold text-amber-600 dark:text-amber-400"
+					>?</span
+				>
+				<span class="min-w-0">
+					<span class="block text-[0.8125rem] font-medium text-gray-900 dark:text-gray-100"
+						>{$i18n.t('No owner yet')}</span
+					>
+					<span class="block truncate text-xs text-gray-500"
+						>{$i18n.t('Nobody is assigned, so nobody updates their progress')}</span
+					>
+				</span>
+				<span class="flex items-center gap-2">
+					<span
+						class="rounded-full bg-amber-50 px-2 py-0.5 text-[0.6875rem] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+						>{$i18n.t('{{count}} items', { count: orphans.length })}</span
+					>
+					<svg
+						class="size-3 text-gray-400 transition-transform {openMember[key] ? 'rotate-90' : ''}"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.4"><path d="M9 6l6 6-6 6" /></svg
+					>
+				</span>
+			</button>
+			{#if openMember[key]}
+				<div
+					class="border-t border-dashed border-amber-300 px-2.5 pb-2.5 dark:border-amber-800"
+					transition:slide={{ duration: 150 }}
+				>
+					<div
+						class="mt-2.5 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-gray-700 dark:bg-amber-950/40 dark:text-gray-300"
+					>
+						<b>{$i18n.t('How to assign:')}</b>
+						{$i18n.t('post in #{{channel}} with the person and the task, for example:', {
+							channel: channel.name
+						})}
+						<code
+							class="rounded-md border border-gray-200 bg-white px-1.5 py-px text-[0.6875rem] dark:border-gray-700 dark:bg-gray-900"
+							>{$i18n.t('assign @Name to "{{task}}", due 20/11', { task: orphans[0].ten })}</code
+						>.
+						{$i18n.t(
+							'At the next summary (or Update now in the progress panel) the task moves to that person, who then sees it in My work and gets due reminders. Use ⋯ → Cancel for work no longer needed, ⋯ → Complete & close for finished work.'
+						)}
+					</div>
+					{@render grouped(orphans, key)}
+				</div>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
 
 <div
 	class="flex flex-col w-full h-screen max-h-[100dvh] transition-width duration-200 ease-in-out {$showSidebar
@@ -272,7 +538,7 @@
 					{$WEBUI_NAME} /
 					<span class="text-gray-900 dark:text-gray-100">{$i18n.t('My work')}</span>
 				</div>
-				{#if canViewTeam}
+				{#if board?.can_view_team || mode === 'team'}
 					<div
 						class="flex shrink-0 gap-0.5 rounded-xl p-0.5 bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-800 text-xs"
 						role="group"
@@ -281,11 +547,11 @@
 						{#each [['mine', $i18n.t('Mine')], ['team', $i18n.t('Members')]] as [value, label]}
 							<button
 								type="button"
-								class="px-2.5 py-1 rounded-lg transition {tab === value
+								class="px-2.5 py-1 rounded-lg transition {mode === value
 									? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm font-medium'
 									: 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}"
-								aria-pressed={tab === value}
-								on:click={() => (value === 'mine' ? showMine() : showTeam())}
+								aria-pressed={mode === value}
+								on:click={() => setMode(value as Mode)}
 							>
 								{label}
 							</button>
@@ -297,292 +563,300 @@
 	</nav>
 
 	<div class="flex-1 overflow-y-auto">
-		<div class="max-w-4xl mx-auto px-4 md:px-6 pb-16">
+		<div class="mx-auto flex max-w-4xl flex-col gap-4 px-4 pb-16 md:px-6">
 			{#if !($config?.features?.enable_project_tracker ?? false)}
 				<div class="mt-10 text-center text-sm text-gray-500 dark:text-gray-400">
 					{$i18n.t('Work tracking is not enabled on this server.')}
 				</div>
-			{:else if tab === 'team' && !memberId}
-				<!-- Members of the channels the viewer owns (admins: every channel) -->
-				<div class="mt-3 mb-4">
-					<h1 class="text-xl font-semibold text-gray-900 dark:text-white">
-						{$i18n.t('Members')}
-					</h1>
-					<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-						{$user?.role === 'admin'
-							? $i18n.t('Work of everyone in the channels you are in.')
-							: $i18n.t('Work of the members in the channels you own.')}
-					</p>
-				</div>
-				{#if loading && !team}
-					<div class="flex justify-center py-16"><Spinner className="size-5" /></div>
-				{:else if error}
-					<div class="text-sm text-red-600 dark:text-red-400">{error}</div>
-				{:else if team}
-					{#if team.unassigned > 0}
-						<div
-							class="mb-3 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-300"
-						>
-							{$i18n.t('{{count}} open work items have no owner yet.', {
-								count: team.unassigned
-							})}
-						</div>
-					{/if}
-					{#if team.people.length === 0}
-						<div class="py-10 text-center text-sm text-gray-500">{$i18n.t('No members')}</div>
-					{:else}
-						<ul class="flex flex-col gap-1.5">
-							{#each team.people as person (person.id)}
-								{@const open =
-									person.counts.overdue +
-									person.counts.today +
-									person.counts.week +
-									person.counts.later +
-									person.counts.no_due}
-								<li>
-									<button
-										type="button"
-										class="w-full text-left rounded-xl border border-gray-100 dark:border-gray-800 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-900 transition"
-										on:click={() => openMember(person.id)}
-									>
-										<div class="flex items-center justify-between gap-3">
-											<div class="min-w-0">
-												<div class="font-medium text-sm text-gray-900 dark:text-gray-100 truncate">
-													{person.name}
-												</div>
-												<div class="text-xs text-gray-500 truncate">{person.email}</div>
-											</div>
-											<div class="flex shrink-0 flex-wrap justify-end gap-1.5 text-[0.6875rem]">
-												{#if person.counts.overdue}
-													<span
-														class="rounded-full px-2 py-0.5 bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"
-														>{$i18n.t('Overdue')}: {person.counts.overdue}</span
-													>
-												{/if}
-												{#if person.counts.today}
-													<span
-														class="rounded-full px-2 py-0.5 bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-														>{$i18n.t('Due today')}: {person.counts.today}</span
-													>
-												{/if}
-												<span
-													class="rounded-full px-2 py-0.5 bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
-													>{$i18n.t('Open')}: {open}</span
-												>
-												{#if person.counts.done}
-													<span
-														class="rounded-full px-2 py-0.5 bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300"
-														>{$i18n.t('Done')}: {person.counts.done}</span
-													>
-												{/if}
-											</div>
-										</div>
-									</button>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				{/if}
 			{:else}
-				<div class="mt-3 mb-4 flex flex-wrap items-end justify-between gap-3">
+				<div class="mt-2 flex flex-wrap items-end justify-between gap-3">
 					<div class="min-w-0">
-						{#if memberId}
-							<button
-								type="button"
-								class="text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"
-								on:click={showTeam}>← {$i18n.t('Members')}</button
-							>
-						{/if}
-						<h1 class="text-xl font-semibold text-gray-900 dark:text-white truncate">
-							{memberId ? memberName || $i18n.t('Member') : $i18n.t('My work')}
+						<h1 class="text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
+							{mode === 'mine' ? $i18n.t('My work') : $i18n.t('Members')}
 						</h1>
-						{#if work}
-							<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-								{$i18n.t('{{count}} open work items', { count: openCount })}
-								{#if memberId && $user?.role !== 'admin'}
-									· {$i18n.t('in the channels you own')}
-								{/if}
-							</p>
-						{/if}
-					</div>
-					{#if work && work.items.length > 0}
-						<div class="flex flex-wrap items-center gap-2">
-							<label
-								class="flex items-center gap-1.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-2.5"
-							>
-								<SearchIcon className="size-3.5 text-gray-400" strokeWidth="1.5" />
-								<input
-									bind:value={query}
-									class="w-36 bg-transparent outline-none py-1.5 text-xs placeholder:text-gray-400"
-									placeholder={$i18n.t('Search')}
-									aria-label={$i18n.t('Search')}
-								/>
-							</label>
-							{#if channels.length > 1}
-								<select
-									bind:value={channelFilter}
-									class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-2.5 py-1.5 text-xs outline-none"
-									aria-label={$i18n.t('Channel')}
-								>
-									<option value="">{$i18n.t('All channels')}</option>
-									{#each channels as [id, name]}
-										<option value={id}>{name}</option>
-									{/each}
-								</select>
+						<p class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+							{#if mode === 'mine'}
+								{$i18n.t('{{count}} open work items in {{channels}} channels', {
+									count: openCount,
+									channels: channelCount
+								})}
+							{:else if $user?.role === 'admin'}
+								{$i18n.t('Work of everyone in the channels you are in.')}
+							{:else}
+								{$i18n.t('Work of the members in the channels you own.')}
 							{/if}
-						</div>
-					{/if}
+						</p>
+					</div>
+					<label
+						class="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-2.5 dark:border-gray-800 dark:bg-gray-900"
+					>
+						<SearchIcon className="size-3.5 text-gray-400" strokeWidth="1.5" />
+						<input
+							bind:value={query}
+							class="w-48 bg-transparent py-1.5 text-xs outline-none placeholder:text-gray-400"
+							placeholder={$i18n.t('Search work, channels, people…')}
+							aria-label={$i18n.t('Search')}
+						/>
+					</label>
 				</div>
 
-				{#if loading && !work}
+				<!-- Summary tiles; each filters the list -->
+				<div class="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+					{#each TILES as tile (tile.key)}
+						<button
+							type="button"
+							class="relative overflow-hidden rounded-2xl border bg-white px-3.5 py-3 text-left transition dark:bg-gray-900 {filter ===
+							tile.key
+								? `ring-1 ${tile.ring} border-transparent`
+								: 'border-gray-100 hover:border-gray-200 dark:border-gray-800 dark:hover:border-gray-700'}"
+							aria-pressed={filter === tile.key}
+							on:click={() => pickFilter(tile.key)}
+						>
+							<div class="text-2xl font-semibold tabular-nums {tile.text}">
+								{count(counted, tile.key)}
+							</div>
+							<div class="text-xs text-gray-500 dark:text-gray-400">{$i18n.t(tile.label)}</div>
+							<span class="absolute inset-x-0 bottom-0 h-[3px] opacity-70 {tile.line}"></span>
+						</button>
+					{/each}
+				</div>
+
+				{#if loading && !board}
 					<div class="flex justify-center py-16"><Spinner className="size-5" /></div>
 				{:else if error}
 					<div class="text-sm text-red-600 dark:text-red-400">{error}</div>
-				{:else if work && sections.length === 0}
+				{:else if channels.length === 0}
 					<div class="py-16 text-center text-sm text-gray-500 dark:text-gray-400">
-						{work.items.length === 0
+						{(board?.items ?? []).length === 0
 							? $i18n.t('No work items are assigned yet.')
 							: $i18n.t('No work items match the filter.')}
 					</div>
 				{:else}
-					{#each sections as section (section.key)}
-						{@const collapsedDone = section.key === 'done' && !showDone}
-						<section class="mb-5">
-							<button
-								type="button"
-								class="mb-2 flex items-center gap-2 text-sm font-medium {section.className}"
-								on:click={() => section.key === 'done' && (showDone = !showDone)}
-								disabled={section.key !== 'done'}
+					<div class="flex flex-col gap-2.5">
+						{#each channels as { channel, items } (channel.id)}
+							{@const openItems = items.filter((i) => i.bucket !== 'done')}
+							{@const avg = average(items)}
+							<section
+								class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900"
 							>
-								{$i18n.t(section.label)}
-								<span class="text-xs font-normal text-gray-500">({section.items.length})</span>
-								{#if section.key === 'done'}
-									<span class="text-xs font-normal text-gray-500"
-										>{showDone ? $i18n.t('Hide') : $i18n.t('Show')}</span
+								<button
+									type="button"
+									class="grid w-full grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3.5 text-left transition hover:bg-gray-50 dark:hover:bg-gray-850/60"
+									aria-expanded={!!open[channel.id]}
+									on:click={() => (open = { ...open, [channel.id]: !open[channel.id] })}
+								>
+									<span
+										class="grid size-10 place-items-center rounded-xl bg-blue-50 text-lg font-bold text-blue-600 dark:bg-blue-950 dark:text-blue-400"
+										>#</span
 									>
-								{/if}
-							</button>
-							{#if !collapsedDone}
-								<ul class="flex flex-col gap-2">
-									{#each section.items as item (item.channel_id + item.id)}
-										<li
-											class="rounded-xl border px-3 py-2.5 {item.bucket === 'overdue'
-												? 'border-red-200 dark:border-red-900/60'
-												: 'border-gray-100 dark:border-gray-800'}"
-										>
-											<div class="flex items-start justify-between gap-2">
-												<div class="min-w-0">
-													<div
-														class="text-sm font-medium text-gray-900 dark:text-gray-100 break-words"
-													>
-														{item.ten}
-													</div>
-													<a
-														href="/channels/{item.channel_id}"
-														class="text-xs text-gray-500 hover:underline"># {item.channel_name}</a
-													>
-												</div>
-												<div class="flex shrink-0 items-center gap-0.5">
+									<span class="min-w-0">
+										<span class="flex flex-wrap items-center gap-2">
+											<span
+												class="truncate text-[0.9375rem] font-semibold text-gray-900 dark:text-gray-100"
+												>{channel.name}</span
+											>
+											{#if channel.can_manage}
+												<span
+													class="rounded-full border border-gray-200 px-1.5 py-px text-[0.625rem] font-semibold uppercase tracking-wide text-gray-500 dark:border-gray-700"
+													>{$user?.role === 'admin'
+														? $i18n.t('Admin')
+														: $i18n.t('Channel owner')}</span
+												>
+											{/if}
+										</span>
+										<span class="mt-1.5 flex flex-wrap items-center gap-2.5">
+											<span
+												class="flex h-1.5 w-full max-w-64 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800"
+												aria-hidden="true"
+											>
+												{#each BUCKETS as b (b.key)}
 													<span
-														class="rounded-full px-2 py-0.5 text-[0.6875rem] {STATUS[
-															item.trang_thai
-														]?.className ?? STATUS.dang_lam.className}"
+														class="h-full transition-[width] duration-700 ease-out {b.bar}"
+														style="width: {barsReady && items.length
+															? (count(items, b.key) / items.length) * 100
+															: 0}%"
+													></span>
+												{/each}
+											</span>
+											<span class="flex flex-wrap gap-1.5 text-[0.6875rem] font-medium">
+												<span class="rounded-full px-2 py-0.5 {GRAY_TAG}"
+													>{$i18n.t('{{count}} open', { count: openItems.length })}</span
+												>
+												{#if count(items, 'overdue')}
+													<span
+														class="rounded-full bg-red-50 px-2 py-0.5 text-red-700 dark:bg-red-950 dark:text-red-300"
+														>{$i18n.t('{{count}} overdue', {
+															count: count(items, 'overdue')
+														})}</span
 													>
-														{$i18n.t(STATUS[item.trang_thai]?.label ?? 'In progress')}
-													</span>
-													{#if item.can_manage}
-														{@const key = item.channel_id + item.id}
-														<div class="relative">
-															<button
-																type="button"
-																class="flex size-6 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-white"
-																aria-label={$i18n.t('Options')}
-																aria-haspopup="menu"
-																aria-expanded={menuFor === key}
-																disabled={busy}
-																on:click|stopPropagation={() =>
-																	(menuFor = menuFor === key ? null : key)}
+												{/if}
+												{#if count(items, 'today')}
+													<span
+														class="rounded-full bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+														>{$i18n.t('{{count}} due today', {
+															count: count(items, 'today')
+														})}</span
+													>
+												{/if}
+												{#if count(items, 'done')}
+													<span
+														class="rounded-full bg-green-50 px-2 py-0.5 text-green-700 dark:bg-green-950 dark:text-green-300"
+														>{$i18n.t('{{count}} done', { count: count(items, 'done') })}</span
+													>
+												{/if}
+											</span>
+										</span>
+									</span>
+									<span class="flex items-center gap-2.5">
+										<span class="relative size-10" title={$i18n.t('average')}>
+											<svg viewBox="0 0 42 42" class="size-full -rotate-90">
+												<circle
+													cx="21"
+													cy="21"
+													r="17"
+													fill="none"
+													stroke-width="5"
+													class="stroke-gray-100 dark:stroke-gray-800"
+												/>
+												<circle
+													cx="21"
+													cy="21"
+													r="17"
+													fill="none"
+													stroke-width="5"
+													stroke-linecap="round"
+													class="stroke-blue-500 transition-[stroke-dashoffset] duration-1000 ease-out"
+													stroke-dasharray={RING}
+													stroke-dashoffset={RING * (1 - (barsReady ? avg : 0) / 100)}
+												/>
+											</svg>
+											<span
+												class="absolute inset-0 grid place-items-center text-[0.625rem] font-semibold tabular-nums text-gray-700 dark:text-gray-300"
+												>{avg}%</span
+											>
+										</span>
+										<svg
+											class="size-3.5 text-gray-400 transition-transform {open[channel.id]
+												? 'rotate-90'
+												: ''}"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2.4"><path d="M9 6l6 6-6 6" /></svg
+										>
+									</span>
+								</button>
+
+								{#if open[channel.id]}
+									<div
+										class="border-t border-gray-100 px-3 pb-3 dark:border-gray-800"
+										transition:slide={{ duration: 180 }}
+									>
+										<div class="flex justify-end pt-2">
+											<a
+												href="/channels/{channel.id}"
+												class="text-xs text-gray-500 hover:text-gray-900 hover:underline dark:hover:text-white"
+												>{$i18n.t('Open channel')} →</a
+											>
+										</div>
+										{#if mode === 'mine'}
+											{@const assigned = items.filter((i) => !isOrphan(i))}
+											{#if assigned.length}
+												{@render grouped(assigned, channel.id)}
+											{/if}
+											{@render orphanBlock(channel, items)}
+										{:else}
+											{@render orphanBlock(channel, items)}
+											{#each members(items) as member (member.key)}
+												{@const key = `${channel.id}:${member.key}`}
+												{@const memberOpen = member.items.filter((i) => i.bucket !== 'done')}
+												{@const memberAvg = average(member.items)}
+												<div
+													class="mt-2 overflow-hidden rounded-xl border border-gray-100 dark:border-gray-800"
+												>
+													<button
+														type="button"
+														class="grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-850/60"
+														aria-expanded={!!openMember[key]}
+														on:click={() =>
+															(openMember = { ...openMember, [key]: !openMember[key] })}
+													>
+														<span
+															class="grid size-8 place-items-center rounded-full text-xs font-semibold text-white {avatarColor(
+																member.name
+															)}">{initial(member.name)}</span
+														>
+														<span class="min-w-0">
+															<span
+																class="block truncate text-[0.8125rem] font-medium text-gray-900 dark:text-gray-100"
+																>{member.name}</span
 															>
-																<EllipsisHorizontal className="size-4" />
-															</button>
-															{#if menuFor === key}
-																<div
-																	class="absolute right-0 top-7 z-20 flex min-w-40 flex-col rounded-xl border border-gray-100 bg-white p-1 shadow-lg dark:border-gray-800 dark:bg-gray-900"
-																	role="menu"
-																	transition:slide={{ duration: 120 }}
+															<span class="block truncate text-xs text-gray-500"
+																>{member.email}</span
+															>
+														</span>
+														<span class="flex items-center gap-1.5 text-[0.6875rem] font-medium">
+															{#if count(member.items, 'overdue')}
+																<span
+																	class="rounded-full bg-red-50 px-2 py-0.5 text-red-700 dark:bg-red-950 dark:text-red-300"
+																	>{$i18n.t('{{count}} overdue', {
+																		count: count(member.items, 'overdue')
+																	})}</span
 																>
-																	<button
-																		type="button"
-																		role="menuitem"
-																		class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/40"
-																		on:click|stopPropagation={() => archive(item, 'dong')}
-																		><span aria-hidden="true">✓</span>{$i18n.t(
-																			'Complete & close'
-																		)}</button
-																	>
-																	<button
-																		type="button"
-																		role="menuitem"
-																		class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-																		on:click|stopPropagation={() => {
-																			menuFor = null;
-																			pendingCancel = item;
-																			showConfirm = true;
-																		}}
-																		><span aria-hidden="true">✕</span>{$i18n.t(
-																			'Cancel item'
-																		)}</button
-																	>
-																</div>
 															{/if}
+															{#if count(member.items, 'today')}
+																<span
+																	class="rounded-full bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+																	>{$i18n.t('{{count}} due today', {
+																		count: count(member.items, 'today')
+																	})}</span
+																>
+															{/if}
+															<span class="rounded-full px-2 py-0.5 {GRAY_TAG}"
+																>{$i18n.t('{{count}} open', { count: memberOpen.length })}</span
+															>
+															<span
+																class="hidden h-1.5 w-16 overflow-hidden rounded-full bg-gray-100 sm:block dark:bg-gray-800"
+																title="{memberAvg}%"
+															>
+																<span
+																	class="block h-full rounded-full bg-blue-500 transition-[width] duration-1000 ease-out"
+																	style="width: {barsReady ? memberAvg : 0}%"
+																></span>
+															</span>
+															<svg
+																class="size-3 text-gray-400 transition-transform {openMember[key]
+																	? 'rotate-90'
+																	: ''}"
+																viewBox="0 0 24 24"
+																fill="none"
+																stroke="currentColor"
+																stroke-width="2.4"><path d="M9 6l6 6-6 6" /></svg
+															>
+														</span>
+													</button>
+													{#if openMember[key]}
+														<div
+															class="border-t border-dashed border-gray-100 px-2.5 pb-2.5 dark:border-gray-800"
+															transition:slide={{ duration: 150 }}
+														>
+															{@render grouped(member.items, key)}
 														</div>
 													{/if}
 												</div>
-											</div>
-											{#if item.tien_do !== null && item.tien_do !== undefined}
-												<div class="flex items-center gap-2 mt-1.5">
-													<div
-														class="h-1.5 flex-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden"
-													>
-														<div
-															class="h-full rounded-full {item.trang_thai === 'bi_chan'
-																? 'bg-red-500'
-																: 'bg-blue-500'}"
-															style="width: {item.tien_do}%"
-														></div>
+											{:else}
+												{#if !items.some(isOrphan)}
+													<div class="py-4 text-center text-xs text-gray-500">
+														{$i18n.t('No work items are assigned yet.')}
 													</div>
-													<span class="text-xs tabular-nums text-gray-500">{item.tien_do}%</span>
-												</div>
-											{/if}
-											<div
-												class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400"
-											>
-												{#if item.han}
-													<span
-														class={item.bucket === 'overdue'
-															? 'text-red-600 dark:text-red-400'
-															: item.bucket === 'today'
-																? 'text-amber-600 dark:text-amber-400'
-																: ''}
-													>
-														{$i18n.t('Due')}: {dueText(item)}
-													</span>
 												{/if}
-												{#if item.phu_trach.length > 1}
-													<span>{$i18n.t('Assignee')}: {item.phu_trach.join(', ')}</span>
-												{/if}
-											</div>
-											{#if item.vuong_mac}
-												<div class="mt-1 text-xs text-red-600 dark:text-red-400">
-													{$i18n.t('Blocker')}: {item.vuong_mac}
-												</div>
-											{/if}
-										</li>
-									{/each}
-								</ul>
-							{/if}
-						</section>
-					{/each}
+											{/each}
+										{/if}
+									</div>
+								{/if}
+							</section>
+						{/each}
+					</div>
 				{/if}
 			{/if}
 		</div>

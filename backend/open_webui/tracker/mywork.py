@@ -177,3 +177,35 @@ async def team_of(viewer) -> dict:
     ]
     people.sort(key=lambda p: (-p['counts']['overdue'], -sum(p['counts'].values()), (p['name'] or '').lower()))
     return {'channels': [{'id': c.id, 'name': c.name} for c in channels], 'people': people, 'unassigned': unassigned}
+
+
+async def board(viewer, mode: str) -> dict:
+    """Work grouped by channel for the "My work" page.
+
+    mine: the viewer's own items in every channel they are in, plus the unassigned items of the channels they
+          manage (so an owner can assign, close or cancel them).
+    team: every item of the channels the viewer manages (owners: their channels; admins: channels they are in).
+    """
+    readable = await readable_channels(viewer)
+    managed_ids = {c.id for c in readable if viewer.role == 'admin' or c.user_id == viewer.id}
+    channels = readable if mode == 'mine' else [c for c in readable if c.id in managed_ids]
+    entries = await collect(channels)
+    if mode == 'mine':
+        entries = [e for e in entries if viewer.id in e.owner_ids or (not e.phu_trach and e.channel_id in managed_ids)]
+    for entry in entries:
+        entry.can_manage = entry.channel_id in managed_ids
+    owner_ids = {o for e in entries for o in e.owner_ids}
+    users = await Users.get_users_by_user_ids(list(owner_ids)) if owner_ids else []
+    used = {e.channel_id for e in entries}
+    return {
+        'mode': mode,
+        'today': today(),
+        'can_view_team': bool(managed_ids),
+        'channels': [
+            {'id': c.id, 'name': c.name, 'can_manage': c.id in managed_ids}
+            for c in channels
+            if c.id in used or (mode == 'team')
+        ],
+        'people': {u.id: {'name': u.name, 'email': u.email} for u in users},
+        'items': [e.to_dict() for e in entries],
+    }

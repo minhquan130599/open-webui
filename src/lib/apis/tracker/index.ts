@@ -196,3 +196,18 @@ export const updateReminderSettings = async (
 
 export const sendRemindersNow = async (token: string): Promise<{ created: number }> =>
 	request(token, '/reminders/send', 'POST');
+
+export type BoardChannel = { id: string; name: string; can_manage: boolean };
+
+export type Board = {
+	mode: 'mine' | 'team';
+	today: string;
+	can_view_team: boolean;
+	channels: BoardChannel[];
+	people: Record<string, { name: string; email: string }>;
+	items: MyWorkItem[];
+};
+
+// "My work" page: items grouped by channel, for the viewer ('mine') or the channels they manage ('team').
+export const getBoard = async (token: string, mode: 'mine' | 'team'): Promise<Board> =>
+	request(token, `/board?mode=${mode}`);

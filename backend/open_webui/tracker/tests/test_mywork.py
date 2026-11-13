@@ -147,3 +147,41 @@ async def test_close_marks_done_and_reopen_restores():
     # Owner of the channel may manage the item from "my work".
     entries = await mywork.work_of(owner, owner.id)
     assert entries == [] or all(e.can_manage for e in entries if e.channel_id == channel.id)
+
+
+@pytest.mark.asyncio(loop_scope='module')
+async def test_board_groups_by_channel_with_unassigned_items():
+    from open_webui.models.users import Users
+
+    tag = uuid.uuid4().hex[:4]
+    owner = await Users.insert_new_user(str(uuid.uuid4()), f'Chủ {tag}', f'{uuid.uuid4().hex}@t.local', role='user')
+    member = await Users.insert_new_user(str(uuid.uuid4()), f'Lan {tag}', f'{uuid.uuid4().hex}@t.local', role='user')
+    channel = await _project(
+        owner,
+        [member],
+        [
+            {'ten': 'Việc của Lan', 'phu_trach': [f'Lan {tag}'], 'han': _day(0)},
+            {'ten': 'Việc chưa giao'},
+            {'ten': 'Việc của người ngoài', 'phu_trach': ['Khách lạ']},
+        ],
+    )
+
+    mine = await mywork.board(owner, 'mine')
+    names = {i['ten']: i for i in mine['items'] if i['channel_id'] == channel.id}
+    assert set(names) == {'Việc chưa giao'}, "owner sees unassigned items, not other people's"
+    assert names['Việc chưa giao']['can_manage'] and mine['can_view_team']
+
+    member_mine = await mywork.board(member, 'mine')
+    member_items = [i for i in member_mine['items'] if i['channel_id'] == channel.id]
+    assert [i['ten'] for i in member_items] == ['Việc của Lan'] and not member_items[0]['can_manage']
+    assert not member_mine['can_view_team']
+
+    team = await mywork.board(owner, 'team')
+    assert {i['ten'] for i in team['items'] if i['channel_id'] == channel.id} == {
+        'Việc của Lan',
+        'Việc chưa giao',
+        'Việc của người ngoài',
+    }
+    assert team['people'][member.id]['name'] == f'Lan {tag}'
+    assert any(c['id'] == channel.id and c['can_manage'] for c in team['channels'])
+    assert all(c['id'] != channel.id for c in (await mywork.board(member, 'team'))['channels'])

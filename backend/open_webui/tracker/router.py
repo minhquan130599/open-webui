@@ -160,6 +160,13 @@ async def get_my_work(user_id: Optional[str] = None, user=Depends(get_verified_u
     }
 
 
+@router.get('/board')
+async def get_board(mode: Literal['mine', 'team'] = 'mine', user=Depends(get_verified_user)):
+    """The "My work" page: work items grouped by channel, for the viewer ('mine') or their team ('team')."""
+    _require_tracker()
+    return await mywork.board(user, mode)
+
+
 @router.get('/team')
 async def get_team(user=Depends(get_verified_user)):
     """People in the channels the viewer owns (admins: all channels) with counts of their open items."""

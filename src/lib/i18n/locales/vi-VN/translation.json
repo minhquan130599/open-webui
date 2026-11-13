@@ -4740,5 +4740,22 @@
 	"Complete & close": "Hoàn thành & đóng",
 	"Cancel item": "Hủy",
 	"Completed (closed)": "Đã hoàn thành",
-	"This model is no longer available": "Model này không còn khả dụng"
+	"This model is no longer available": "Model này không còn khả dụng",
+	"Not linked to an account": "Chưa liên kết tài khoản",
+	"with {{names}}": "cùng {{names}}",
+	"{{count}} completed items waiting to be closed": "{{count}} việc đã xong, chờ đóng",
+	"No work items.": "Không có việc nào.",
+	"No owner yet": "Chưa có người phụ trách",
+	"Nobody is assigned, so nobody updates their progress": "Chưa ai được giao nên chưa ai cập nhật tiến độ",
+	"How to assign:": "Cách giao việc:",
+	"post in #{{channel}} with the person and the task, for example:": "nhắn trong kênh #{{channel}}, ghi rõ tên người và tên việc, ví dụ:",
+	"assign @Name to \"{{task}}\", due 20/11": "giao @Tên làm \"{{task}}\", hạn 20/11",
+	"At the next summary (or Update now in the progress panel) the task moves to that person, who then sees it in My work and gets due reminders. Use ⋯ → Cancel for work no longer needed, ⋯ → Complete & close for finished work.": "Ở lần tổng hợp tiếp theo (hoặc bấm Cập nhật ngay trong panel Tiến độ), việc sẽ chuyển sang người đó; họ sẽ thấy trong trang Công việc của tôi và nhận nhắc hạn. Việc không cần làm nữa thì dùng ⋯ → Hủy; việc đã làm xong thì ⋯ → Hoàn thành & đóng.",
+	"{{count}} open work items in {{channels}} channels": "{{count}} việc đang mở trong {{channels}} kênh",
+	"Search work, channels, people…": "Tìm việc, kênh, người…",
+	"Channel owner": "Chủ kênh",
+	"{{count}} open": "{{count}} đang mở",
+	"{{count}} due today": "{{count}} hôm nay",
+	"{{count}} done": "{{count}} đã xong",
+	"Open channel": "Mở kênh"
 }
