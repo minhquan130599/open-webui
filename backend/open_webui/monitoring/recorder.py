@@ -55,6 +55,7 @@ class PerfEvent(Base):
     __table_args__ = (
         Index('ix_perf_event_kind_ts', 'kind', 'ts'),
         Index('ix_perf_event_ts', 'ts'),
+        Index('ix_perf_event_message_id', 'message_id'),
     )
 
 

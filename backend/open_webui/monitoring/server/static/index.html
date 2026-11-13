@@ -101,6 +101,32 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
   [hidden] { display: none !important; }
+  .trace-row { cursor: pointer; }
+  .trace-row:hover td { background: var(--raised); }
+  .trace-row.active td { background: var(--blue-soft); }
+  .wf { display: grid; gap: 4px; }
+  .wf-row { display: grid; grid-template-columns: 26px minmax(150px, 260px) minmax(0, 1fr) 84px; gap: 10px; align-items: center; font-size: 12.5px; }
+  @media (max-width: 700px) { .wf-row { grid-template-columns: 22px minmax(0, 1fr) 70px; } .wf-row .wf-track { grid-column: 1 / -1; } }
+  .wf-n { color: var(--faint); font-variant-numeric: tabular-nums; text-align: right; }
+  .wf-label { min-width: 0; }
+  .wf-label b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .wf-label span { color: var(--muted); font-size: 11.5px; }
+  .wf-track { position: relative; height: 18px; background: var(--raised); border-radius: 5px; }
+  .wf-bar { position: absolute; top: 2px; bottom: 2px; border-radius: 4px; min-width: 2px; }
+  .wf-bar.llm { background: var(--violet); }
+  .wf-bar.llm .ttft { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px 0 0 4px; background: repeating-linear-gradient(135deg, rgba(255,255,255,.45) 0 3px, transparent 3px 6px); }
+  .wf-bar.tool { background: var(--blue); }
+  .wf-bar.prep { background: var(--faint); }
+  .wf-bar.task { background: var(--line-strong); }
+  .wf-bar.err { background: var(--red); }
+  .wf-dur { text-align: right; font-variant-numeric: tabular-nums; }
+  .wf-axis { display: grid; grid-template-columns: 26px minmax(150px, 260px) minmax(0, 1fr) 84px; gap: 10px; font-size: 10.5px; color: var(--muted); }
+  .wf-axis div:nth-child(3) { display: flex; justify-content: space-between; }
+  @media (max-width: 700px) { .wf-axis { display: none; } }
+  .split { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: var(--raised); }
+  .split span { height: 100%; }
+  .qbox { background: var(--raised); border-radius: 10px; padding: 10px 12px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; }
+  .ids code { font-size: 11.5px; background: var(--raised); padding: 1px 6px; border-radius: 6px; cursor: copy; }
 </style>
 </head>
 <body>
@@ -121,14 +147,14 @@
 <script>
 (() => {
   const TABS = [
-    ['overview', 'Tổng quan'], ['load', 'Người dùng & tải'], ['tokens', 'Token'], ['models', 'Tốc độ model'], ['tools', 'Function call'],
+    ['overview', 'Tổng quan'], ['trace', 'Chi tiết lượt'], ['load', 'Người dùng & tải'], ['tokens', 'Token'], ['models', 'Tốc độ model'], ['tools', 'Function call'],
     ['knowledge', 'Kiến thức'], ['tracker', 'Tracker'], ['system', 'Thành phần & tài nguyên'],
   ];
   const RANGES = [['1h', '1 giờ'], ['24h', '24 giờ'], ['7d', '7 ngày'], ['30d', '30 ngày'], ['90d', '90 ngày']];
   const SOURCE = { chat: 'Chat', channel: 'Kênh', task: 'Tác vụ nền', api: 'API', tracker: 'Tracker', upload: 'Tải lên chat', knowledge: 'Kho kiến thức' };
   const COLORS = ['var(--blue)', 'var(--violet)', 'var(--green)', 'var(--amber)', 'var(--pink)', 'var(--cyan)', 'var(--red)'];
   const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { return null; } };
-  let tab = (location.hash || '').slice(1) || store('mon.tab') || 'overview';
+  let tab = /^#trace-/.test(location.hash) ? 'trace' : (location.hash || '').slice(1) || store('mon.tab') || 'overview';
   if (!TABS.some(([k]) => k === tab)) tab = 'overview';
   let range = store('mon.range') || '24h';
   let timer = null;
@@ -184,9 +210,11 @@
   }
   const kpi = (label, value, sub = '') => `<div class="card kpi"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
   const card = (title, body, note = '') => `<section class="card"><h2>${title}${note ? `<small>${note}</small>` : ''}</h2>${body}</section>`;
-  function table(cols, rows, empty = 'Chưa có dữ liệu.') {
+  // rowAttr(row) adds attributes to a row, e.g. data-trace to open the timeline of that answer.
+  const traceAttr = (r) => (r.message_id ? `class="trace-row${r.message_id === traceId ? ' active' : ''}" data-trace="${esc(r.message_id)}" title="Xem timeline"` : '');
+  function table(cols, rows, empty = 'Chưa có dữ liệu.', rowAttr = null) {
     if (!rows.length) return `<div class="empty">${empty}</div>`;
-    return `<div class="table-wrap"><table><thead><tr>${cols.map((c) => `<th class="${c.num ? 'num' : ''}">${c.label}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td class="${c.num ? 'num' : ''}">${c.render ? c.render(r) : esc(r[c.key] ?? '—')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    return `<div class="table-wrap"><table><thead><tr>${cols.map((c) => `<th class="${c.num ? 'num' : ''}">${c.label}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr ${rowAttr ? rowAttr(r) : ''}>${cols.map((c) => `<td class="${c.num ? 'num' : ''}">${c.render ? c.render(r) : esc(r[c.key] ?? '—')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
   const statCols = [
     { label: 'Số lần', num: true, render: (r) => n(r.count) },
@@ -231,6 +259,102 @@
         ${card('Theo nguồn', bars(d.by_source.map((s, i) => ({ label: `${SOURCE[s.source] || s.source} · ${n(s.calls)} lần`, value: s.tokens, color: COLORS[i % COLORS.length] })), { format: tok }), 'token')}
       </div>
       ${card('Lỗi gần đây', errorTable(d.errors), 'gọi model, function, tracker, tải tài liệu')}`;
+  }
+
+  let traceQuery = '', traceMin = 0, traceSource = '', traceId = (location.hash.match(/^#trace-(.+)$/) || [])[1] || '';
+  async function renderTrace() {
+    const params = new URLSearchParams({ range, q: traceQuery, min_ms: String(traceMin) });
+    if (traceSource) params.set('source', traceSource);
+    const list = await api(`/api/traces?${params}`);
+    if (!traceId && list.items.length) traceId = list.items[0].message_id;
+    let detail = '';
+    if (traceId) {
+      try { detail = traceDetail(await api(`/api/trace/${encodeURIComponent(traceId)}`)); }
+      catch (e) { detail = card('Chi tiết', `<div class="error-box">${esc(e.message)}</div>`); }
+    }
+    const mins = [[0, 'Tất cả'], [10000, '> 10 s'], [30000, '> 30 s'], [60000, '> 1 phút']];
+    const sources = [['', 'Mọi nguồn'], ['chat', 'Chat'], ['channel', 'Kênh'], ['api', 'API']];
+    return `<div class="controls">
+        <input id="trace-q" class="btn" style="min-width:260px" placeholder="Tìm message id, chat id, người dùng, model…" value="${esc(traceQuery)}">
+        <div class="seg" role="group" aria-label="Thời gian tối thiểu">${mins.map(([v, l]) => `<button type="button" data-trace-min="${v}" aria-pressed="${traceMin === v}">${l}</button>`).join('')}</div>
+        <div class="seg" role="group" aria-label="Nguồn">${sources.map(([v, l]) => `<button type="button" data-trace-source="${v}" aria-pressed="${traceSource === v}">${l}</button>`).join('')}</div>
+      </div>
+      ${detail}
+      ${card('Các lượt trả lời', table([
+        { label: 'Lúc', render: (r) => when(r.ts) },
+        { label: 'Người dùng', render: (r) => esc(r.user_name || '—') },
+        { label: 'Câu hỏi', render: (r) => `<div style="max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.question)}">${esc(r.question || '—')}</div><div class="muted" style="font-size:11px">${esc(r.message_id || '')}</div>` },
+        { label: 'Model', render: (r) => esc(r.model_id || '—') },
+        { label: 'Nguồn', render: (r) => SOURCE[r.source] || esc(r.source) },
+        { label: 'Gọi LLM', num: true, render: (r) => n(r.llm_calls) },
+        { label: 'Tool call', num: true, render: (r) => n(r.tool_calls) },
+        { label: 'Chữ đầu', num: true, render: (r) => ms(r.first_ttft) },
+        { label: 'Tổng', num: true, render: (r) => `<b>${ms(r.duration_ms)}</b>` },
+        { label: '', render: (r) => (r.status === 'ok' ? '' : '<span class="pill err">lỗi</span>') },
+      ], list.items, 'Không có lượt nào khớp.', traceAttr), 'bấm một dòng để xem timeline')}`;
+  }
+
+  function traceDetail(t) {
+    const total = Math.max(t.total_ms, 1);
+    const sm = t.summary;
+    const pos = (start, dur) => `left:${Math.max(0, ((start - t.start) / total) * 100)}%;width:${Math.max(0.3, ((dur || 0) / total) * 100)}%`;
+    const rows = [];
+    if (sm.prepare_ms > 0) rows.push({ n: '', label: 'Chuẩn bị', sub: 'đọc lịch sử, file/kiến thức, dựng prompt', bar: `<div class="wf-bar prep" style="${pos(t.start, sm.prepare_ms)}"></div>`, dur: sm.prepare_ms });
+    let llmRound = 0;
+    t.steps.forEach((e, i) => {
+      if (e.kind === 'llm_call') {
+        llmRound += 1;
+        const m = e.meta || {};
+        const ttftPct = e.ttft_ms && e.duration_ms ? (e.ttft_ms / e.duration_ms) * 100 : 0;
+        rows.push({
+          n: i + 1,
+          label: `LLM vòng ${llmRound}`,
+          sub: `${esc(e.model_id || '')} · chờ chữ đầu ${ms(e.ttft_ms)} · ${n(e.input_tokens)}→${n(e.output_tokens)} token${m.tokens_per_second ? ` · ${n(m.tokens_per_second)} t/s` : ''}${m.error ? ` · <span style="color:var(--red)">${esc(m.error)}</span>` : ''}`,
+          bar: `<div class="wf-bar ${e.status === 'ok' ? 'llm' : 'err'}" style="${pos(e.ts, e.duration_ms)}" title="Phần gạch chéo: thời gian chờ chữ đầu tiên"><span class="ttft" style="width:${ttftPct}%"></span></div>`,
+          dur: e.duration_ms,
+        });
+      } else {
+        const m = e.meta || {};
+        rows.push({
+          n: i + 1,
+          label: `<code>${esc(e.name)}</code>`,
+          sub: e.status === 'ok' ? 'function call' : `<span style="color:var(--red)">lỗi: ${esc(m.error || m.error_type || '')}</span>`,
+          bar: `<div class="wf-bar ${e.status === 'ok' ? 'tool' : 'err'}" style="${pos(e.ts, e.duration_ms)}"></div>`,
+          dur: e.duration_ms,
+        });
+      }
+    });
+    (t.tasks || []).forEach((e) => rows.push({ n: '', label: `<span class="muted">Tác vụ nền: ${esc(e.name || '')}</span>`, sub: esc(e.model_id || ''), bar: `<div class="wf-bar task" style="${pos(e.ts, e.duration_ms)}"></div>`, dur: e.duration_ms }));
+    const parts = [
+      ['Chuẩn bị', sm.prepare_ms, 'var(--faint)'], ['LLM', sm.llm_ms, 'var(--violet)'], ['Tool', sm.tool_ms, 'var(--blue)'], ['Khác (NCS AI xử lý giữa các bước)', sm.other_ms, 'var(--amber)'],
+    ];
+    const slowest = [...t.steps].sort((a, b) => (b.duration_ms || 0) - (a.duration_ms || 0))[0];
+    const axis = [0, 0.25, 0.5, 0.75, 1].map((f) => `<span>${ms(total * f)}</span>`).join('');
+    return card(`Timeline lượt trả lời ${t.status && t.status !== 'ok' ? '<span class="pill err">lỗi</span>' : ''}`, `
+      <div class="ids muted" style="font-size:12.5px;margin-bottom:10px;display:flex;flex-wrap:wrap;gap:6px 14px">
+        <span>${esc(t.user_name || '—')} ${t.email ? `(${esc(t.email)})` : ''}</span>
+        <span>${when(t.start)}</span>
+        <span>Model: <b>${esc(t.model_id || '—')}</b></span>
+        <span>${SOURCE[t.source] || esc(t.source || '')}</span>
+        <span>message id: <code data-copy="${esc(t.message_id)}" title="Bấm để sao chép">${esc(t.message_id)}</code></span>
+        ${t.chat_id ? `<span>chat id: <code data-copy="${esc(t.chat_id)}" title="Bấm để sao chép">${esc(t.chat_id)}</code></span>` : ''}
+        ${t.link ? `<a href="${esc(t.link)}" target="_blank" rel="noopener">Mở cuộc chat →</a>` : ''}
+      </div>
+      ${t.question ? `<div class="muted" style="font-size:12px;margin-bottom:4px">Câu hỏi của người dùng</div><div class="qbox">${esc(t.question)}</div>` : '<div class="muted" style="font-size:12.5px">Không tìm thấy nội dung câu hỏi (cuộc chat tạm, đã xóa, hoặc gọi qua API).</div>'}
+      <div class="grid" style="margin:14px 0 10px">
+        ${kpi('Tổng thời gian', ms(t.total_ms), `${n(sm.llm_calls)} lần gọi LLM · ${n(sm.tool_calls)} tool call`)}
+        ${kpi('Thời gian LLM', ms(sm.llm_ms), `trong đó chờ chữ đầu ${ms(sm.ttft_ms)}`)}
+        ${kpi('Thời gian tool', ms(sm.tool_ms), '')}
+        ${kpi('Token vào / ra', `${tok(sm.input_tokens)} / ${tok(sm.output_tokens)}`, 'cộng các vòng gọi LLM')}
+      </div>
+      <div class="split" title="Phân bổ thời gian">${parts.map(([l, v, c]) => `<span style="width:${((v || 0) / total) * 100}%;background:${c}" title="${l}: ${ms(v)}"></span>`).join('')}</div>
+      <div class="legend" style="margin-bottom:12px">${parts.map(([l, v, c]) => `<span><i style="background:${c}"></i>${l} ${ms(v)} (${pct(v || 0, total)})</span>`).join('')}</div>
+      ${slowest ? `<div class="notice info" style="margin-bottom:12px">Bước lâu nhất: <b>${slowest.kind === 'llm_call' ? 'gọi LLM' : esc(slowest.name)}</b> mất ${ms(slowest.duration_ms)} (${pct(slowest.duration_ms || 0, total)} tổng thời gian)${slowest.kind === 'llm_call' && slowest.ttft_ms > (slowest.duration_ms || 0) * 0.5 ? ', phần lớn là chờ model bắt đầu trả lời (prompt dài hoặc GPU đang bận)' : ''}.</div>` : ''}
+      <div class="wf-axis"><div></div><div></div><div>${axis}</div><div></div></div>
+      <div class="wf">${rows.map((r) => `<div class="wf-row"><div class="wf-n">${r.n}</div><div class="wf-label"><b>${r.label}</b><span>${r.sub}</span></div><div class="wf-track">${r.bar}</div><div class="wf-dur">${ms(r.dur)}</div></div>`).join('')}</div>
+      <div class="legend"><span><i style="background:var(--faint)"></i>Chuẩn bị</span><span><i style="background:var(--violet)"></i>Gọi LLM (gạch chéo: chờ chữ đầu)</span><span><i style="background:var(--blue)"></i>Function call</span><span><i style="background:var(--red)"></i>Lỗi</span><span><i style="background:var(--line-strong)"></i>Tác vụ nền (tiêu đề, gợi ý…)</span></div>
+      ${t.answer ? `<details style="margin-top:12px"><summary class="muted" style="cursor:pointer;font-size:12.5px">Xem câu trả lời</summary><div class="qbox" style="margin-top:6px">${esc(t.answer)}</div></details>` : ''}
+    `);
   }
 
   async function renderLoad() {
@@ -324,7 +448,7 @@
         { label: 'Tổng', num: true, render: (r) => ms(r.duration_ms) },
         { label: 'Token ra', num: true, render: (r) => n(r.output_tokens) },
         { label: 'Trạng thái', render: (r) => status(r.status) + (r.error ? `<div class="muted">${esc(r.error)}</div>` : '') },
-      ], d.slowest))}`;
+      ], d.slowest, 'Chưa có dữ liệu.', traceAttr), 'bấm một dòng để xem timeline của lượt đó')}`;
   }
 
   async function renderTools() {
@@ -347,7 +471,7 @@
         { label: 'Function đã gọi', render: (r) => Object.entries(r.tools || {}).map(([k, v]) => `<span class="chip" title="${v.errors ? `${v.errors} lỗi` : ''}"><b>${esc(k)}</b> ×${v.count} · ${ms(v.ms)}${v.errors ? ' <span style="color:var(--red)">!</span>' : ''}</span>`).join('') },
         { label: 'Tổng thời gian', num: true, render: (r) => ms(r.duration_ms) },
         { label: 'Token', num: true, render: (r) => tok((r.input_tokens || 0) + (r.output_tokens || 0)) },
-      ], d.recent, 'Chưa có lượt nào dùng function call.'), '100 lượt gần nhất')}
+      ], d.recent, 'Chưa có lượt nào dùng function call.', traceAttr), '100 lượt gần nhất · bấm một dòng để xem timeline')}
       ${card('Function bị lỗi', errorTable(d.errors.map((e) => ({ ...e, kind: 'tool' })), 'Không có function nào bị lỗi trong khoảng này.'), 'nội dung lỗi function trả về và tham số AI đã truyền')}`;
   }
 
@@ -528,7 +652,7 @@
     ], rows);
   }
 
-  const RENDER = { overview: renderOverview, load: renderLoad, tokens: renderTokens, models: renderModels, tools: renderTools, knowledge: renderKnowledge, tracker: renderTracker, system: renderSystem };
+  const RENDER = { trace: renderTrace, overview: renderOverview, load: renderLoad, tokens: renderTokens, models: renderModels, tools: renderTools, knowledge: renderKnowledge, tracker: renderTracker, system: renderSystem };
 
   async function load() {
     const main = $('#main');
@@ -555,9 +679,18 @@
     if ($('#auto').checked) timer = setInterval(() => document.visibilityState === 'visible' && load(), 30000);
   }
 
+  document.addEventListener('input', (e) => {
+    if (e.target.id === 'trace-q') { clearTimeout(window.__tq); window.__tq = setTimeout(() => { traceQuery = e.target.value; traceId = ''; load().then(() => { const el = $('#trace-q'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }); }, 400); }
+  });
   document.addEventListener('click', async (e) => {
+    const copy = e.target.closest('[data-copy]');
+    if (copy) { try { await navigator.clipboard.writeText(copy.dataset.copy); copy.title = 'Đã sao chép'; } catch {} return; }
+    const row = e.target.closest('tr[data-trace]');
+    if (row && !e.target.closest('a')) { traceId = row.dataset.trace; tab = 'trace'; history.replaceState(null, '', `#trace-${traceId}`); renderChrome(); load(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
     const b = e.target.closest('button');
     if (!b) return;
+    if (b.dataset.traceMin !== undefined) { traceMin = +b.dataset.traceMin; traceId = ''; load(); return; }
+    if (b.dataset.traceSource !== undefined) { traceSource = b.dataset.traceSource; traceId = ''; load(); return; }
     if (b.dataset.tab) { tab = b.dataset.tab; store('mon.tab', tab); history.replaceState(null, '', `#${tab}`); renderChrome(); $('#main').innerHTML = '<div class="empty"><span class="spin"></span> Đang tải…</div>'; load(); }
     else if (b.dataset.range) { range = b.dataset.range; store('mon.range', range); renderChrome(); load(); }
     else if (b.dataset.theme !== undefined) { const t = b.dataset.theme; if (t) document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme'); store('mon.theme', t); renderChrome(); }

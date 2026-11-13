@@ -56,6 +56,7 @@ Lưu ý:
 | Tab | Nội dung |
 |---|---|
 | Tổng quan | Số lượt trả lời, thời gian trả lời TB/p95, thời gian ra chữ đầu tiên, tốc độ sinh (token/s), token vào/ra, số function call, tỷ lệ lỗi, biểu đồ theo thời gian |
+| Chi tiết lượt | Danh sách từng lượt trả lời (người hỏi, câu hỏi, model, số lần gọi LLM, số tool call, tổng thời gian; lọc theo message id, người dùng, lượt > 10 s/30 s/1 phút). Bấm một lượt để xem **timeline**: chuẩn bị → LLM vòng 1 (thời gian chờ chữ đầu, token, tốc độ) → từng function call → LLM vòng 2…, phân bổ thời gian LLM/tool/chuẩn bị, bước lâu nhất, câu hỏi và câu trả lời, nút mở lại cuộc chat (cần `OPEN_WEBUI_PUBLIC_URL`) |
 | Người dùng & tải | Số người đang online, số yêu cầu tới model chạy cùng lúc (lấy mẫu mỗi 30 giây), các đỉnh trong kỳ, và bảng **tốc độ theo mức tải** cho biết từ mức đồng thời nào thì hệ thống bắt đầu chậm |
 | Token | Bảng người dùng × model: số lần gọi, token vào/ra. Lọc theo chat, kênh, tác vụ nền, tracker |
 | Tốc độ model | Mỗi model: thời gian ra chữ đầu (TB/p95), tổng thời gian, token/s, lỗi; biểu đồ theo giờ; các lần gọi chậm nhất |

@@ -32,6 +32,8 @@ USERNAME = os.getenv('MONITOR_USERNAME', 'admin')
 PASSWORD = os.getenv('MONITOR_PASSWORD', '')
 REDIS_URL = os.getenv('REDIS_URL', '')
 DOCKER_SOCKET = os.getenv('DOCKER_SOCKET', '/var/run/docker.sock')
+# Public address of NCS AI, for "open this chat" links on the timeline (optional).
+PUBLIC_URL = os.getenv('OPEN_WEBUI_PUBLIC_URL', '').rstrip('/')
 STATIC = Path(__file__).parent / 'static'
 
 RANGES = {  # range -> (milliseconds, chart bucket in ms)
@@ -237,7 +239,7 @@ async def models(range: str = '24h'):
         bucket=bucket,
     )
     slowest = await rows(
-        """SELECT p.ts, p.model_id, p.source, p.duration_ms, p.ttft_ms, p.output_tokens, p.status,
+        """SELECT p.ts, p.model_id, p.source, p.duration_ms, p.ttft_ms, p.output_tokens, p.status, p.message_id,
                 coalesce(u.name, u.email) AS user_name, p.chat_id, p.meta->>'error' AS error
             FROM perf_event p LEFT JOIN "user" u ON u.id = p.user_id
             WHERE p.kind = 'llm_call' AND p.ts >= :start ORDER BY p.duration_ms DESC NULLS LAST LIMIT 20""",
@@ -377,6 +379,176 @@ async def load(range: str = '24h'):
         'peak_online': max((p['online_users'] or 0 for p in series), default=0),
         'peak_in_flight': max((p['in_flight_peak'] or 0 for p in series), default=0),
         'levels': levels,
+    }
+
+
+def _text(content) -> str:
+    """Plain text of a stored message (string, JSON string or a list of content blocks)."""
+    import json
+
+    if content is None:
+        return ''
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except ValueError:
+            return content
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                parts.append(str(block.get('text') or block.get('content') or ''))
+            elif isinstance(block, str):
+                parts.append(block)
+        return ' '.join(p for p in parts if p).strip()
+    if isinstance(content, dict):
+        return str(content.get('text') or content.get('content') or '')
+    return str(content)
+
+
+async def questions(pairs: list[tuple[str, str]]) -> dict[str, dict]:
+    """Question and answer text for (chat_id, message_id) pairs, for chats and channel @mentions."""
+    result: dict[str, dict] = {}
+    chat_ids = [f'{c}-{m}' for c, m in pairs if c and not c.startswith('channel:')]
+    channel_ids = [m for c, m in pairs if c and c.startswith('channel:')]
+    if chat_ids:
+        try:
+            for r in await rows(
+                """SELECT a.id, a.chat_id, q.content AS question, a.content AS answer
+                FROM chat_message a LEFT JOIN chat_message q ON q.id = a.chat_id || '-' || a.parent_id
+                WHERE a.id = ANY(:ids)""",
+                ids=chat_ids,
+            ):
+                message_id = r['id'][len(r['chat_id']) + 1 :]
+                result[message_id] = {'question': _text(r['question']), 'answer': _text(r['answer'])}
+        except Exception:
+            pass
+    if channel_ids:
+        try:
+            for r in await rows(
+                """SELECT a.id, q.content AS question, a.content AS answer
+                FROM message a LEFT JOIN message q ON q.id = coalesce(a.reply_to_id, a.parent_id)
+                WHERE a.id = ANY(:ids)""",
+                ids=channel_ids,
+            ):
+                result[r['id']] = {'question': _text(r['question']), 'answer': _text(r['answer'])}
+        except Exception:
+            pass
+    return result
+
+
+def open_link(chat_id: Optional[str], message_id: Optional[str]) -> Optional[str]:
+    if not PUBLIC_URL or not chat_id:
+        return None
+    if chat_id.startswith('channel:'):
+        return f'{PUBLIC_URL}/channels/{chat_id[len("channel:") :]}?message={message_id or ""}'
+    return f'{PUBLIC_URL}/c/{chat_id}'
+
+
+@app.get('/api/traces', dependencies=[Depends(require_login)])
+async def traces(
+    range: str = '24h',
+    q: str = '',
+    min_ms: int = 0,
+    source: Optional[str] = None,
+    limit: int = Query(100, le=300),
+):
+    """Answers, newest first, with how many model calls and tool calls each one needed."""
+    start, _, _ = window(range)
+    where = ["p.kind = 'response'", 'p.ts >= :start', 'coalesce(p.duration_ms, 0) >= :min_ms']
+    params = {'start': start, 'min_ms': min_ms, 'limit': limit}
+    if source:
+        where.append('p.source = :source')
+        params['source'] = source
+    if q.strip():
+        where.append(
+            '(p.message_id ILIKE :q OR p.chat_id ILIKE :q OR u.name ILIKE :q OR u.email ILIKE :q OR p.model_id ILIKE :q)'
+        )
+        params['q'] = f'%{q.strip()}%'
+    items = clean(
+        await rows(
+            f"""SELECT p.ts, p.message_id, p.chat_id, p.source, p.model_id, p.duration_ms, p.count AS tool_calls,
+                p.status, p.input_tokens, p.output_tokens, coalesce(u.name, u.email) AS user_name,
+                (SELECT count(*) FROM perf_event l WHERE l.kind = 'llm_call' AND l.message_id = p.message_id
+                    AND l.source <> 'task') AS llm_calls,
+                (SELECT min(l.ttft_ms) FROM perf_event l WHERE l.kind = 'llm_call' AND l.message_id = p.message_id
+                    AND l.source <> 'task' AND l.ts = (SELECT min(f.ts) FROM perf_event f WHERE f.kind = 'llm_call'
+                    AND f.message_id = p.message_id AND f.source <> 'task')) AS first_ttft
+            FROM perf_event p LEFT JOIN "user" u ON u.id = p.user_id
+            WHERE {' AND '.join(where)} ORDER BY p.ts DESC LIMIT :limit""",
+            **params,
+        )
+    )
+    texts = await questions([(i['chat_id'], i['message_id']) for i in items if i['message_id']])
+    for item in items:
+        item['question'] = (texts.get(item['message_id']) or {}).get('question', '')[:200]
+    return {'items': items}
+
+
+@app.get('/api/trace/{message_id}', dependencies=[Depends(require_login)])
+async def trace(message_id: str):
+    """Everything recorded for one answer, in order: preparation, each model call, each tool call."""
+    events = clean(
+        await rows(
+            """SELECT p.kind, p.ts, p.source, p.name, p.model_id, p.chat_id, p.status, p.duration_ms, p.ttft_ms,
+                p.input_tokens, p.output_tokens, p.count, p.meta, coalesce(u.name, u.email) AS user_name, u.email
+            FROM perf_event p LEFT JOIN "user" u ON u.id = p.user_id
+            WHERE p.message_id = :m AND p.kind IN ('response', 'llm_call', 'tool') ORDER BY p.ts, p.kind""",
+            m=message_id,
+        )
+    )
+    if not events:
+        raise HTTPException(404, 'Không có số liệu cho message id này')
+    response = next((e for e in events if e['kind'] == 'response'), None)
+    calls = [e for e in events if e['kind'] == 'llm_call' and e['source'] != 'task']
+    tools = [e for e in events if e['kind'] == 'tool']
+    tasks = [e for e in events if e['kind'] == 'llm_call' and e['source'] == 'task']
+    steps = sorted(calls + tools, key=lambda e: e['ts'])
+    start = response['ts'] if response else steps[0]['ts'] if steps else events[0]['ts']
+    ends = [e['ts'] + (e['duration_ms'] or 0) for e in steps]
+    if response:
+        ends.append(response['ts'] + (response['duration_ms'] or 0))
+    end = max(ends) if ends else start
+
+    # Time covered by at least one model or tool call; the rest is preparation and NCS AI's own work.
+    spans = sorted((e['ts'], e['ts'] + (e['duration_ms'] or 0)) for e in steps)
+    covered, cursor = 0, start
+    for a, b in spans:
+        a = max(a, cursor)
+        if b > a:
+            covered += b - a
+            cursor = b
+    first = steps[0]['ts'] if steps else end
+    chat_id = (response or events[0]).get('chat_id')
+    text = (await questions([(chat_id, message_id)])).get(message_id, {})
+    return {
+        'message_id': message_id,
+        'chat_id': chat_id,
+        'link': open_link(chat_id, message_id),
+        'user_name': (response or events[0]).get('user_name'),
+        'email': (response or events[0]).get('email'),
+        'model_id': (response or events[0]).get('model_id'),
+        'source': (response or events[0]).get('source'),
+        'status': response['status'] if response else None,
+        'start': start,
+        'total_ms': end - start,
+        'summary': {
+            'prepare_ms': max(first - start, 0),
+            'llm_ms': sum(e['duration_ms'] or 0 for e in calls),
+            'ttft_ms': sum(e['ttft_ms'] or 0 for e in calls),
+            'tool_ms': sum(e['duration_ms'] or 0 for e in tools),
+            'other_ms': max(end - start - covered - max(first - start, 0), 0),
+            'llm_calls': len(calls),
+            'tool_calls': len(tools),
+            'input_tokens': sum(e['input_tokens'] or 0 for e in calls),
+            'output_tokens': sum(e['output_tokens'] or 0 for e in calls),
+        },
+        'steps': steps,
+        'tasks': tasks,
+        'question': text.get('question', ''),
+        'answer': text.get('answer', '')[:3000],
     }
 
 
