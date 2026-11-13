@@ -38,6 +38,7 @@
 	let resolvedUser = null;
 	let requestedUserId: string | null = null;
 	let userUnavailable = false;
+	let modelMissing = false;
 
 	$: if (token && $i18n && $models && $channels) {
 		init(resolvedUser, userUnavailable);
@@ -94,13 +95,11 @@
 							? $i18n.t('Unknown')
 							: label;
 			} else if (idType === 'M') {
-				// Model
+				// Model. A model that no longer exists (renamed connection, new prefix, removed) keeps the
+				// name stored in the message when it was sent, or its id, instead of "Unknown".
 				const model = $models.find((m) => m.id === id);
-				if (model) {
-					label = model.name;
-				} else {
-					label = $i18n.t('Unknown');
-				}
+				modelMissing = !model;
+				label = model ? model.name : token?.label && token.label !== _id ? token.label : id;
 			}
 		}
 		if (
@@ -145,14 +144,16 @@
 					data-id={`${token.id.split('|')[0]}|${label}`}
 					data-label={label}
 					data-mention-suggestion-char={triggerChar}
+					title={idType === 'M' && modelMissing
+						? $i18n.t('This model is no longer available')
+						: undefined}
 					on:click={async () => {
 						if (triggerChar === '@') {
 							if (idType === 'U') {
 								// Open user profile
 								console.log('Clicked user mention', id);
 							} else if (idType === 'M') {
-								console.log('Clicked model mention', id);
-								await goto(`/?model=${id}`);
+								if (!modelMissing) await goto(`/?model=${id}`);
 							}
 						} else if (triggerChar === '#') {
 							if (idType === 'C') {
