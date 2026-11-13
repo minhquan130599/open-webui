@@ -147,8 +147,17 @@ services:
       # Model của kết nối đầu tiên (OPENAI_API_BASE_URL) tự công khai cho mọi người dùng; admin vẫn đổi quyền được
       - DEFAULT_MODEL_ACCESS=${DEFAULT_MODEL_ACCESS:-public}
 
-      # --- Upload nhanh ---
-      - BYPASS_EMBEDDING_AND_RETRIEVAL=true
+      # --- Kiến thức: embedding (chỉ áp dụng lần cài đầu; sau đó sửa trong Admin > Tài liệu) ---
+      - BYPASS_EMBEDDING_AND_RETRIEVAL=${BYPASS_EMBEDDING_AND_RETRIEVAL:-false}
+      - RAG_EMBEDDING_ENGINE=${RAG_EMBEDDING_ENGINE:-openai}
+      - RAG_EMBEDDING_MODEL=${RAG_EMBEDDING_MODEL:-BAAI/bge-m3}
+      - RAG_OPENAI_API_BASE_URL=${RAG_EMBEDDING_BASE_URL:-}
+      - RAG_OPENAI_API_KEY=${RAG_EMBEDDING_API_KEY:-}
+      - RAG_EMBEDDING_BATCH_SIZE=${RAG_EMBEDDING_BATCH_SIZE:-32}
+      - CHUNK_SIZE=${CHUNK_SIZE:-1200}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-150}
+      - RAG_TOP_K=${RAG_TOP_K:-8}
+      - ENABLE_RAG_HYBRID_SEARCH=${ENABLE_RAG_HYBRID_SEARCH:-false}
       - RAG_FILE_MAX_SIZE=50
 
       # --- Đọc file vừa với context 32k ---
@@ -204,7 +213,20 @@ services:
       - MONITOR_PASSWORD=${MONITOR_PASSWORD:-}
     restart: unless-stopped
 
+
+  # Model embedding chạy riêng trên server (tùy chọn). Bật bằng: docker compose --profile embedding up -d
+  # Khi bật: RAG_EMBEDDING_BASE_URL=http://embedding:80/v1 (trong .env hoặc Admin > Tài liệu).
+  embedding:
+    image: ${EMBEDDING_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-latest}
+    container_name: ncs-embedding
+    profiles: ["embedding"]
+    command: ["--model-id", "${EMBEDDING_MODEL_ID:-BAAI/bge-m3}", "--max-client-batch-size", "64"]
+    volumes:
+      - embedding-models:/data
+    restart: unless-stopped
+
 volumes:
+  embedding-models: {}
   postgres: {}
   s3data: {}
   open-webui: {}
