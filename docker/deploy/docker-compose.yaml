@@ -216,6 +216,13 @@ services:
       - MONITOR_REVEAL_KEY=${MONITOR_REVEAL_KEY:-}
       # Địa chỉ NCS AI người dùng mở (vd https://ai.ncsgroup.vn), để timeline có nút mở lại cuộc chat
       - OPEN_WEBUI_PUBLIC_URL=${OPEN_WEBUI_PUBLIC_URL:-}
+    # The image's own HEALTHCHECK probes NCS AI on port 8080; the monitor listens on 8090.
+    healthcheck:
+      test: ["CMD-SHELL", "curl --silent --fail http://localhost:8090/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     restart: unless-stopped
 
 
