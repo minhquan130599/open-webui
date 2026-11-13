@@ -553,6 +553,14 @@ async def trace(message_id: str):
 
 # Message content is only sent after the reveal key is entered; wrong keys lock the client out for a while.
 REVEAL_KEY = os.getenv('MONITOR_REVEAL_KEY', '') or MONITOR_API_KEY
+log.info(
+    'Monitor: reveal key %s',
+    'from MONITOR_REVEAL_KEY'
+    if os.getenv('MONITOR_REVEAL_KEY')
+    else 'not set, using MONITOR_API_KEY'
+    if MONITOR_API_KEY
+    else 'not set: message content cannot be revealed',
+)
 REVEAL_MAX_FAILURES = 5
 REVEAL_LOCK_SECONDS = 600
 _reveal_failures: dict[str, list[float]] = {}
