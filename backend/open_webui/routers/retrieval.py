@@ -331,6 +331,8 @@ RETRIEVAL_CONFIG_KEYS = {
     'PADDLEOCR_VL_BASE_URL': 'rag.paddleocr_vl_base_url',
     'PADDLEOCR_VL_TOKEN': 'rag.paddleocr_vl_token',
     'PADDLEOCR_VL_AUTH_SCHEME': 'rag.paddleocr_vl_auth_scheme',
+    'PADDLEOCR_VL_PAGES_PER_REQUEST': 'rag.paddleocr_vl_pages_per_request',
+    'PADDLEOCR_VL_CONCURRENCY': 'rag.paddleocr_vl_concurrency',
     'PDF_EXTRACT_IMAGES': 'rag.pdf_extract_images',
     'PDF_LOADER_MODE': 'rag.pdf_loader_mode',
     'PERPLEXITY_API_KEY': 'web.search.perplexity_api_key',
@@ -660,6 +662,8 @@ async def get_rag_config(request: Request, user=Depends(get_admin_user)):
         'PADDLEOCR_VL_BASE_URL': config['rag.paddleocr_vl_base_url'],
         'PADDLEOCR_VL_TOKEN': config['rag.paddleocr_vl_token'],
         'PADDLEOCR_VL_AUTH_SCHEME': config.get('rag.paddleocr_vl_auth_scheme') or 'token',
+        'PADDLEOCR_VL_PAGES_PER_REQUEST': config.get('rag.paddleocr_vl_pages_per_request', 10),
+        'PADDLEOCR_VL_CONCURRENCY': config.get('rag.paddleocr_vl_concurrency') or 2,
         # MinerU settings
         'MINERU_API_MODE': config['rag.mineru_api_mode'],
         'MINERU_API_URL': config['rag.mineru_api_url'],
@@ -912,6 +916,8 @@ class ConfigForm(BaseModel):
     PADDLEOCR_VL_BASE_URL: str | None = None
     PADDLEOCR_VL_TOKEN: str | None = None
     PADDLEOCR_VL_AUTH_SCHEME: str | None = None
+    PADDLEOCR_VL_PAGES_PER_REQUEST: int | None = None
+    PADDLEOCR_VL_CONCURRENCY: int | None = None
 
     # MinerU settings
     MINERU_API_MODE: str | None = None
@@ -1129,6 +1135,8 @@ async def update_rag_config(request: Request, form_data: ConfigForm, user=Depend
         'PADDLEOCR_VL_BASE_URL': config['rag.paddleocr_vl_base_url'],
         'PADDLEOCR_VL_TOKEN': config['rag.paddleocr_vl_token'],
         'PADDLEOCR_VL_AUTH_SCHEME': config.get('rag.paddleocr_vl_auth_scheme') or 'token',
+        'PADDLEOCR_VL_PAGES_PER_REQUEST': config.get('rag.paddleocr_vl_pages_per_request', 10),
+        'PADDLEOCR_VL_CONCURRENCY': config.get('rag.paddleocr_vl_concurrency') or 2,
         # MinerU settings
         'MINERU_API_MODE': config['rag.mineru_api_mode'],
         'MINERU_API_URL': config['rag.mineru_api_url'],

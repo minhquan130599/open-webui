@@ -4757,5 +4757,11 @@
 	"{{count}} open": "{{count}} đang mở",
 	"{{count}} due today": "{{count}} hôm nay",
 	"{{count}} done": "{{count}} đã xong",
-	"Open channel": "Mở kênh"
+	"Open channel": "Mở kênh",
+	"settings.admin.documents.paddleocrVlAuthScheme.description": "Cách gửi token: \"token\" cho PaddleOCR AI Studio, \"Bearer\" cho máy OCR dùng API key (vd pod RunPod có xác thực).",
+	"settings.admin.documents.paddleocrVlAuthScheme.label": "Cách gửi token",
+	"settings.admin.documents.paddleocrVlConcurrency.description": "Số cụm trang gửi OCR cùng lúc. Giảm về 1 nếu máy OCR hay báo quá tải (429/503).",
+	"settings.admin.documents.paddleocrVlConcurrency.label": "Số cụm gửi cùng lúc",
+	"settings.admin.documents.paddleocrVlPagesPerRequest.description": "PDF dài được cắt thành từng cụm trang để mỗi lần gửi nhỏ và nhanh (proxy RunPod ngắt sau khoảng 100 giây). 0 = gửi cả file một lần. Gặp lỗi 524/504/413 thì giảm số này.",
+	"settings.admin.documents.paddleocrVlPagesPerRequest.label": "Số trang PDF mỗi lần gửi"
 }

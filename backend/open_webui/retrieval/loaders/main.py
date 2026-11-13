@@ -709,6 +709,8 @@ class Loader:
                 token=self.config['rag.paddleocr_vl_token'],
                 file_path=file_path,
                 auth_scheme=self.config.get('rag.paddleocr_vl_auth_scheme') or 'token',
+                pages_per_request=self.config.get('rag.paddleocr_vl_pages_per_request', 10),
+                concurrency=self.config.get('rag.paddleocr_vl_concurrency') or 2,
             )
         else:
             if USE_SLIM:

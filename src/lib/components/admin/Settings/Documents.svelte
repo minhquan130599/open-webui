@@ -895,6 +895,55 @@
 							/>
 						</AdminSettingField>
 					</div>
+					<AdminSettingRow
+						label={$i18n.t('settings.admin.documents.paddleocrVlAuthScheme.label')}
+						description={$i18n.t('settings.admin.documents.paddleocrVlAuthScheme.description')}
+						let:labelId
+					>
+						<SettingsSelect
+							id={`${labelId}-control`}
+							bind:value={RAGConfig.PADDLEOCR_VL_AUTH_SCHEME}
+						>
+							<option value="token">Authorization: token</option>
+							<option value="bearer">Authorization: Bearer</option>
+						</SettingsSelect>
+					</AdminSettingRow>
+					<div class="grid grid-cols-1 gap-x-3 gap-y-2.5 sm:grid-cols-2">
+						<AdminSettingField
+							label={$i18n.t('settings.admin.documents.paddleocrVlPagesPerRequest.label')}
+							description={$i18n.t(
+								'settings.admin.documents.paddleocrVlPagesPerRequest.description'
+							)}
+							forId="paddleocr-vl-pages-per-request"
+						>
+							<input
+								id="paddleocr-vl-pages-per-request"
+								class={inputClass}
+								type="number"
+								min="0"
+								max="200"
+								placeholder="10"
+								bind:value={RAGConfig.PADDLEOCR_VL_PAGES_PER_REQUEST}
+								autocomplete="off"
+							/>
+						</AdminSettingField>
+						<AdminSettingField
+							label={$i18n.t('settings.admin.documents.paddleocrVlConcurrency.label')}
+							description={$i18n.t('settings.admin.documents.paddleocrVlConcurrency.description')}
+							forId="paddleocr-vl-concurrency"
+						>
+							<input
+								id="paddleocr-vl-concurrency"
+								class={inputClass}
+								type="number"
+								min="1"
+								max="8"
+								placeholder="2"
+								bind:value={RAGConfig.PADDLEOCR_VL_CONCURRENCY}
+								autocomplete="off"
+							/>
+						</AdminSettingField>
+					</div>
 				{:else if RAGConfig.CONTENT_EXTRACTION_ENGINE === 'mineru'}
 					<AdminSettingRow
 						label={$i18n.t('settings.admin.documents.apiMode.label')}

@@ -953,6 +953,9 @@ PADDLEOCR_VL_TOKEN = os.getenv('PADDLEOCR_VL_TOKEN', '')
 # How the token is sent: 'token' (Authorization: token <x>, PaddleOCR AI Studio) or 'bearer'
 # (Authorization: Bearer <x>, e.g. a PaddleOCR-VL server behind an API-key proxy on RunPod).
 PADDLEOCR_VL_AUTH_SCHEME = (os.getenv('PADDLEOCR_VL_AUTH_SCHEME', 'token') or 'token').strip().lower()
+# Long PDFs are sent in batches of this many pages (0 = whole file in one request), this many batches at a time.
+PADDLEOCR_VL_PAGES_PER_REQUEST = int(os.getenv('PADDLEOCR_VL_PAGES_PER_REQUEST', '10') or 10)
+PADDLEOCR_VL_CONCURRENCY = int(os.getenv('PADDLEOCR_VL_CONCURRENCY', '2') or 2)
 
 BYPASS_EMBEDDING_AND_RETRIEVAL = os.getenv('BYPASS_EMBEDDING_AND_RETRIEVAL', 'False').lower() == 'true'
 
@@ -3042,6 +3045,8 @@ DEFAULT_CONFIG = {
     'rag.paddleocr_vl_base_url': PADDLEOCR_VL_BASE_URL,
     'rag.paddleocr_vl_token': PADDLEOCR_VL_TOKEN,
     'rag.paddleocr_vl_auth_scheme': PADDLEOCR_VL_AUTH_SCHEME,
+    'rag.paddleocr_vl_pages_per_request': PADDLEOCR_VL_PAGES_PER_REQUEST,
+    'rag.paddleocr_vl_concurrency': PADDLEOCR_VL_CONCURRENCY,
     'rag.bypass_embedding_and_retrieval': BYPASS_EMBEDDING_AND_RETRIEVAL,
     'rag.top_k': RAG_TOP_K,
     'rag.top_k_reranker': RAG_TOP_K_RERANKER,
