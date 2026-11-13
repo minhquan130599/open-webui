@@ -250,3 +250,14 @@ async def test_model_public_private_and_default_policy():
         assert any(g.principal_id == '*' for g in row.access_grants)
     await Config.upsert({model_utils.DEFAULT_ACCESS_KEY: ''})
     assert await model_utils.default_model_access() == ''
+
+
+def test_extraction_samples_and_scoring():
+    from open_webui.monitoring import extraction_test as et
+
+    assert et._text_pdf().startswith(b'%PDF') and et._scanned_pdf().startswith(b'%PDF')
+    assert et._image_bytes().startswith(b'\x89PNG')
+    assert et._score(et.SAMPLE_TEXT) == 100
+    stripped = 'NCS AI kiem tra trich xuat tai lieu. Hop dong so HD-2026/115 co gia tri 1.250.000.000 dong.'
+    assert et._score(stripped) < 50 < et._score(stripped, accents=False), 'lost accents are visible in the scores'
+    assert et._score('') == 0

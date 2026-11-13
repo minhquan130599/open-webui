@@ -207,6 +207,18 @@ Với Tracker, giá trị lưu trong database được ưu tiên hơn `.env`. Đ
 5. Mọi thay đổi được ghi vào **Lịch sử thay đổi**: thời gian, giá trị cũ → mới, từ máy nào. Khóa bí mật chỉ ghi
    "(đã đổi)". Lịch sử giữ theo `PERF_RETENTION_DAYS`.
 
+Nhóm **Trích xuất tài liệu** có nút **Kiểm tra**: NCS AI tạo file mẫu có nội dung biết trước (PDF có chữ, PDF scan, ảnh PNG),
+chạy qua đúng engine đang chọn (kể cả giá trị chưa lưu) và báo % chữ đọc đúng, thời gian, chữ đọc được.
+**Đạt** khi PDF có chữ đọc đúng ≥ 80%. PDF scan và ảnh để tham khảo: engine có OCR tốt cho tiếng Việt phải đọc được
+phần lớn; nếu % khi bỏ dấu cao hơn nhiều thì engine đang làm mất dấu tiếng Việt.
+
+Mục **Tài liệu kiến thức: trích xuất và embedding** (bấm **Kiểm tra tài liệu**) liệt kê mọi file trong kho kiến
+thức với số ký tự trích xuất được, số đoạn vector và trạng thái: **Đủ**, **Có thể thiếu** (ít đoạn hơn nhiều so với
+độ dài chữ), **Chưa embedding**, **Không có chữ** (PDF scan/ảnh mà engine không đọc được), **Lỗi xử lý**.
+- **Xem chữ**: đặt file gốc (PDF/ảnh) cạnh chữ engine trích xuất được, xem toàn bộ chữ hoặc theo từng đoạn vector
+  (kèm số trang, engine), để đánh giá độ chính xác OCR.
+- **Xử lý lại**: trích xuất và embedding lại riêng file đó bằng engine/model hiện tại (không cần lập chỉ mục lại cả kho).
+
 Đổi model embedding xong vẫn phải bấm **Lập chỉ mục lại** trong NCS AI (Cài đặt quản trị → Tài liệu).
 
 ### Đổi hoặc khôi phục mã Google Authenticator

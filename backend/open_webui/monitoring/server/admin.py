@@ -727,3 +727,191 @@ async def set_default_access(form: DefaultAccessForm, request: Request, token: s
         )
         await _bump(conn, ['models'])
     return {'value': form.value}
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Check the document extraction engine with sample files (saved settings + the values in the form)
+# ---------------------------------------------------------------------------------------------------------
+class ExtractionTestForm(BaseModel):
+    values: dict[str, Any] = {}
+
+
+@router.post('/api/admin/extraction/test')
+async def extraction_test(form: ExtractionTestForm, token: str = Depends(require_session)):
+    from open_webui.monitoring.server.app import webui
+
+    overrides = {}
+    for key, value in form.values.items():
+        setting = BY_KEY.get(key)
+        if not setting or setting['group'] != 'extraction':
+            continue
+        if setting['type'] == 'secret' and not value:
+            continue  # empty = the saved key is used
+        overrides[key] = value
+    result = await webui('/extraction/test', method='POST', timeout=420, json_body={'overrides': overrides})
+    if result.get('error'):
+        raise HTTPException(502, result['error'])
+    return result
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Knowledge files: is every file extracted and embedded, the extracted (OCR) text next to the original file
+# ---------------------------------------------------------------------------------------------------------
+NO_TEXT_MARKERS = ('No valid text content found in document',)
+
+
+def _file_status(row: dict, bypass: bool, chunk_size: int, overlap: int) -> tuple[str, str]:
+    """(status key, explanation) of one knowledge file."""
+    if row.get('status') == 'failed' or row.get('error'):
+        return 'failed', row.get('error') or 'Xử lý thất bại'
+    chars = row.get('chars') or 0
+    if chars == 0 or (row.get('head') or '').strip() in NO_TEXT_MARKERS:
+        return 'empty', 'Không trích xuất được chữ (PDF scan/ảnh mà engine không đọc được, hoặc file rỗng)'
+    if bypass:
+        return 'text_only', 'Đang bỏ qua embedding: chỉ có chữ, chưa có vector'
+    if row.get('kb_chunks') is None:
+        return 'unknown', 'Không đọc được bảng vector'
+    if row['kb_chunks'] == 0:
+        return 'missing', 'Chưa có vector trong kho kiến thức: bấm Xử lý lại hoặc Lập chỉ mục lại'
+    expected = max(1, -(-chars // max(chunk_size - overlap, 1)))
+    if row['kb_chunks'] < expected * 0.5:
+        return 'partial', f'Có {row["kb_chunks"]} đoạn, dự kiến khoảng {expected}: có thể embedding chưa hết'
+    return 'ok', f'{row["kb_chunks"]} đoạn'
+
+
+@router.get('/api/admin/knowledge/files')
+async def knowledge_files(token: str = Depends(require_session)):
+    async with _engine().connect() as conn:
+        settings = await _get(
+            conn, ['rag.bypass_embedding_and_retrieval', 'rag.chunk_size', 'rag.chunk_overlap', 'rag.embedding_model']
+        )
+        result = await conn.execute(
+            text(
+                """SELECT k.id AS kb_id, k.name AS kb_name, f.id, f.filename, f.meta->>'content_type' AS content_type,
+                       f.meta->>'size' AS size, f.created_at, f.updated_at,
+                       length(coalesce(f.data->>'content', '')) AS chars, left(f.data->>'content', 60) AS head,
+                       f.data->>'status' AS status, f.data->>'error' AS error
+                   FROM knowledge k JOIN knowledge_file kf ON kf.knowledge_id = k.id JOIN file f ON f.id = kf.file_id
+                   ORDER BY k.name, f.filename"""
+            )
+        )
+        rows = [dict(r._mapping) for r in result]
+        chunks: Optional[dict] = None
+        try:
+            async with conn.begin_nested():
+                counted = await conn.execute(
+                    text(
+                        """SELECT vmetadata->>'file_id' AS file_id, collection_name, count(*) AS n
+                           FROM document_chunk GROUP BY 1, 2"""
+                    )
+                )
+                chunks = {(r.file_id, r.collection_name): r.n for r in counted}
+        except Exception:
+            chunks = None
+    bypass = bool(settings.get('rag.bypass_embedding_and_retrieval'))
+    chunk_size = int(settings.get('rag.chunk_size') or 1000)
+    overlap = int(settings.get('rag.chunk_overlap') or 0)
+    summary: dict[str, int] = {}
+    for row in rows:
+        row['file_chunks'] = chunks.get((row['id'], f'file-{row["id"]}'), 0) if chunks is not None else None
+        row['kb_chunks'] = chunks.get((row['id'], row['kb_id']), 0) if chunks is not None else None
+        row['state'], row['note'] = _file_status(row, bypass, chunk_size, overlap)
+        row.pop('head', None)
+        summary[row['state']] = summary.get(row['state'], 0) + 1
+    return {
+        'files': rows,
+        'summary': summary,
+        'bypass': bypass,
+        'embedding_model': settings.get('rag.embedding_model'),
+        'chunk_size': chunk_size,
+    }
+
+
+@router.get('/api/admin/files/{file_id}/text')
+async def file_text(file_id: str, request: Request, token: str = Depends(require_session)):
+    """The text the extraction engine produced for a file, and its chunks in the vector store."""
+    async with _engine().connect() as conn:
+        row = (
+            await conn.execute(
+                text(
+                    """SELECT id, filename, meta->>'content_type' AS content_type, data->>'content' AS content,
+                           data->>'status' AS status, data->>'error' AS error, updated_at
+                       FROM file WHERE id = :id"""
+                ),
+                {'id': file_id},
+            )
+        ).first()
+        if not row:
+            raise HTTPException(404, 'Không tìm thấy file')
+        chunks = []
+        try:
+            async with conn.begin_nested():
+                result = await conn.execute(
+                    text(
+                        """SELECT text, vmetadata FROM document_chunk
+                           WHERE collection_name = :c ORDER BY (vmetadata->>'page')::int NULLS LAST,
+                                 (vmetadata->>'start_index')::int NULLS LAST LIMIT 400"""
+                    ),
+                    {'c': f'file-{file_id}'},
+                )
+                for r in result:
+                    meta = r.vmetadata if isinstance(r.vmetadata, dict) else {}
+                    chunks.append(
+                        {
+                            'text': r.text,
+                            'page': meta.get('page_label') or meta.get('page'),
+                            'engine': meta.get('processing_engine'),
+                        }
+                    )
+        except Exception:
+            chunks = []
+    log.info('Monitor admin: %s viewed extracted text of file %s', _client(request), file_id)
+    content = row.content or ''
+    return {
+        'id': row.id,
+        'filename': row.filename,
+        'content_type': row.content_type,
+        'status': row.status,
+        'error': row.error,
+        'chars': len(content),
+        'content': content[:300_000],
+        'truncated': len(content) > 300_000,
+        'chunks': chunks,
+    }
+
+
+@router.get('/api/admin/files/{file_id}/original')
+async def file_original(file_id: str, token: str = Depends(require_session)):
+    import aiohttp
+    from fastapi.responses import Response
+
+    from open_webui.monitoring.server.app import MONITOR_API_KEY, OPEN_WEBUI_URL
+
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as session:
+            async with session.get(
+                f'{OPEN_WEBUI_URL}/api/v1/monitor/files/{file_id}/original', headers={'X-Monitor-Key': MONITOR_API_KEY}
+            ) as response:
+                if response.status != 200:
+                    raise HTTPException(response.status, 'Không lấy được file gốc từ NCS AI')
+                body = await response.read()
+                media_type = response.headers.get('Content-Type', 'application/octet-stream')
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f'Không gọi được NCS AI: {e}')
+    return Response(body, media_type=media_type, headers={'Cache-Control': 'no-store'})
+
+
+@router.post('/api/admin/files/{file_id}/reprocess')
+async def file_reprocess(file_id: str, request: Request, token: str = Depends(require_session)):
+    from open_webui.monitoring.server.app import webui
+
+    result = await webui(f'/files/{file_id}/reprocess', method='POST', timeout=900)
+    if result.get('error'):
+        raise HTTPException(502, result['error'])
+    async with _engine().begin() as conn:
+        await _audit(
+            conn, f'Xử lý lại file {file_id}', None, f'{result.get("chars")} ký tự', _client(request), 'file.reprocess'
+        )
+    return result

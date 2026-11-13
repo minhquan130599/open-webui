@@ -410,3 +410,45 @@ async def set_model_access(form: ModelAccessForm, request: Request, x_monitor_ke
         return await set_public(request.app, form.model_id, form.public, form.name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+class ExtractionTestForm(BaseModel):
+    overrides: dict = {}
+
+
+@router.post('/extraction/test')
+async def extraction_test(form: ExtractionTestForm, x_monitor_key: Optional[str] = Header(None)):
+    """Run sample files through the document extraction engine (saved settings + unsaved form values)."""
+    _check(x_monitor_key)
+    from open_webui.monitoring.extraction_test import run_test
+
+    return await run_test(form.overrides)
+
+
+@router.get('/files/{file_id}/original')
+async def file_original(file_id: str, x_monitor_key: Optional[str] = Header(None)):
+    """The uploaded file itself (to compare with the text the extraction engine produced)."""
+    _check(x_monitor_key)
+    from fastapi.responses import FileResponse
+
+    from open_webui.monitoring.files_admin import original_path
+
+    try:
+        path, name, content_type = await original_path(file_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='Không tìm thấy file gốc')
+    return FileResponse(path, media_type=content_type, filename=name, content_disposition_type='inline')
+
+
+@router.post('/files/{file_id}/reprocess')
+async def file_reprocess(file_id: str, request: Request, x_monitor_key: Optional[str] = Header(None)):
+    """Extract and embed one file again with the current settings."""
+    _check(x_monitor_key)
+    from open_webui.monitoring.files_admin import reprocess
+
+    try:
+        return await reprocess(request.app, file_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='Không tìm thấy file')
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Xử lý lại thất bại: {e}'[:500])

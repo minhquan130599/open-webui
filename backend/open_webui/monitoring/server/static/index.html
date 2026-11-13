@@ -101,6 +101,12 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
   [hidden] { display: none !important; }
+  .viewer { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+  @media (max-width: 900px) { .viewer { grid-template-columns: 1fr; } }
+  .viewer iframe, .viewer img { width: 100%; height: 640px; border: 1px solid var(--line); border-radius: 10px; background: #fff; object-fit: contain; }
+  .viewer pre { margin: 0; height: 640px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.55 ui-monospace, Consolas, monospace; background: var(--raised); border-radius: 10px; padding: 12px; }
+  .chunk { border-bottom: 1px dashed var(--line); padding: 6px 0; }
+  .chunk b { font-size: 11px; color: var(--muted); }
   .editor-groups { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); }
   @media (max-width: 520px) { .editor-groups { grid-template-columns: 1fr; } }
   .field { display: grid; gap: 3px; margin-bottom: 10px; }
@@ -472,7 +478,7 @@
     }
     const d = editor.data;
     const left = Math.max(0, editor.expires - Math.floor(Date.now() / 1000));
-    const groups = d.groups.map((g) => `<section class="card" style="box-shadow:none"><h2>${esc(g.label)} <button class="btn primary" type="button" data-save-group="${esc(g.key)}">Lưu</button></h2>${g.note ? `<p class="muted" style="font-size:12px;margin:-4px 0 10px">${esc(g.note)}</p>` : ''}<div data-group="${esc(g.key)}">${d.settings.filter((f) => f.group === g.key).map(fieldHtml).join('')}</div></section>`).join('');
+    const groups = d.groups.map((g) => `<section class="card" style="box-shadow:none"><h2>${esc(g.label)} <span style="display:flex;gap:6px">${g.key === 'extraction' ? '<button class="btn" type="button" data-test-extraction title="Chạy file mẫu qua engine đang chọn (kể cả giá trị chưa lưu)">Kiểm tra</button>' : ''}<button class="btn primary" type="button" data-save-group="${esc(g.key)}">Lưu</button></span></h2>${g.note ? `<p class="muted" style="font-size:12px;margin:-4px 0 10px">${esc(g.note)}</p>` : ''}<div data-group="${esc(g.key)}">${d.settings.filter((f) => f.group === g.key).map(fieldHtml).join('')}</div>${g.key === 'extraction' ? `<div id="extraction-test">${extractionTestHtml()}</div>` : ''}</section>`).join('');
     const history = table([
       { label: 'Lúc', render: (r) => when(r.ts) },
       { label: 'Cấu hình', render: (r) => `<b>${esc((r.meta || {}).label || r.name)}</b><div class="muted" style="font-size:11px">${esc(r.name)}</div>` },
@@ -485,6 +491,7 @@
       <div id="models-box">${modelsHtml()}</div>
       <div class="editor-groups" style="margin-top:12px">${groups}</div>
       <div id="reindex-box">${reindexHtml()}</div>
+      <div id="files-box">${filesHtml()}</div>
       <h2 style="margin-top:14px">Lịch sử thay đổi</h2>${history}`);
   }
   const REINDEX_STEP = { starting: 'đang bắt đầu', knowledge_files: 'tạo lại vector cho file trong kho kiến thức', knowledge_search: 'tạo lại chỉ mục tìm kho kiến thức', memories: 'tạo lại vector bộ nhớ' };
@@ -601,6 +608,108 @@
       } catch (err) { editor.error = err.message; if (/hết hạn/.test(err.message)) { editor.token = ''; editor.data = null; } }
     }
     drawEditor();
+  }
+
+  let extractionTest = null;
+  function extractionTestHtml() {
+    const t = extractionTest;
+    if (!t) return '';
+    if (t.pending) return '<div style="margin-top:8px;font-size:12.5px"><span class="spin"></span> Đang chạy file mẫu qua engine… (OCR hoặc dịch vụ ngoài có thể mất 1–2 phút)</div>';
+    if (t.error) return `<div class="error-box" style="margin-top:8px">${esc(t.error)}</div>`;
+    const main = t.results[0] || {};
+    const verdict = t.passed
+      ? `<div class="notice info" style="margin:10px 0 8px"><span class="pill ok">Hoạt động</span> Engine <b>${esc(t.engine === 'default' ? 'Mặc định' : t.engine)}</b> đọc đúng <b>${main.score}%</b> chữ của PDF mẫu trong ${ms(main.ms)}.</div>`
+      : `<div class="notice warn" style="margin:10px 0 8px"><span class="pill err">Không đạt</span> ${main.ok ? `Engine chỉ đọc đúng ${main.score}% chữ của PDF mẫu (cần ≥ 80%).` : `Engine lỗi: ${esc(main.error || '')}`} Kiểm tra lại URL/khóa của engine.</div>`;
+    const rows = table([
+      { label: 'File mẫu', render: (r) => `<b>${esc(r.sample)}</b>${r.required ? '' : '<div class="muted" style="font-size:11px">để tham khảo</div>'}` },
+      { label: 'Kết quả', render: (r) => r.skipped ? `<span class="muted">${esc(r.note)}</span>` : !r.ok ? `<span class="pill err">Lỗi</span> <span class="muted">${esc(r.error)}</span>` : `<span class="pill ${r.score >= 80 ? 'ok' : r.score >= 40 ? 'warn' : 'err'}">${r.score}% đúng</span>${r.score_no_accents - r.score >= 15 ? ` <span class="muted">(${r.score_no_accents}% nếu bỏ dấu: engine làm mất dấu tiếng Việt)</span>` : ''}` },
+      { label: 'Thời gian', num: true, render: (r) => (r.skipped ? '—' : ms(r.ms)) },
+      { label: 'Chữ đọc được', render: (r) => (r.ok && !r.skipped ? `<div style="max-width:420px;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere">${esc(r.preview || '(trống)')}</div>` : '') },
+    ], t.results);
+    return `${verdict}${rows}<details style="margin-top:6px"><summary class="muted" style="cursor:pointer;font-size:12px">Nội dung gốc của file mẫu</summary><div class="qbox" style="margin-top:4px">${esc(t.expected)}</div></details>`;
+  }
+  async function testExtraction() {
+    const box = document.querySelector('[data-group="extraction"]');
+    const values = {};
+    box.querySelectorAll('[data-key]').forEach((el) => { values[el.dataset.key] = el.dataset.type === 'bool' ? el.checked : el.value; });
+    extractionTest = { pending: true };
+    const out = $('#extraction-test'); if (out) out.innerHTML = extractionTestHtml();
+    try { extractionTest = await api('/api/admin/extraction/test', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ values }) }); }
+    catch (err) { extractionTest = { error: err.message }; }
+    const out2 = $('#extraction-test'); if (out2) out2.innerHTML = extractionTestHtml();
+  }
+
+  // ---------- knowledge files: embedding coverage and extracted (OCR) text ----------
+  const FILE_STATE = {
+    ok: ['ok', 'Đủ'], partial: ['warn', 'Có thể thiếu'], missing: ['err', 'Chưa embedding'], empty: ['err', 'Không có chữ'],
+    failed: ['err', 'Lỗi xử lý'], text_only: ['info', 'Chỉ có chữ'], unknown: ['', 'Không rõ'],
+  };
+  const files = { data: null, loading: false, filter: '', viewer: null, busy: '' };
+  async function loadFiles() {
+    files.loading = true; drawFiles();
+    try { files.data = await api('/api/admin/knowledge/files', { headers: editHeaders() }); }
+    catch (err) { files.data = { error: err.message }; }
+    files.loading = false; drawFiles();
+  }
+  function drawFiles() { const box = $('#files-box'); if (box) box.innerHTML = filesHtml(); }
+  function filesHtml() {
+    const head = `<h2>Tài liệu kiến thức: trích xuất và embedding <button class="btn" type="button" data-files-load>${files.data ? 'Kiểm tra lại' : 'Kiểm tra tài liệu'}</button></h2>
+      <p class="muted" style="font-size:12px;margin:-4px 0 8px">Mỗi file trong kho kiến thức: đã trích xuất được bao nhiêu chữ, có bao nhiêu đoạn vector, file nào chưa embedding hoặc không đọc được. Bấm <b>Xem chữ</b> để đặt chữ trích xuất (kết quả OCR) cạnh file gốc và đánh giá độ chính xác.</p>`;
+    if (files.loading && !files.data) return `<section class="card" style="box-shadow:none;margin-top:12px">${head}<span class="spin"></span> Đang đọc…</section>`;
+    if (!files.data) return `<section class="card" style="box-shadow:none;margin-top:12px">${head}</section>`;
+    if (files.data.error) return `<section class="card" style="box-shadow:none;margin-top:12px">${head}<div class="error-box">${esc(files.data.error)}</div></section>`;
+    const d = files.data;
+    const chips = Object.entries(FILE_STATE).filter(([k]) => d.summary[k]).map(([k, [cls, label]]) => `<button type="button" class="btn" data-files-filter="${k}" aria-pressed="${files.filter === k}" style="${files.filter === k ? 'border-color:var(--text)' : ''}"><span class="pill ${cls}">${label}</span> ${n(d.summary[k])}</button>`).join(' ');
+    const list = d.files.filter((f) => !files.filter || f.state === files.filter);
+    const rows = table([
+      { label: 'Kho', render: (f) => esc(f.kb_name) },
+      { label: 'File', render: (f) => `<b>${esc(f.filename)}</b><div class="muted" style="font-size:11px">${esc(f.content_type || '')}</div>` },
+      { label: 'Kích thước', num: true, render: (f) => bytes(f.size ? +f.size : null) },
+      { label: 'Ký tự', num: true, render: (f) => n(f.chars) },
+      { label: 'Đoạn vector', num: true, render: (f) => (f.kb_chunks === null ? '—' : n(f.kb_chunks)) },
+      { label: 'Trạng thái', render: (f) => `<span class="pill ${FILE_STATE[f.state][0]}">${FILE_STATE[f.state][1]}</span><div class="muted" style="font-size:11px;max-width:300px">${esc(f.note)}</div>` },
+      { label: '', render: (f) => `<span style="display:flex;gap:4px"><button class="btn" type="button" data-file-view="${esc(f.id)}">Xem chữ</button><button class="btn" type="button" data-file-reprocess="${esc(f.id)}" ${files.busy === f.id ? 'disabled' : ''}>${files.busy === f.id ? 'Đang xử lý…' : 'Xử lý lại'}</button></span>` },
+    ], list, 'Không có file nào.');
+    return `<section class="card" style="box-shadow:none;margin-top:12px">${head}
+      <div class="muted" style="font-size:12px;margin-bottom:8px">${d.bypass ? 'Đang <b>bỏ qua embedding</b>: file chỉ có chữ, không có vector.' : `Model embedding: <b>${esc(d.embedding_model || '')}</b> · đoạn ${n(d.chunk_size)} ký tự`} · ${n(d.files.length)} file</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${chips}${files.filter ? ' <button class="btn" type="button" data-files-filter="">Tất cả</button>' : ''}</div>
+      ${rows}
+      <div id="file-viewer">${viewerHtml()}</div></section>`;
+  }
+  function viewerHtml() {
+    const v = files.viewer;
+    if (!v) return '';
+    if (v.loading) return '<div style="margin-top:10px"><span class="spin"></span> Đang tải chữ trích xuất và file gốc…</div>';
+    if (v.error) return `<div class="error-box" style="margin-top:10px">${esc(v.error)}</div>`;
+    const t = v.text;
+    const original = v.url
+      ? (/^image\//.test(v.type) ? `<img src="${v.url}" alt="File gốc">` : /pdf/.test(v.type) ? `<iframe src="${v.url}" title="File gốc"></iframe>` : `<div class="qbox">Không xem trước được loại file này. <a href="${v.url}" download="${esc(t.filename)}">Tải file gốc</a></div>`)
+      : `<div class="qbox">${esc(v.originalError || 'Không lấy được file gốc')}</div>`;
+    const right = v.mode === 'chunks'
+      ? `<pre>${(t.chunks || []).map((c, i) => `<div class="chunk"><b>Đoạn ${i + 1}${c.page ? ` · trang ${esc(c.page)}` : ''}${c.engine ? ` · ${esc(c.engine)}` : ''}</b>\n${esc(c.text || '')}</div>`).join('') || 'Chưa có đoạn vector nào.'}</pre>`
+      : `<pre>${esc(t.content || '(không có chữ)')}${t.truncated ? '\n\n… (đã cắt bớt, chỉ hiện 300.000 ký tự đầu)' : ''}</pre>`;
+    return `<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center">
+        <div><b>${esc(t.filename)}</b> <span class="muted" style="font-size:12px">· ${n(t.chars)} ký tự · ${n((t.chunks || []).length)} đoạn vector${t.error ? ` · <span style="color:var(--red)">${esc(t.error)}</span>` : ''}</span></div>
+        <span style="display:flex;gap:6px"><span class="seg"><button type="button" data-viewer-mode="text" aria-pressed="${v.mode !== 'chunks'}">Toàn bộ chữ</button><button type="button" data-viewer-mode="chunks" aria-pressed="${v.mode === 'chunks'}">Theo đoạn vector</button></span><button class="btn" type="button" data-viewer-close>Đóng</button></span>
+      </div>
+      <div class="viewer"><div><div class="muted" style="font-size:12px;margin-bottom:4px">File gốc</div>${original}</div><div><div class="muted" style="font-size:12px;margin-bottom:4px">Chữ engine trích xuất được (dùng để đánh giá độ chính xác OCR)</div>${right}</div></div></div>`;
+  }
+  async function openViewer(id) {
+    if (files.viewer?.url) URL.revokeObjectURL(files.viewer.url);
+    files.viewer = { loading: true }; drawFiles();
+    const v = { mode: 'text' };
+    try { v.text = await api(`/api/admin/files/${encodeURIComponent(id)}/text`, { headers: editHeaders() }); }
+    catch (err) { files.viewer = { error: err.message }; drawFiles(); return; }
+    try {
+      const res = await fetch(`/api/admin/files/${encodeURIComponent(id)}/original`, { headers: editHeaders(), credentials: 'same-origin' });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`);
+      const blob = await res.blob();
+      v.type = blob.type || v.text.content_type || '';
+      v.url = URL.createObjectURL(blob);
+    } catch (err) { v.originalError = err.message; }
+    files.viewer = v; drawFiles();
+    const el = $('#file-viewer'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   async function saveGroup(group) {
@@ -978,6 +1087,21 @@
     if (!b) return;
     if (b.dataset.openEditor !== undefined) { if (editor.open) { editor.open = false; drawEditor(); } else { await openEditor(); } return; }
     if (b.dataset.saveGroup) { await saveGroup(b.dataset.saveGroup); return; }
+    if (b.dataset.filesLoad !== undefined) { await loadFiles(); return; }
+    if (b.dataset.filesFilter !== undefined) { files.filter = b.dataset.filesFilter; drawFiles(); return; }
+    if (b.dataset.fileView) { await openViewer(b.dataset.fileView); return; }
+    if (b.dataset.viewerMode) { files.viewer.mode = b.dataset.viewerMode; drawFiles(); return; }
+    if (b.dataset.viewerClose !== undefined) { if (files.viewer?.url) URL.revokeObjectURL(files.viewer.url); files.viewer = null; drawFiles(); return; }
+    if (b.dataset.fileReprocess) {
+      if (!confirm('Trích xuất và embedding lại file này bằng engine và model hiện tại?')) return;
+      files.busy = b.dataset.fileReprocess; drawFiles();
+      try { const r = await api(`/api/admin/files/${encodeURIComponent(files.busy)}/reprocess`, { method: 'POST', headers: editHeaders() }); editor.note = `Đã xử lý lại: ${n(r.chars)} ký tự, ${n(r.knowledge_bases)} kho, ${ms(r.ms)}.`; editor.error = ''; }
+      catch (err) { editor.error = err.message; }
+      files.busy = ''; await loadFiles();
+      const id = b.dataset.fileReprocess; if (files.viewer && files.viewer.text && files.viewer.text.id === id) await openViewer(id);
+      return;
+    }
+    if (b.dataset.testExtraction !== undefined) { b.disabled = true; await testExtraction(); b.disabled = false; return; }
     if (b.dataset.modelPublic) {
       const toPublic = b.dataset.to === '1';
       if (!toPublic && !confirm(`Đặt "${b.dataset.modelName}" thành riêng tư? Người dùng thường (không được chia sẻ riêng) sẽ không chọn được model này nữa.`)) return;
