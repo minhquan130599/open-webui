@@ -409,9 +409,19 @@ async def _extraction():
     engine = config.get('rag.content_extraction_engine') or 'default'
     result = await _run(config, await Users.get_super_admin_user(), 'ncs-kiem-tra.pdf', 'application/pdf', _text_pdf())
     if not result.get('ok'):
-        raise RuntimeError(f'{engine}: {result.get("error")}')
+        raise RuntimeError(f'{engine}: lỗi gọi API, {result.get("error")}')
+    if result.get('engine_note'):
+        raise RuntimeError(f'{engine}: {result["engine_note"]}')
+    if result.get('empty'):
+        raise RuntimeError(
+            f'{engine}: gọi API thành công ({result["ms"]} ms) nhưng engine không trả về chữ nào cho PDF mẫu'
+        )
     if result.get('score', 0) < 80:
-        raise RuntimeError(f'{engine}: chỉ đọc đúng {result.get("score")}% chữ của PDF mẫu')
+        preview = ' '.join((result.get('preview') or '').split())[:160]
+        raise RuntimeError(
+            f'{engine}: gọi API thành công ({result["ms"]} ms, {result["chars"]} ký tự) nhưng chữ sai: chỉ đúng '
+            f'{result.get("score")}% so với PDF mẫu. Engine trả về: "{preview}"'
+        )
     return {'engine': engine, 'score': result['score'], 'chars': result['chars']}
 
 

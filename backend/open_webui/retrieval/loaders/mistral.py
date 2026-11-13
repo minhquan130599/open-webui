@@ -395,16 +395,8 @@ class MistralLoader:
         except Exception as e:
             total_time = time.time() - start_time
             log.error(f'An error occurred during the loading process after {total_time:.2f}s: {e}')
-            # Return an error document on failure
-            return [
-                Document(
-                    page_content=f'Error during processing: {e}',
-                    metadata={
-                        'error': 'processing_failed',
-                        'file_name': self.file_name,
-                    },
-                )
-            ]
+            # Fail the file instead of storing (and embedding) the error message as its content.
+            raise RuntimeError(f'Mistral OCR lỗi: {e}') from e
         finally:
             # 5. Delete file (attempt even if prior steps failed after upload)
             if file_id:

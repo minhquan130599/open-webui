@@ -99,6 +99,41 @@ async def _config(overrides: dict) -> dict:
     return config
 
 
+ERROR_TEXT_PREFIXES = ('Error during OCR processing:', 'Error during processing:')
+# Engines whose own loader tags the documents with processing_engine; any other value means it was not called.
+ENGINE_TAGS = {'paddleocr_vl': 'paddleocr-vl'}
+
+
+def _api_error(message: str) -> str:
+    message = ' '.join(message.split())
+    for prefix in ERROR_TEXT_PREFIXES:
+        if message.startswith(prefix):
+            message = message[len(prefix) :].strip()
+    hints = (
+        ('404', 'sai đường dẫn API (kiểm tra API Base URL, thường không có /v1)'),
+        ('401', 'sai token hoặc sai kiểu xác thực (token/Bearer)'),
+        ('403', 'sai token hoặc sai kiểu xác thực (token/Bearer)'),
+        ('524', 'proxy RunPod ngắt vì quá 100 giây'),
+        ('502', 'máy OCR đang tắt hoặc lỗi'),
+        ('503', 'máy OCR đang tắt hoặc quá tải'),
+        ('Connection', 'không kết nối được tới máy OCR'),
+        ('Max retries', 'không kết nối được tới máy OCR'),
+    )
+    if message.startswith(('RuntimeError: ', 'ValueError: ')):
+        message = message.split(': ', 1)[1]
+    # The PaddleOCR-VL loader already explains its HTTP errors.
+    hint = '' if 'PaddleOCR-VL' in message else next((h for code, h in hints if code in message), '')
+    return (f'{message} ({hint})' if hint else message)[:500]
+
+
+def _engine_note(config: dict, used: list) -> str:
+    engine = config.get('rag.content_extraction_engine') or ''
+    tag = ENGINE_TAGS.get(engine)
+    if tag and tag not in used:
+        return f'Không gọi {engine}: thiếu URL hoặc token nên NCS AI đã dùng bộ đọc mặc định.'
+    return ''
+
+
 async def _run(config: dict, user, name: str, content_type: str, data: bytes) -> dict:
     from open_webui.retrieval.utils import build_loader_from_config
 
@@ -112,22 +147,55 @@ async def _run(config: dict, user, name: str, content_type: str, data: bytes) ->
         loader.user = user
         loader.metadata = {'file_name': name, 'file_content_type': content_type}
         docs = await asyncio.wait_for(loader.aload(name, content_type, path), TIMEOUT_SECONDS)
-        text = ' '.join(d.page_content for d in docs or [])
+        elapsed = round((time.perf_counter() - started) * 1000)
+        docs = docs or []
+        # Some loaders return their error message as the document text instead of raising: that is a failed call.
+        for d in docs:
+            content = (d.page_content or '').strip()
+            if (d.metadata or {}).get('error') == 'processing_failed' or content.startswith(ERROR_TEXT_PREFIXES):
+                return {'ok': False, 'stage': 'api', 'ms': elapsed, 'error': _api_error(content)}
+        used = sorted({str((d.metadata or {}).get('processing_engine')) for d in docs if (d.metadata or {}).get('processing_engine')})
+        empty = all((d.metadata or {}).get('error') == 'no_valid_pages' for d in docs) if docs else True
+        text = '' if empty else ' '.join(d.page_content for d in docs)
         return {
             'ok': True,
-            'ms': round((time.perf_counter() - started) * 1000),
+            'stage': 'content',
+            'ms': elapsed,
             'chars': len(text),
+            'empty': empty,
+            'engines_used': used,
+            'engine_note': _engine_note(config, used),
             'score': _score(text),
             'score_no_accents': _score(text, accents=False),
             'preview': text.strip()[:400],
         }
     except asyncio.TimeoutError:
-        return {'ok': False, 'ms': TIMEOUT_SECONDS * 1000, 'error': f'Quá {TIMEOUT_SECONDS} giây không có kết quả'}
-    except Exception as e:
         return {
             'ok': False,
+            'stage': 'api',
+            'ms': TIMEOUT_SECONDS * 1000,
+            'error': f'Quá {TIMEOUT_SECONDS} giây không có kết quả',
+        }
+    except Exception as e:
+        if 'không đọc được chữ nào' in str(e):
+            # The engine answered, with no text at all.
+            return {
+                'ok': True,
+                'stage': 'content',
+                'ms': round((time.perf_counter() - started) * 1000),
+                'chars': 0,
+                'empty': True,
+                'engines_used': [],
+                'engine_note': '',
+                'score': 0,
+                'score_no_accents': 0,
+                'preview': '',
+            }
+        return {
+            'ok': False,
+            'stage': 'api',
             'ms': round((time.perf_counter() - started) * 1000),
-            'error': f'{type(e).__name__}: {e}'[:500],
+            'error': _api_error(f'{type(e).__name__}: {e}'),
         }
     finally:
         try:

@@ -763,10 +763,17 @@ async def extraction_test(form: ExtractionTestForm, token: str = Depends(require
 # Knowledge files: is every file extracted and embedded, the extracted (OCR) text next to the original file
 # ---------------------------------------------------------------------------------------------------------
 NO_TEXT_MARKERS = ('No valid text content found in document',)
+# Older OCR loaders stored their error message as the file text (and embedded it): treat that as a failure.
+ERROR_TEXT_PREFIXES = ('Error during OCR processing:', 'Error during processing:')
 
 
 def _file_status(row: dict, bypass: bool, chunk_size: int, overlap: int) -> tuple[str, str]:
     """(status key, explanation) of one knowledge file."""
+    head = (row.get('head') or '').strip()
+    if head.startswith(ERROR_TEXT_PREFIXES):
+        return 'failed', (
+            f'OCR lỗi, nội dung lưu chỉ là thông báo lỗi ("{head}…"). Kiểm tra cấu hình trích xuất rồi bấm Xử lý lại'
+        )
     if row.get('status') == 'failed' or row.get('error'):
         return 'failed', row.get('error') or 'Xử lý thất bại'
     chars = row.get('chars') or 0
@@ -804,7 +811,7 @@ async def knowledge_files_data() -> dict:
             text(
                 """SELECT k.id AS kb_id, k.name AS kb_name, f.id, f.filename, f.meta->>'content_type' AS content_type,
                        f.meta->>'size' AS size, f.created_at, f.updated_at,
-                       length(coalesce(f.data->>'content', '')) AS chars, left(f.data->>'content', 60) AS head,
+                       length(coalesce(f.data->>'content', '')) AS chars, left(f.data->>'content', 120) AS head,
                        f.data->>'status' AS status, f.data->>'error' AS error
                    FROM knowledge k JOIN knowledge_file kf ON kf.knowledge_id = k.id JOIN file f ON f.id = kf.file_id
                    ORDER BY k.name, f.filename"""

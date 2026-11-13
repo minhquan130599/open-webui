@@ -47,13 +47,23 @@ async def reprocess(app, file_id: str) -> dict:
     collection = f'file-{file_id}'
     if await ASYNC_VECTOR_DB_CLIENT.has_collection(collection_name=collection):
         await ASYNC_VECTOR_DB_CLIENT.delete_collection(collection_name=collection)
-    async with get_async_db() as db:
-        await index_file(request, ProcessFileForm(file_id=file_id), admin, db)
+    # Old chunks go first, so a failed extraction does not leave stale (or error-message) chunks searchable.
     for knowledge_id in knowledge_ids:
         try:
             await ASYNC_VECTOR_DB_CLIENT.delete(collection_name=knowledge_id, filter={'file_id': file_id})
         except Exception:
             pass
+    try:
+        async with get_async_db() as db:
+            await index_file(request, ProcessFileForm(file_id=file_id), admin, db)
+    except Exception:
+        # index_file already marked the file failed with the reason; drop the old text as well.
+        async with get_async_db() as db:
+            await Files.update_file_data_by_id(file_id, {'content': ''}, db=db)
+        raise
+    async with get_async_db() as db:
+        await Files.update_file_data_by_id(file_id, {'status': 'completed', 'error': None}, db=db)
+    for knowledge_id in knowledge_ids:
         async with get_async_db() as db:
             await process_file(
                 request, ProcessFileForm(file_id=file_id, collection_name=knowledge_id), user=admin, db=db

@@ -13,6 +13,8 @@ log = logging.getLogger(__name__)
 
 PADDLEOCR_VL_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'bmp', 'tiff', 'webp']
 PADDLEOCR_VL_SUPPORTED_EXTENSIONS = ['pdf'] + PADDLEOCR_VL_IMAGE_EXTENSIONS
+# Seconds to wait for the OCR result of one file (long PDFs take minutes).
+PADDLEOCR_VL_READ_TIMEOUT = int(os.environ.get('PADDLEOCR_VL_TIMEOUT', '900'))
 
 
 class PaddleOCRVLLoader:
@@ -62,69 +64,84 @@ class PaddleOCRVLLoader:
             'useChartRecognition': False,
         }
 
+        url = f'{self.api_url}/layout-parsing'
         try:
-            response = requests.post(f'{self.api_url}/layout-parsing', json=payload, headers=headers)
-            response.raise_for_status()
+            response = requests.post(url, json=payload, headers=headers, timeout=(30, PADDLEOCR_VL_READ_TIMEOUT))
+        except requests.Timeout:
+            raise RuntimeError(
+                f'PaddleOCR-VL không trả lời sau {PADDLEOCR_VL_READ_TIMEOUT} giây ({url}). '
+                'File quá lớn hoặc máy OCR quá tải; proxy RunPod tự ngắt sau khoảng 100 giây.'
+            )
+        except requests.RequestException as e:
+            raise RuntimeError(f'Không kết nối được PaddleOCR-VL ({url}): {e}')
 
-            result = response.json().get('result', {})
-            layout_results = result.get('layoutParsingResults', [])
+        if response.status_code >= 400:
+            hint = {
+                401: 'sai token, hoặc máy OCR cần kiểu xác thực khác (token/Bearer)',
+                403: 'sai token, hoặc máy OCR cần kiểu xác thực khác (token/Bearer)',
+                404: 'sai đường dẫn: kiểm tra API Base URL (thường không có /v1)',
+                413: 'file quá lớn với máy OCR hoặc proxy',
+                502: 'máy OCR đang tắt hoặc lỗi',
+                503: 'máy OCR đang tắt hoặc quá tải',
+                504: 'máy OCR trả lời quá lâu',
+                524: 'proxy RunPod ngắt vì xử lý quá 100 giây (file quá lớn)',
+            }.get(response.status_code, 'máy OCR báo lỗi')
+            body = ' '.join((response.text or '').split())[:200]
+            raise RuntimeError(f'PaddleOCR-VL lỗi HTTP {response.status_code} ({hint}) tại {url}: {body}')
 
-            documents = []
-            total_pages = len(layout_results)
-            skipped_pages = 0
+        try:
+            result = response.json().get('result') or {}
+            layout_results = result.get('layoutParsingResults') or []
+        except Exception:
+            body = ' '.join((response.text or '').split())[:200]
+            raise RuntimeError(f'PaddleOCR-VL trả về dữ liệu không đúng định dạng ({url}): {body}')
 
-            for i, res in enumerate(layout_results):
-                markdown_text = res.get('markdown', {}).get('text', '')
+        documents = []
+        total_pages = len(layout_results)
+        skipped_pages = 0
 
-                if isinstance(markdown_text, str):
-                    cleaned_content = markdown_text.strip()
-                else:
-                    cleaned_content = str(markdown_text).strip()
+        for i, res in enumerate(layout_results):
+            markdown_text = (res.get('markdown') or {}).get('text', '')
 
-                if not cleaned_content:
-                    skipped_pages += 1
-                    continue
+            if isinstance(markdown_text, str):
+                cleaned_content = markdown_text.strip()
+            else:
+                cleaned_content = str(markdown_text).strip()
 
-                documents.append(
-                    Document(
-                        page_content=cleaned_content,
-                        metadata={
-                            'page': i,
-                            'page_label': i + 1,
-                            'total_pages': total_pages,
-                            'file_name': self.file_name,
-                            'processing_engine': 'paddleocr-vl',
-                        },
-                    )
+            if not cleaned_content:
+                skipped_pages += 1
+                continue
+
+            documents.append(
+                Document(
+                    page_content=cleaned_content,
+                    metadata={
+                        'page': i,
+                        'page_label': i + 1,
+                        'total_pages': total_pages,
+                        'file_name': self.file_name,
+                        'processing_engine': 'paddleocr-vl',
+                    },
                 )
+            )
 
-            if skipped_pages > 0:
-                log.info('PaddleOCR-vl: Processed %s pages, skipped %s empty pages.', len(documents), skipped_pages)
+        if skipped_pages > 0:
+            log.info('PaddleOCR-vl: Processed %s pages, skipped %s empty pages.', len(documents), skipped_pages)
 
-            if not documents:
-                log.warning('No valid text content found by PaddleOCR-vl.')
-                return [
-                    Document(
-                        page_content='No valid text content found in document',
-                        metadata={
-                            'error': 'no_valid_pages',
-                            'file_name': self.file_name,
-                            'processing_engine': 'paddleocr-vl',
-                        },
-                    )
-                ]
-
-            return documents
-
-        except Exception as e:
-            log.error(f'Error calling PaddleOCR-vl: {e}')
+        if not documents:
+            log.warning('No valid text content found by PaddleOCR-vl.')
+            if file_type == 0:
+                # A PDF without any text is a failed extraction: fail the file instead of embedding a placeholder.
+                raise ValueError(f'PaddleOCR-VL không đọc được chữ nào trong file ({total_pages} trang).')
             return [
                 Document(
-                    page_content=f'Error during OCR processing: {e}',
+                    page_content='No valid text content found in document',
                     metadata={
-                        'error': 'processing_failed',
+                        'error': 'no_valid_pages',
                         'file_name': self.file_name,
                         'processing_engine': 'paddleocr-vl',
                     },
                 )
             ]
+
+        return documents
