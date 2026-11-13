@@ -240,7 +240,60 @@ services:
       - embedding-models:/data
     restart: unless-stopped
 
+  # Docling trích xuất tài liệu (tùy chọn), chạy GPU, OCR chữ trong ảnh/PDF scan bằng Tesseract (tiếng Việt + Anh).
+  # Bật bằng: docker compose --profile docling up -d
+  # Cần: GPU NVIDIA + NVIDIA Container Toolkit trên server (kiểm tra: docker run --rm --gpus all ubuntu nvidia-smi).
+  # Khi bật: Admin > Cài đặt > Tài liệu > Engine trích xuất = Docling, URL = http://docling:5001,
+  #   Tham số Docling: {"do_ocr": true, "force_ocr": false, "ocr_engine": "tesserocr", "ocr_lang": ["vie", "eng"],
+  #                     "pdf_backend": "dlparse_v4", "table_mode": "accurate"}
+  # Tesseract chạy trên CPU; GPU tăng tốc phần nhận dạng bố cục trang và bảng.
+  # Dùng "tesserocr" (thư viện Tesseract 5.5 trong image), không dùng "tesseract" (lệnh tesseract 4.1 của hệ điều hành, lỗi KeyError 'text').
+  docling:
+    image: ${DOCLING_IMAGE:-ghcr.io/docling-project/docling-serve-cu128:latest}
+    container_name: ncs-docling
+    profiles: ["docling"]
+    # root để ghi được dữ liệu ngôn ngữ Tesseract vào volume ở lần chạy đầu.
+    user: "0"
+    entrypoint: ["/bin/sh", "-c"]
+    # Lần đầu tải dữ liệu ngôn ngữ Tesseract (vie, eng, osd) vào volume docling-tessdata, các lần sau dùng lại.
+    command:
+      - |
+        set -e
+        mkdir -p /tessdata
+        fetch() { [ -s "/tessdata/$$1.traineddata" ] || python -c "import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" "https://github.com/tesseract-ocr/$$2/raw/main/$$1.traineddata" "/tessdata/$$1.traineddata"; }
+        fetch osd tessdata
+        for lang in $${TESSERACT_LANGS}; do fetch "$$lang" "$${TESSDATA_REPO}"; done
+        echo "Tesseract: $$(ls /tessdata)"
+        exec docling-serve run
+    environment:
+      - TESSERACT_LANGS=${DOCLING_TESSERACT_LANGS:-vie eng}
+      - TESSDATA_REPO=${DOCLING_TESSDATA_REPO:-tessdata_best}   # tessdata_best: chính xác hơn; tessdata_fast: nhanh hơn
+      - TESSDATA_PREFIX=/tessdata/
+      - DOCLING_SERVE_ENABLE_UI=false
+      - DOCLING_SERVE_MAX_SYNC_WAIT=${DOCLING_MAX_SYNC_WAIT:-1800}   # giây; NCS AI chờ kết quả đồng bộ, PDF dài cần lâu
+      - DOCLING_SERVE_ENG_LOC_NUM_WORKERS=${DOCLING_WORKERS:-2}      # số tài liệu xử lý cùng lúc
+      - UVICORN_WORKERS=1
+    volumes:
+      - docling-tessdata:/tessdata
+    ports:
+      - "${DOCLING_BIND:-127.0.0.1}:${DOCLING_PORT:-5001}:5001"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${DOCLING_GPU_ID:-0}"]   # GPU số mấy (xem nvidia-smi)
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 3
+    restart: unless-stopped
+
 volumes:
+  docling-tessdata: {}
   embedding-models: {}
   postgres: {}
   s3data: {}
