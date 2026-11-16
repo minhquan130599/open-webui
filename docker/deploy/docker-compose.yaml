@@ -169,22 +169,8 @@ services:
       # 32k -> 20000, 64k -> 40000. CONTEXT_COMPACTION_MODEL: model nhanh hơn để thu gọn (trống = model đang chat).
       - CONTEXT_COMPACTION_TOKEN_THRESHOLD=${CONTEXT_COMPACTION_TOKEN_THRESHOLD:-40000}
       - CONTEXT_COMPACTION_MODEL=${CONTEXT_COMPACTION_MODEL:-}
-      # File đính kèm nhỏ (tổng số ký tự các file của tin nhắn) được đưa nguyên văn vào tin nhắn; 0 = tắt
-      - ATTACHMENT_INLINE_MAX_CHARS=${ATTACHMENT_INLINE_MAX_CHARS:-45000}
-      # Giới hạn ký tự kết quả mỗi lần query_chat_files
-      - QUERY_CHAT_FILES_MAX_CHARS=${QUERY_CHAT_FILES_MAX_CHARS:-12000}
-      # summarize_chat_file: số ký tự mỗi phần, số phần tóm tắt song song, độ dài bản tóm tắt trả về,
-      # model dùng để tóm tắt (trống = model đang trả lời)
-      - FILE_SUMMARY_SEGMENT_CHARS=${FILE_SUMMARY_SEGMENT_CHARS:-40000}
-      - FILE_SUMMARY_CONCURRENCY=${FILE_SUMMARY_CONCURRENCY:-6}
-      - FILE_SUMMARY_MAX_CHARS=${FILE_SUMMARY_MAX_CHARS:-16000}
-      - FILE_SUMMARY_MODEL=${FILE_SUMMARY_MODEL:-}
-      # Tắt thinking của Qwen3 khi tóm tắt từng phần (nhanh hơn 2-3 lần); false nếu provider không phải vLLM
-      - FILE_SUMMARY_DISABLE_THINKING=${FILE_SUMMARY_DISABLE_THINKING:-true}
-      # Tổng ký tự file model được đọc (view_file, query_chat_files) trong 1 câu trả lời; 0 = không giới hạn
-      - FILE_READ_BUDGET_CHARS=${FILE_READ_BUDGET_CHARS:-60000}
-      # Cạnh dài (px) của ảnh trang PDF gửi cho model vision (view_pdf_page)
-      - PDF_PAGE_IMAGE_MAX_SIDE=${PDF_PAGE_IMAGE_MAX_SIDE:-1600}
+      # Đọc file đính kèm, giới hạn đọc, tóm tắt, chấm và sửa OCR: chỉnh trong Cài đặt → Tài liệu → Xử lý file
+      # (hoặc monitor → Chỉnh sửa cấu hình → Xử lý file), không đặt bằng biến môi trường.
 
       # --- AI khi được @mention trong kênh ---
       - CHANNEL_MODEL_DEFAULT_TIMEZONE=Asia/Ho_Chi_Minh

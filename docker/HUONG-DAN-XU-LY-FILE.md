@@ -67,7 +67,7 @@ Chỉnh ở **Cài đặt → Tài liệu → Xử lý file** hoặc trên monit
 | Kiểm tra số liệu trong câu trả lời | bật | |
 | Cạnh dài ảnh trang PDF gửi model (px) | 1600 | |
 
-Biến môi trường cùng nghĩa (ví dụ `FILE_OCR_MIN_SCORE`, `FILE_REPAIR_MODEL`) chỉ là giá trị mặc định. Đã lưu trong giao diện thì giá trị trong giao diện được dùng.
+Các tham số này **chỉ chỉnh trong giao diện**, không có biến môi trường tương ứng. Giá trị trên trang Cài đặt luôn đúng là giá trị đang chạy. Chưa ai lưu thì dùng mặc định ở bảng trên, khai báo trong `backend/open_webui/file_pipeline/settings.py`.
 
 ## Tài nguyên
 
