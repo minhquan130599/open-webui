@@ -20,12 +20,17 @@ Khi trả lời về file, model trích dẫn trang dạng `[tr.12]`. Dưới c�
 
 ## Điểm OCR của một trang (0–100)
 
-- **Tài liệu tiếng Việt:** điểm là tỉ lệ từ là âm tiết tiếng Việt hợp lệ. Ví dụ "Đièu" sai vần, "bằt" sai dấu (âm tiết kết thúc bằng p/t/c/ch chỉ mang dấu sắc hoặc nặng), chữ Trung/Hy Lạp lẫn vào: đều là từ không hợp lệ. Chữ viết tắt in hoa (HTTT, NĐ, CP) không bị tính.
-- **Tài liệu khác:** điểm là tỉ lệ từ có nguyên âm.
-- **Trừ điểm** khi có ký tự rác (`�`, ký hiệu lạ) hoặc nhiều từ dính liền nhau.
-- **Trang dưới 40 ký tự** được 0 điểm (trang scan không đọc ra chữ).
+Điểm là tỉ lệ từ đọc được trên trang, sau khi bỏ mã HTML của bảng (`<td style=...>`).
 
-**Giới hạn:** sai dấu thanh mà vẫn ra một chữ có nghĩa ("của" thành "cửa") thì bộ chấm không phát hiện được. Muốn kiểm tra kỹ hơn, tăng ngưỡng để nhiều trang được model vision đọc lại.
+- **Từ đọc được:** âm tiết tiếng Việt hợp lệ, hoặc từ Latin không dấu có nguyên âm (tiếng Anh, tên riêng...). Văn bản Việt–Anh, phụ lục tiếng Anh và văn bản tiếng Anh vì vậy không bị chấm oan.
+- **Từ lỗi:** chữ có dấu tiếng Việt nhưng sai vần ("Đièu"), sai dấu theo âm cuối ("bằt", vì âm cuối p/t/c/ch chỉ mang dấu sắc hoặc nặng), hoặc không có nguyên âm. Chữ viết tắt in hoa (HTTT, NĐ, CP) không bị tính.
+- **Mất dấu:** trang mà phần lớn là âm tiết tiếng Việt nhưng gần như không có dấu ("trach nhiem") bị chấm tối đa 70.
+- **Chữ Trung/Nhật/Hàn/Thái...:** nếu chiếm từ 2% chữ cái của cả tài liệu (văn bản tiếng Trung, song ngữ) thì là nội dung thật. Nếu chỉ lác đác trong tài liệu chữ Latin thì coi là OCR bịa, và trang bị chấm tối đa 60. Chữ Hy Lạp/Kirin chỉ bị tính khi tạo thành từ từ 3 chữ trở lên, nên ký hiệu α, β, Ω, µ vẫn hợp lệ.
+- **Trừ điểm** khi có ký tự rác (`�`, ký hiệu lạ) hoặc nhiều từ dính liền nhau. Trang dưới 40 ký tự được 0 điểm.
+
+Bản model vision sửa được chấm theo đúng ngôn ngữ của cả tài liệu. Prompt sửa chỉ dặn "không xuất chữ Trung" khi tài liệu là chữ Latin.
+
+**Giới hạn:** sai dấu thanh mà vẫn ra một chữ có nghĩa ("của" thành "cửa"), hoặc sai số ("2026" thành "2028"), thì bộ chấm không phát hiện được. Bước kiểm tra số liệu trong câu trả lời bù một phần cho chỗ này.
 
 ## Theo dõi trên trang monitor
 

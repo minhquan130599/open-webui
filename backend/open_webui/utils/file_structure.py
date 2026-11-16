@@ -115,6 +115,11 @@ _FOREIGN_SCRIPTS = ('CJK', 'HIRAGANA', 'KATAKANA', 'HANGUL', 'THAI', 'ARABIC', '
 
 
 def _foreign_chars(text: str) -> int:
+    """Characters of scripts a Latin-script document does not use.
+
+    CJK, Thai, Arabic... count everywhere. Greek and Cyrillic count only inside words of 3+ letters, so math
+    and unit symbols (α, β, Ω, µ) stay fine while OCR inventions like "Τράχ" do not.
+    """
     count = 0
     for c in text:
         if ord(c) < 0x0370:
@@ -125,7 +130,14 @@ def _foreign_chars(text: str) -> int:
             continue
         if name.startswith(_FOREIGN_SCRIPTS):
             count += 1
+    for word in _WORD_RE.findall(text):
+        if len(word) >= 3:
+            count += sum(1 for c in word if 0x0370 <= ord(c) <= 0x04FF)
     return count
+
+
+def _is_latin(word: str) -> bool:
+    return all(ord(c) < 0x0250 or 0x1E00 <= ord(c) <= 0x1EFF for c in word)
 
 
 def _page_stats(text: str) -> dict:
@@ -135,66 +147,104 @@ def _page_stats(text: str) -> dict:
     if not stripped:
         return stats
     stats['foreign'] = _foreign_chars(stripped)
+    stats['letters'] = sum(c.isalpha() for c in stripped)
     stats['garbled'] = sum(
         1 for c in stripped if c == '�' or unicodedata.category(c) in ('Co', 'Cn', 'Cs', 'So', 'Sk')
     ) / len(stripped)
-    words = [word for word in _WORD_RE.findall(stripped) if word.isalpha()]
-    checked = valid = without_vowel = long_words = 0
-    for word in words:
+    latin = vi_valid = marked = plain_vi = other_ok = broken = long_words = 0
+    for word in _WORD_RE.findall(stripped):
+        if not word.isalpha() or not _is_latin(word):
+            continue  # numbers, codes, and CJK runs (judged by script share, not as words)
         if len(word) > 25:
             long_words += 1
-        if word.isupper() and len(word) >= 2 and not is_vietnamese_syllable(word):
+        valid = is_vietnamese_syllable(word)
+        if word.isupper() and len(word) >= 2 and not valid:
             continue  # abbreviation (HTTT, NĐ, CP) or roman numeral
-        checked += 1
-        valid += is_vietnamese_syllable(word)
-        without_vowel += not set(_strip_accents(word).lower()) & _VOWELS
-    stats.update(words=checked, vi_valid=valid, without_vowel=without_vowel, long_words=long_words, all_words=len(words))
+        latin += 1
+        has_marks = not word.isascii()
+        has_vowel = bool(set(_strip_accents(word).lower()) & _VOWELS)
+        if valid:
+            vi_valid += 1
+            marked += has_marks
+            plain_vi += not has_marks
+        elif not has_marks and has_vowel:
+            other_ok += 1  # English or another Latin-script word
+        else:
+            broken += 1  # Vietnamese letters in an impossible syllable ("Đièu", "bằt") or no vowel at all
+    stats.update(
+        latin=latin, vi_valid=vi_valid, marked=marked, plain_vi=plain_vi, other_ok=other_ok,
+        broken=broken, long_words=long_words,
+    )
     return stats
 
 
-def score_pages(texts: list[str]) -> list[dict]:
-    """Quality of each page's extracted text: {'score': 0-100, 'issues': [...], 'vi_ratio': ...}.
+def _profile(stats: list[dict]) -> dict:
+    total_latin = sum(s.get('latin', 0) for s in stats)
+    total_letters = sum(s.get('letters', 0) for s in stats)
+    return {
+        'vietnamese': total_latin >= 15 and sum(s.get('vi_valid', 0) for s in stats) / total_latin >= 0.6,
+        'foreign_is_content': total_letters > 0 and sum(s.get('foreign', 0) for s in stats) / total_letters >= 0.02,
+    }
 
-    A Vietnamese document is scored by the share of words that are valid Vietnamese syllables, which also catches
-    wrong diacritics and mixed-in foreign glyphs; other documents by the share of words that have a vowel. Junk
-    characters and run-together words lower the score.
+
+def document_profile(texts: list[str]) -> dict:
+    """{'vietnamese', 'foreign_is_content'} of a whole document, to score one page in its context."""
+    return _profile([_page_stats(text) for text in texts])
+
+
+def score_pages(texts: list[str], profile: Optional[dict] = None) -> list[dict]:
+    """Quality of each page's extracted text: {'score': 0-100, 'issues': [...], ...}.
+
+    Latin-script words are readable when they are valid Vietnamese syllables, or plain words with a vowel
+    (English and other languages); a word carrying Vietnamese marks in an impossible syllable, or without any
+    vowel, is broken. A Vietnamese page that is mostly Vietnamese syllables written without any marks lost its
+    diacritics. Chinese/Japanese/Korean... characters are content when the document has a real share of them
+    (Chinese or bilingual document) and OCR inventions when they are a few glyphs inside Latin-script text.
+    Junk characters and run-together words lower the score.
     """
     stats = [_page_stats(text) for text in texts]
-    ratios = sorted(s['vi_valid'] / s['words'] for s in stats if s.get('words', 0) >= 15)
-    vietnamese = bool(ratios) and ratios[len(ratios) // 2] >= 0.6
+    profile = profile or _profile(stats)
+    vietnamese, foreign_is_content = profile['vietnamese'], profile['foreign_is_content']
     results = []
     for s in stats:
-        issues = []
         if s['chars'] < 40:
             results.append({'score': 0, 'issues': ['little_text'], 'chars': s['chars']})
             continue
-        words = s.get('words', 0)
-        if words >= 15:
-            ratio = (s['vi_valid'] if vietnamese else words - s['without_vowel']) / words
-        else:
-            ratio = 1.0  # too few words to judge (tables of numbers, forms)
+        issues = []
+        latin = s.get('latin', 0)
+        ratio = 1.0
+        if latin >= 15:
+            ratio = (s['vi_valid'] + s['other_ok']) / latin
+            if ratio < 0.8:
+                issues.append('unreadable_words')
+        # Weigh the Latin part by its share of the letters; legitimate CJK text counts as readable.
+        foreign = s.get('foreign', 0)
+        if foreign_is_content and s.get('letters'):
+            share = foreign / s['letters']
+            ratio = ratio * (1 - share) + share
         garbled = s.get('garbled', 0)
-        merged = s['long_words'] / s['all_words'] if s.get('all_words') else 0
+        merged = s['long_words'] / latin if latin else 0
         score = ratio * max(0.0, 1 - 5 * garbled) * max(0.0, 1 - 4 * merged)
         if garbled > 0.03:
             issues.append('garbled_chars')
-        if words >= 15 and ratio < 0.8:
-            issues.append('unreadable_words')
-        if vietnamese and s.get('foreign'):
-            # Chinese/Japanese/Korean... glyphs inside Vietnamese text are OCR inventions: never a good page.
-            issues.append('foreign_script')
-            score = min(score, 0.6)
         if merged > 0.05:
             issues.append('merged_words')
+        if vietnamese and latin >= 30 and s['plain_vi'] / latin >= 0.6 and s['marked'] / latin < 0.1:
+            issues.append('missing_diacritics')
+            score = min(score, 0.7)
+        if foreign and not foreign_is_content:
+            # A few CJK/Thai/... glyphs inside Latin-script text are OCR inventions: never a good page.
+            issues.append('foreign_script')
+            score = min(score, 0.6)
         results.append(
             {
                 'score': round(score * 100),
                 'issues': issues,
                 'chars': s['chars'],
-                'words': words,
+                'words': latin,
                 'valid_ratio': round(ratio, 3),
                 'garbled_ratio': round(garbled, 4),
-                'foreign_chars': s.get('foreign', 0),
+                'foreign_chars': foreign,
             }
         )
     return results

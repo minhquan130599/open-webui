@@ -20,18 +20,29 @@ from langchain_core.documents import Document
 
 from open_webui.file_pipeline.models import FileJobs, FilePages
 from open_webui.file_pipeline.settings import file_settings
-from open_webui.utils.file_structure import build_file_structure, get_structure, is_pdf, render_pdf_page, score_pages
+from open_webui.utils.file_structure import (
+    build_file_structure,
+    document_profile,
+    get_structure,
+    is_pdf,
+    render_pdf_page,
+    score_pages,
+)
 
 log = logging.getLogger(__name__)
 
 LEASE_SECONDS = 600
 
-REPAIR_PROMPT = """This is page {page} of the Vietnamese document "{name}". Transcribe ALL the text printed on the page
-image exactly as written, in reading order, as Markdown: keep headings (Chương, Mục, Điều...), numbered items and tables
-(Markdown tables). Keep every number, date, name and Vietnamese diacritic exactly. The page is written in Vietnamese
-with Latin letters: never output Chinese, Japanese or other non-Latin characters unless they are visibly printed on the
-page. Do not translate, summarize, correct or add anything. Write [không đọc được] where a part cannot be read. Output
-only the page text.{ocr}"""
+REPAIR_PROMPT = """This is page {page} of the document "{name}". Transcribe ALL the text printed on the page image
+exactly as written, in reading order, as Markdown: keep headings (Chương, Mục, Điều...), numbered items and tables
+(Markdown tables). Keep every number, date, name and diacritic exactly, in the language(s) printed on the page. Do not
+translate, summarize, correct or add anything. Write [không đọc được] where a part cannot be read. Output only the page
+text.{language}{ocr}"""
+
+# Only for documents in Latin script (Vietnamese, English...): OCR engines tend to invent CJK glyphs there.
+LATIN_ONLY = """
+The document is written in Latin letters (Vietnamese and/or English): never output Chinese, Japanese, Korean or other
+non-Latin characters unless they are visibly printed on the page."""
 
 # Only with files.repair.ocr_hint: vision models tend to copy the OCR errors they are shown.
 OCR_HINT = """
@@ -141,6 +152,8 @@ async def _repair_pages(
     if not targets:
         return 0
     pdf_path = await asyncio.to_thread(Storage.get_file, file.path)
+    # A repaired page is judged in the context of the whole document (Vietnamese? Chinese or bilingual?).
+    profile = document_profile([row.text or '' for row in rows])
     semaphore = asyncio.Semaphore(settings['files.repair.concurrency'])
     model = settings['files.repair.model'] or None
     max_side = settings['files.page_image_max_side']
@@ -154,7 +167,8 @@ async def _repair_pages(
         try:
             image, _ = await asyncio.to_thread(render_pdf_page, pdf_path, row.page, max_side)
             hint = OCR_HINT.format(ocr=(row.raw_text or '')[:6000]) if settings['files.repair.ocr_hint'] else ''
-            prompt = REPAIR_PROMPT.format(page=row.page, name=file.filename, ocr=hint)
+            language = '' if profile['foreign_is_content'] else LATIN_ONLY
+            prompt = REPAIR_PROMPT.format(page=row.page, name=file.filename, language=language, ocr=hint)
             attempts = 0
             while True:
                 attempts += 1
@@ -169,7 +183,7 @@ async def _repair_pages(
                 text = (text or '').strip()
                 if not text:
                     raise ValueError('model returned no text')
-                result = score_pages([text])[0]
+                result = score_pages([text], profile)[0]
                 # Invented foreign glyphs: ask once more, telling the model what went wrong.
                 if 'foreign_script' not in result['issues'] or attempts >= 2:
                     break
