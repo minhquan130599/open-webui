@@ -27,6 +27,8 @@ FILE_SETTINGS: list[dict] = [
     {'key': 'files.repair.model', 'label': 'Model vision sửa OCR', 'type': 'text',
      'default': '',
      'help': 'ID model của nhà cung cấp (vd qwen3-vl). Trống = model của tracker (TRACKER_MODEL). Model phải nhận được ảnh.'},
+    {'key': 'files.repair.ocr_hint', 'label': 'Gửi kèm chữ OCR khi sửa bằng vision', 'type': 'bool', 'default': False,
+     'help': 'Tắt (khuyến nghị): model chỉ nhìn ảnh. Bật thì model dễ chép lại lỗi của OCR, kể cả chữ Trung bịa ra.'},
     {'key': 'files.repair.concurrency', 'label': 'Số trang sửa song song', 'type': 'int', 'min': 1, 'max': 16,
      'default': 4},
     {'key': 'files.repair.max_pages', 'label': 'Số trang tối đa được sửa mỗi file', 'type': 'int', 'min': 0, 'max': 5000,

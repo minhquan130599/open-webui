@@ -109,11 +109,32 @@ def is_vietnamese_syllable(word: str) -> bool:
     return True
 
 
+_MARKUP_RE = re.compile(r'<[^>]{0,500}>|&[a-z]{2,8};|&#\d{1,6};', re.IGNORECASE)
+# Scripts that never appear in a Vietnamese document unless OCR invented them.
+_FOREIGN_SCRIPTS = ('CJK', 'HIRAGANA', 'KATAKANA', 'HANGUL', 'THAI', 'ARABIC', 'HEBREW', 'DEVANAGARI', 'BOPOMOFO')
+
+
+def _foreign_chars(text: str) -> int:
+    count = 0
+    for c in text:
+        if ord(c) < 0x0370:
+            continue  # Latin, including Vietnamese
+        try:
+            name = unicodedata.name(c)
+        except ValueError:
+            continue
+        if name.startswith(_FOREIGN_SCRIPTS):
+            count += 1
+    return count
+
+
 def _page_stats(text: str) -> dict:
-    stripped = (text or '').strip()
+    # HTML tables from OCR engines (<td style="text-align...">) are layout, not page text.
+    stripped = _MARKUP_RE.sub(' ', text or '').strip()
     stats = {'chars': len(stripped)}
     if not stripped:
         return stats
+    stats['foreign'] = _foreign_chars(stripped)
     stats['garbled'] = sum(
         1 for c in stripped if c == '�' or unicodedata.category(c) in ('Co', 'Cn', 'Cs', 'So', 'Sk')
     ) / len(stripped)
@@ -159,6 +180,10 @@ def score_pages(texts: list[str]) -> list[dict]:
             issues.append('garbled_chars')
         if words >= 15 and ratio < 0.8:
             issues.append('unreadable_words')
+        if vietnamese and s.get('foreign'):
+            # Chinese/Japanese/Korean... glyphs inside Vietnamese text are OCR inventions: never a good page.
+            issues.append('foreign_script')
+            score = min(score, 0.6)
         if merged > 0.05:
             issues.append('merged_words')
         results.append(
@@ -169,6 +194,7 @@ def score_pages(texts: list[str]) -> list[dict]:
                 'words': words,
                 'valid_ratio': round(ratio, 3),
                 'garbled_ratio': round(garbled, 4),
+                'foreign_chars': s.get('foreign', 0),
             }
         )
     return results

@@ -1164,7 +1164,7 @@
   const PAGE_STATUS = { ok: ['ok', 'Tốt'], low: ['warn', 'OCR kém'], repaired: ['ok', 'Đã sửa'], unverified: ['warn', 'Chưa chắc'], failed: ['err', 'Sửa lỗi'] };
   const FP_STAGE = { pages: 'Chấm điểm trang', repair: 'Sửa OCR bằng vision', rebuild: 'Ghép văn bản', index: 'Lập chỉ mục', summary: 'Tóm tắt sẵn' };
   const FP_METHOD = { text_layer: 'Lớp chữ PDF', ocr: 'OCR', vision: 'Model vision' };
-  const FP_ISSUE = { little_text: 'ít/không có chữ', garbled_chars: 'ký tự rác', unreadable_words: 'nhiều từ sai', merged_words: 'từ dính liền' };
+  const FP_ISSUE = { little_text: 'ít/không có chữ', garbled_chars: 'ký tự rác', unreadable_words: 'nhiều từ sai', merged_words: 'từ dính liền', foreign_script: 'chữ Trung/nước ngoài (OCR bịa)' };
   const fp = { status: '', q: '', fileId: '', detail: null, filter: '', key: '', page: null, view: null, note: '', selected: new Set() };
   // A job queued again after an error is waiting for its automatic retry.
   const fpStatusPill = (j) => (j.status === 'queued' && j.last_error

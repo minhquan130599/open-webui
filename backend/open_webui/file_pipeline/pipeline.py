@@ -26,15 +26,26 @@ log = logging.getLogger(__name__)
 
 LEASE_SECONDS = 600
 
-REPAIR_PROMPT = """This is page {page} of the document "{name}". Transcribe ALL the text on the page image exactly as
-written, in reading order, as Markdown: keep headings (Chương, Mục, Điều...), numbered items and tables (Markdown
-tables). Keep every number, date, name and Vietnamese diacritic exactly. Do not translate, summarize, correct or
-add anything. Write [không đọc được] where a part cannot be read. Output only the page text.
+REPAIR_PROMPT = """This is page {page} of the Vietnamese document "{name}". Transcribe ALL the text printed on the page
+image exactly as written, in reading order, as Markdown: keep headings (Chương, Mục, Điều...), numbered items and tables
+(Markdown tables). Keep every number, date, name and Vietnamese diacritic exactly. The page is written in Vietnamese
+with Latin letters: never output Chinese, Japanese or other non-Latin characters unless they are visibly printed on the
+page. Do not translate, summarize, correct or add anything. Write [không đọc được] where a part cannot be read. Output
+only the page text.{ocr}"""
 
-For reference, an OCR engine read this page as follows; it may contain errors, the image is authoritative:
+# Only with files.repair.ocr_hint: vision models tend to copy the OCR errors they are shown.
+OCR_HINT = """
+
+An OCR engine read this page as below. It contains errors (including invented foreign characters); use it only to
+locate text, and write what the image shows:
 <ocr>
 {ocr}
 </ocr>"""
+
+RETRY_NOTE = """
+
+Your previous transcription contained characters that are not on the page (for example Chinese characters). Read the
+image again and write only what is printed."""
 
 
 def _ms(started: float) -> int:
@@ -70,11 +81,26 @@ async def _page_rows(file, content: str, structure: dict, min_score: int, keep_e
     pages = structure.get('pages') or []
     existing = {row.page: row for row in await FilePages.list(file.id)}
     if keep_existing and existing and set(existing) == {page for page, _, _ in pages}:
-        for row in existing.values():
-            if row.status in ('ok', 'low'):
-                status = 'ok' if (row.score or 0) >= min_score else 'low'
-                if status != row.status:
-                    await FilePages.save(file.id, row.page, status=status)
+        # Keep earlier repairs, but judge every page again with the current scorer and threshold.
+        rows = [existing[page] for page in sorted(existing)]
+        raw_scores = score_pages([row.raw_text or '' for row in rows])
+        current = score_pages([row.text or '' for row in rows])
+        for row, raw, now in zip(rows, raw_scores, current):
+            good = now['score'] >= min_score
+            if row.status in ('repaired', 'unverified'):
+                status = 'repaired' if good else 'unverified'
+            elif row.status == 'failed':
+                status = 'failed'
+            else:
+                status = 'ok' if good else 'low'
+            await FilePages.save(
+                file.id,
+                row.page,
+                status=status,
+                score=now['score'],
+                raw_score=raw['score'],
+                issues={'issues': now['issues'], **{k: v for k, v in now.items() if k not in ('score', 'issues')}},
+            )
         return await FilePages.list(file.id)
 
     texts = [content[start:end] for _, start, end in pages]
@@ -97,7 +123,9 @@ async def _page_rows(file, content: str, structure: dict, min_score: int, keep_e
     return await FilePages.list(file.id)
 
 
-async def _repair_pages(job: Job, file, rows: list, settings: dict, only_pages: Optional[list]) -> int:
+async def _repair_pages(
+    job: Job, file, rows: list, settings: dict, only_pages: Optional[list], force: bool = False
+) -> int:
     """Transcribe low pages from their images; returns how many pages now use the vision text."""
     from open_webui.storage.provider import Storage
     from open_webui.tracker.llm import generate_text
@@ -106,7 +134,9 @@ async def _repair_pages(job: Job, file, rows: list, settings: dict, only_pages: 
     if only_pages:
         targets = [row for row in rows if row.page in set(only_pages)]
     else:
-        targets = [row for row in rows if row.status == 'low']
+        # A manual re-run also retries pages a previous repair could not make good.
+        retry = ('low', 'unverified', 'failed') if force else ('low',)
+        targets = [row for row in rows if row.status in retry]
     targets = targets[: settings['files.repair.max_pages']]
     if not targets:
         return 0
@@ -123,20 +153,29 @@ async def _repair_pages(job: Job, file, rows: list, settings: dict, only_pages: 
         record = {'model': model or 'tracker', 'at': time.time_ns(), 'score_before': row.score}
         try:
             image, _ = await asyncio.to_thread(render_pdf_page, pdf_path, row.page, max_side)
-            prompt = REPAIR_PROMPT.format(page=row.page, name=file.filename, ocr=(row.raw_text or '')[:6000])
-            async with semaphore:
-                text = await generate_text(
-                    [{'role': 'user', 'content': [{'type': 'text', 'text': prompt}, {'type': 'image_url', 'image_url': {'url': image}}]}],
-                    max_tokens=4096,
-                    model=model,
-                    purpose='file_repair',
-                    disable_thinking=settings['files.summary.disable_thinking'],
-                )
-            text = (text or '').strip()
+            hint = OCR_HINT.format(ocr=(row.raw_text or '')[:6000]) if settings['files.repair.ocr_hint'] else ''
+            prompt = REPAIR_PROMPT.format(page=row.page, name=file.filename, ocr=hint)
+            attempts = 0
+            while True:
+                attempts += 1
+                async with semaphore:
+                    text = await generate_text(
+                        [{'role': 'user', 'content': [{'type': 'text', 'text': prompt}, {'type': 'image_url', 'image_url': {'url': image}}]}],
+                        max_tokens=4096,
+                        model=model,
+                        purpose='file_repair',
+                        disable_thinking=settings['files.summary.disable_thinking'],
+                    )
+                text = (text or '').strip()
+                if not text:
+                    raise ValueError('model returned no text')
+                result = score_pages([text])[0]
+                # Invented foreign glyphs: ask once more, telling the model what went wrong.
+                if 'foreign_script' not in result['issues'] or attempts >= 2:
+                    break
+                prompt += RETRY_NOTE
             record['ms'] = _ms(started)
-            if not text:
-                raise ValueError('model returned no text')
-            result = score_pages([text])[0]
+            record['attempts'] = attempts
             record.update(score_after=result['score'], issues_after=result['issues'])
             better = result['score'] >= (row.raw_score or 0)
             await FilePages.save(
@@ -313,7 +352,7 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
         changed = 0
         if rows and settings['files.repair.enable']:
             started = time.perf_counter()
-            changed = await _repair_pages(job, file, rows, settings, options.get('pages'))
+            changed = await _repair_pages(job, file, rows, settings, options.get('pages'), bool(options.get('force')))
             job.stats['repaired_pages'] = changed
             job.stats['repair_ms'] = _ms(started)
             rows = await FilePages.list(file_id)
