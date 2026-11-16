@@ -6,6 +6,7 @@ like [tr.12] get links to the page image of the PDF.
 """
 
 import re
+from datetime import datetime, timezone
 from typing import Optional
 
 _CITATION_RE = re.compile(r'\[\s*tr\.?\s*(\d{1,4})(?:\s*[-–]\s*\d{1,4})?[^\]]*\]', re.IGNORECASE)
@@ -42,9 +43,14 @@ def unmatched_facts(answer: str, sources: list[str], limit: int = 12) -> list[st
     """Dates and numbers (2+ digits) of the answer that appear in none of the sources."""
     source_text = '\n'.join(sources)
     source_dates, source_numbers = _facts(source_text, with_citations=True)
-    # Dates may be written as words in the source ("ngày 19 tháng 8 năm 2026").
+    # Dates may be written as words in the source ("ngày 19 tháng 8 năm 2026") or as ISO dates (the current
+    # date in the system prompt, "2026-11-16"); today's date is always known to the model.
     for day, month, year in re.findall(r'ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})', source_text, re.IGNORECASE):
         source_dates.add(_canonical_date(day, month, year))
+    for year, month, day in re.findall(r'\b(\d{4})-(\d{1,2})-(\d{1,2})\b', source_text):
+        source_dates.add(_canonical_date(day, month, year))
+    for today in (datetime.now(), datetime.now(timezone.utc)):
+        source_dates.add(_canonical_date(str(today.day), str(today.month), str(today.year)))
     source_digits = set(re.findall(r'\d+', source_text))
     answer_dates, answer_numbers = _facts(answer)
     missing = [date for date in sorted(answer_dates) if date not in source_dates]
@@ -107,7 +113,7 @@ def verification_note(answer: str, sources: list[str], pdf_file: Optional[dict],
             + '. Hãy kiểm tra lại trong file gốc.'
         )
     if pdf_file:
-        pages = cited_pages(answer)[:limit_links]
+        pages = sorted(cited_pages(answer))[:limit_links]
         if pages:
             links = ' · '.join(f'[tr.{page}](/api/v1/files/{pdf_file["id"]}/pages/{page}/image)' for page in pages)
             parts.append(f'Xem trang gốc ({pdf_file["name"]}): {links}')
