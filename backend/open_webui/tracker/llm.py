@@ -101,7 +101,7 @@ async def _list_models(session: aiohttp.ClientSession, endpoint: Endpoint) -> Op
     return models
 
 
-async def _candidates(session: aiohttp.ClientSession) -> list[tuple[Endpoint, str]]:
+async def _candidates(session: aiohttp.ClientSession, model: Optional[str] = None) -> list[tuple[Endpoint, str]]:
     """(endpoint, model) pairs in the order to try.
 
     Endpoints serving a TRACKER_MODEL come first (in the order the models are listed in TRACKER_MODEL), then
@@ -109,7 +109,7 @@ async def _candidates(session: aiohttp.ClientSession) -> list[tuple[Endpoint, st
     the best pair is returned.
     """
     settings = await tracker_runtime()
-    preferred = [m.strip() for m in settings['model'].split(',') if m.strip()]
+    preferred = [m.strip() for m in (model or settings['model']).split(',') if m.strip()]
     ranked: list[tuple[tuple, Endpoint, str]] = []
     now = time.monotonic()
     for order, endpoint in enumerate(await _endpoints()):
@@ -137,15 +137,18 @@ async def _candidates(session: aiohttp.ClientSession) -> list[tuple[Endpoint, st
 _last_used: Optional[tuple[str, str]] = None
 
 
-async def _post(session: aiohttp.ClientSession, payload: dict) -> tuple[int, dict | str]:
+async def _post(
+    session: aiohttp.ClientSession, payload: dict, model: Optional[str] = None, purpose: Optional[str] = None
+) -> tuple[int, dict | str]:
     """POST /chat/completions, moving to the next endpoint when one is down, refuses or lacks the model.
 
     A 400 is returned to the caller (it may be about response_format) and never fails over.
     """
     global _last_used
     errors = []
-    pairs = await _candidates(session)
-    for index, (endpoint, model) in enumerate(pairs):
+    pairs = await _candidates(session, model)
+    for index, (endpoint, pair_model) in enumerate(pairs):
+        model = pair_model
         headers = {'Content-Type': 'application/json'}
         if endpoint.key:
             headers['Authorization'] = f'Bearer {endpoint.key}'
@@ -161,7 +164,7 @@ async def _post(session: aiohttp.ClientSession, payload: dict) -> tuple[int, dic
             status, text = 0, f'{type(e).__name__}: {e}'
         timer.stop()
         failed = status == 0 or status in _FAILOVER_STATUSES or status >= 500
-        _record(endpoint, model, timer, status, text, failover=index > 0, failed=failed)
+        _record(endpoint, model, timer, status, text, failover=index > 0, failed=failed, purpose=purpose)
         if failed:
             errors.append(f'{endpoint.name} ({model}): {status or "no response"} {text[:200]}')
             _down_until[endpoint.url] = time.monotonic() + TRACKER_LLM_COOLDOWN
@@ -186,8 +189,20 @@ async def _post(session: aiohttp.ClientSession, payload: dict) -> tuple[int, dic
     raise TrackerLLMError('No LLM connection to try')
 
 
-def _record(endpoint: Endpoint, model: str, timer, status: int, text: str, failover: bool, failed: bool) -> None:
-    """One tracker LLM call for the monitor: endpoint, model, duration, tokens, failover."""
+def _record(
+    endpoint: Endpoint,
+    model: str,
+    timer,
+    status: int,
+    text: str,
+    failover: bool,
+    failed: bool,
+    purpose: Optional[str] = None,
+) -> None:
+    """One tracker LLM call for the monitor: endpoint, model, duration, tokens, failover.
+
+    Calls made for another purpose (file OCR repair, file summaries) are recorded as kind 'file_llm'.
+    """
     usage = {}
     if not failed:
         try:
@@ -195,9 +210,9 @@ def _record(endpoint: Endpoint, model: str, timer, status: int, text: str, failo
         except Exception:
             usage = {}
     perf.record(
-        'tracker',
+        'file_llm' if purpose else 'tracker',
         ts=timer.ts,
-        source='tracker',
+        source='file' if purpose else 'tracker',
         model_id=model,
         name=endpoint.name,
         status='error' if failed or status >= 400 else 'ok',
@@ -205,6 +220,7 @@ def _record(endpoint: Endpoint, model: str, timer, status: int, text: str, failo
         input_tokens=usage.get('prompt_tokens'),
         output_tokens=usage.get('completion_tokens'),
         meta={'url': endpoint.url, 'http_status': status, 'failover': failover}
+        | ({'purpose': purpose} if purpose else {})
         | ({'error': text[:300]} if failed else {}),
     )
 
@@ -219,14 +235,14 @@ def extract_json(text: str) -> dict:
     return JSONCodec.loads(text[start : end + 1])
 
 
-def _payload(messages: list[dict], max_tokens: int) -> dict:
+def _payload(messages: list[dict], max_tokens: int, disable_thinking: Optional[bool] = None) -> dict:
     payload = {
         'messages': messages,
         'temperature': 0.1,
         'max_tokens': max_tokens,
         'stream': False,
     }
-    if TRACKER_DISABLE_THINKING:
+    if TRACKER_DISABLE_THINKING if disable_thinking is None else disable_thinking:
         payload['chat_template_kwargs'] = {'enable_thinking': False}
     return payload
 
@@ -240,11 +256,22 @@ def _content(status: int, body) -> str:
         raise TrackerLLMError(f'Unexpected LLM response: {str(body)[:500]}')
 
 
-async def generate_text(messages: list[dict], max_tokens: int = 1024) -> str:
-    """Plain completion, used for file and image summaries."""
+async def generate_text(
+    messages: list[dict],
+    max_tokens: int = 1024,
+    model: Optional[str] = None,
+    purpose: Optional[str] = None,
+    disable_thinking: Optional[bool] = None,
+) -> str:
+    """Plain completion, used for file and image summaries.
+
+    model overrides TRACKER_MODEL (comma-separated ids, first served wins); purpose labels the call for the monitor.
+    """
     timeout = aiohttp.ClientTimeout(total=TRACKER_LLM_TIMEOUT, sock_connect=20)
     async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
-        return _content(*await _post(session, _payload(messages, max_tokens)))
+        return _content(
+            *await _post(session, _payload(messages, max_tokens, disable_thinking), model=model, purpose=purpose)
+        )
 
 
 async def generate_state_update(messages: list[dict]) -> StateDelta:

@@ -863,6 +863,10 @@ async def probe(llm: str = 'one'):
 from open_webui.monitoring.server.admin import router as admin_router  # noqa: E402
 
 app.include_router(admin_router, dependencies=[Depends(require_login)])
+# File pipeline: processing of each upload, page OCR scores and vision repairs (see files.py).
+from open_webui.monitoring.server.files import router as files_router  # noqa: E402
+
+app.include_router(files_router, dependencies=[Depends(require_login)])
 
 
 @app.get('/healthz')

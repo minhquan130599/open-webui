@@ -461,6 +461,10 @@ async def lifespan(app: FastAPI):
         from open_webui.tracker.worker import tracker_worker_loop
 
         app.state.tracker_worker_loop = asyncio.create_task(tracker_worker_loop())
+    # Uploaded files: page OCR scores, vision repair, structure-aware index, precomputed summaries.
+    from open_webui.file_pipeline.worker import file_pipeline_loop
+
+    app.state.file_pipeline_loop = asyncio.create_task(file_pipeline_loop(app))
     from open_webui.monitoring.recorder import ENABLE_PERF_MONITOR, load_sampler_loop
 
     if ENABLE_PERF_MONITOR:
@@ -568,6 +572,8 @@ async def lifespan(app: FastAPI):
     app.state.scheduler_worker_loop.cancel()
     if hasattr(app.state, 'tracker_worker_loop'):
         app.state.tracker_worker_loop.cancel()
+    if hasattr(app.state, 'file_pipeline_loop'):
+        app.state.file_pipeline_loop.cancel()
     if hasattr(app.state, 'tracker_reminder_loop'):
         app.state.tracker_reminder_loop.cancel()
     if hasattr(app.state, 'perf_load_sampler'):

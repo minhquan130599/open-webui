@@ -225,6 +225,11 @@ GROUPS = [
     ('image', 'Tạo ảnh', ''),
     ('code', 'Chạy code', ''),
 ]
+# File processing settings are shared with the admin Settings > Documents page.
+from open_webui.file_pipeline.settings import FILE_SETTINGS, FILE_SETTINGS_GROUP  # noqa: E402
+
+SETTINGS += FILE_SETTINGS
+GROUPS.append(FILE_SETTINGS_GROUP)
 BY_KEY = {s['key']: s for s in SETTINGS}
 
 _sessions: dict[str, tuple[float, str]] = {}  # token -> (expires_at, client)
@@ -368,7 +373,10 @@ async def get_settings(token: str = Depends(require_session)):
         history = [dict(r._mapping) for r in history]
     return {
         'groups': [{'key': g, 'label': label, 'note': note} for g, label, note in GROUPS],
-        'settings': [{**s, 'value': _shown(s, values.get(s['key']))} for s in SETTINGS],
+        'settings': [
+            {**s, 'value': _shown(s, values[s['key']] if values.get(s['key']) is not None else s.get('default'))}
+            for s in SETTINGS
+        ],
         'history': history,
         'expires': int(_sessions[token][0]),
     }

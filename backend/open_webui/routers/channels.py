@@ -1586,7 +1586,11 @@ async def model_response_handler(request, channel, message, user, db=None):
                 except Exception:
                     log.exception('Could not describe channel files for the model')
                     attachment_infos = []
-                inline_ids = choose_inline(attachment_infos, pointed_ids)
+                from open_webui.file_pipeline.settings import file_settings
+
+                inline_ids = choose_inline(
+                    attachment_infos, pointed_ids, budget=(await file_settings())['files.attach.inline_max_chars']
+                )
                 attachment_block = format_attachment_block(
                     attachment_infos,
                     inline_ids,

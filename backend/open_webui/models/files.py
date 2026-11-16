@@ -446,6 +446,11 @@ class FilesTable:
         async with get_async_db_context(db) as db:
             try:
                 await db.execute(delete(File).filter_by(id=id))
+                # Page texts and the processing record of the file go with it.
+                from open_webui.file_pipeline.models import FileJob, FilePage
+
+                await db.execute(delete(FilePage).filter_by(file_id=id))
+                await db.execute(delete(FileJob).filter_by(file_id=id))
                 await db.commit()
 
                 return True
@@ -456,6 +461,10 @@ class FilesTable:
         async with get_async_db_context(db) as db:
             try:
                 await db.execute(delete(File))
+                from open_webui.file_pipeline.models import FileJob, FilePage
+
+                await db.execute(delete(FilePage))
+                await db.execute(delete(FileJob))
                 await db.commit()
 
                 return True

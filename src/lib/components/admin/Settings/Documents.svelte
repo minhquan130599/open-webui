@@ -36,6 +36,7 @@
 	import AdminSettingField from './AdminSettingField.svelte';
 	import AdminSettingRow from './AdminSettingRow.svelte';
 	import AdminSettingSection from './AdminSettingSection.svelte';
+	import FilePipelineSettings from './Documents/FilePipelineSettings.svelte';
 
 	const i18n: any = getContext('i18n');
 
@@ -1822,6 +1823,8 @@
 					</AdminSettingField>
 				</div>
 			</AdminSettingSection>
+
+			<FilePipelineSettings {inputClass} />
 
 			<AdminSettingSection title={$i18n.t('settings.admin.documents.sections.integration.title')}>
 				<AdminSettingRow

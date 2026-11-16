@@ -154,6 +154,11 @@ def format_attachment_block(
         guide.append(
             'Pages listed in low_quality_pages have unreliable OCR text; call view_pdf_page to see the page image.'
         )
+    guide.append(
+        'When you answer from these files, cite the page after each fact, like [tr.12] (add the article, e.g. '
+        '[tr.12, Điều 5], when there is one), quote numbers and dates exactly as written, and say plainly when '
+        'the files do not contain the answer instead of guessing.'
+    )
     if terminal:
         guide.append(
             'To work on a file with code (spreadsheet cells and sheets, pandas, filling a report template), '

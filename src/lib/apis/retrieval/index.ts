@@ -583,3 +583,22 @@ export const resetVectorDB = async (token: string) => {
 
 	return res;
 };
+
+export const getFilePipelineSettings = async (token: string) => {
+	const res = await fetch(`${RETRIEVAL_API_BASE_URL}/files/settings`, {
+		method: 'GET',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) throw (await res.json().catch(() => ({})))?.detail ?? res.statusText;
+	return res.json();
+};
+
+export const updateFilePipelineSettings = async (token: string, changes: Record<string, unknown>) => {
+	const res = await fetch(`${RETRIEVAL_API_BASE_URL}/files/settings`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify({ changes })
+	});
+	if (!res.ok) throw (await res.json().catch(() => ({})))?.detail ?? res.statusText;
+	return res.json();
+};

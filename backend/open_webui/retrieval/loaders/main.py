@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import zipfile
+from typing import Optional
 
 import ftfy
 import requests
@@ -341,10 +342,68 @@ class Loader:
         self.user = None
         self.user_groups = None
         self.metadata = {}
+        # PDF pages whose own text layer scores at least min_score skip the OCR engine (set by index_file).
+        self.text_layer_first = False
+        self.min_score = 80
+
+    def _load_text_layer_first(self, filename: str, file_content_type: str, file_path: str) -> Optional[list[Document]]:
+        """Read good text-layer pages directly and send only the other pages to the OCR engine.
+
+        None means "load the whole file as usual": not a PDF, no OCR engine, a scanned PDF (no usable text
+        layer), or an engine that does not report page numbers.
+        """
+        if not self.text_layer_first or not self.engine or filename.split('.')[-1].lower() != 'pdf':
+            return None
+        import tempfile
+
+        from open_webui.utils.file_structure import pdf_subset, pdf_text_layer, score_pages
+
+        try:
+            texts = pdf_text_layer(file_path)
+        except Exception as e:
+            log.warning('Text layer of %s unreadable (%s); using %s for every page', filename, e, self.engine)
+            return None
+        scores = score_pages(texts)
+        good = {index for index, score in enumerate(scores) if score['score'] >= self.min_score}
+        if not good:
+            return None
+        bad = [index for index in range(len(texts)) if index not in good]
+        total = len(texts)
+        docs = {
+            index: Document(
+                page_content=texts[index],
+                metadata={'page': index, 'page_label': index + 1, 'total_pages': total, 'extraction': 'text_layer'},
+            )
+            for index in good
+        }
+        if bad:
+            with tempfile.TemporaryDirectory() as tmp:
+                subset = os.path.join(tmp, 'pages.pdf')
+                pdf_subset(file_path, bad, subset)
+                ocr_docs = self._get_loader(filename, file_content_type, subset).load()
+            if any(not isinstance(doc.metadata.get('page'), int) for doc in ocr_docs):
+                log.info('%s does not report page numbers; OCR of the whole %s instead', self.engine, filename)
+                return None
+            for doc in ocr_docs:
+                position = doc.metadata['page']
+                if not 0 <= position < len(bad):
+                    continue
+                index = bad[position]
+                metadata = {**doc.metadata, 'page': index, 'page_label': index + 1, 'total_pages': total, 'extraction': 'ocr'}
+                if index in docs:
+                    docs[index] = Document(page_content=docs[index].page_content + '\n' + doc.page_content, metadata=metadata)
+                else:
+                    docs[index] = Document(page_content=doc.page_content, metadata=metadata)
+        log.info(
+            'PDF %s: %s/%s pages read from the text layer, %s sent to %s', filename, len(good), total, len(bad), self.engine
+        )
+        return [docs[index] for index in sorted(docs)]
 
     def load(self, filename: str, file_content_type: str, file_path: str) -> list[Document]:
-        loader = self._get_loader(filename, file_content_type, file_path)
-        docs = loader.load()
+        docs = self._load_text_layer_first(filename, file_content_type, file_path)
+        if docs is None:
+            loader = self._get_loader(filename, file_content_type, file_path)
+            docs = loader.load()
         # ftfy's auto mode unescapes entities on every line before the first literal '<', rewriting the document.
         return [
             Document(

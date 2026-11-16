@@ -259,6 +259,10 @@ async def process_uploaded_file(
 
             # Completion includes the durable knowledge link, when requested.
             await Files.update_file_data_by_id(file_item.id, {'status': 'completed', 'error': None}, db=db_session)
+            # Page OCR scores, vision repair, structure-aware index and summary run afterwards in the background.
+            from open_webui.file_pipeline.worker import enqueue_file
+
+            await enqueue_file(file_item.id)
 
         except Exception as e:
             log.error(f'Error processing file: {file_item.id}')
@@ -817,6 +821,42 @@ async def update_file_data_content_by_id(
 
 
 # Get File Content By Id
+
+
+@router.get('/{id}/pages/{page}/image')
+async def get_file_page_image(
+    id: str,
+    page: int,
+    user=Depends(get_verified_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """One page of a PDF as an image, for checking an answer's page citation against the original."""
+    from fastapi.responses import Response
+
+    from open_webui.file_pipeline.settings import file_settings
+    from open_webui.utils.file_structure import is_pdf, render_pdf_page
+
+    file = await Files.get_file_by_id(id, db=db)
+    if not file or not (
+        file.user_id == user.id or user.role == 'admin' or await has_access_to_file(id, 'read', user, db=db)
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND)
+    if not file.path or not is_pdf(file.filename, (file.meta or {}).get('content_type')):
+        raise HTTPException(status_code=400, detail='Not a PDF file')
+    path = await asyncio.to_thread(Storage.get_file, file.path)
+    try:
+        image, _ = await asyncio.to_thread(
+            render_pdf_page, path, page, (await file_settings())['files.page_image_max_side']
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    import base64
+
+    return Response(
+        base64.b64decode(image.split(',', 1)[1]),
+        media_type='image/jpeg',
+        headers={'Cache-Control': 'private, max-age=3600'},
+    )
 
 
 @router.get('/{id}/content')

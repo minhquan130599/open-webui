@@ -1424,6 +1424,36 @@ async def get_image_urls(delta_images, request, metadata, user) -> list[str]:
     return image_urls
 
 
+async def append_file_verification(form_data: dict, metadata: dict, output: list, content_parts: list) -> list:
+    """Under an answer about files: numbers/dates not found in the file text read, and links to cited pages."""
+    try:
+        from open_webui.file_pipeline.settings import file_settings
+        from open_webui.file_pipeline.verify import answer_sources, single_pdf, verification_note
+
+        if not (await file_settings())['files.verify.enable']:
+            return output
+        sources, used_file_tool = answer_sources(form_data.get('messages') or [], output)
+        if not (metadata.get('files') or used_file_tool):
+            return output
+        note = verification_note(get_output_text(output), sources, single_pdf(metadata.get('files') or []))
+        if not note:
+            return output
+        content_parts.append(note)
+        return [
+            *output,
+            {
+                'type': 'message',
+                'id': output_id('msg'),
+                'status': 'completed',
+                'role': 'assistant',
+                'content': [{'type': 'output_text', 'text': note}],
+            },
+        ]
+    except Exception:
+        log.exception('File answer verification failed')
+        return output
+
+
 async def prepare_latest_attachments(messages: list, user, model: dict, terminal: bool = False) -> None:
     """Describe the newest user message's files (ids, sizes, layout) and include small ones in full.
 
@@ -1444,7 +1474,9 @@ async def prepare_latest_attachments(messages: list, user, model: dict, terminal
         return
     if not infos:
         return
-    inline_ids = choose_inline(infos)
+    from open_webui.file_pipeline.settings import file_settings
+
+    inline_ids = choose_inline(infos, budget=(await file_settings())['files.attach.inline_max_chars'])
     latest['attachment_block'] = {
         'ids': [info['id'] for info in infos],
         'text': format_attachment_block(
@@ -6622,6 +6654,7 @@ async def streaming_chat_response_handler(response, ctx):
                             },
                         ]
                         content_parts.append(note)
+                current_output = await append_file_verification(form_data, metadata, current_output, content_parts)
                 from open_webui.monitoring.llm import record_response
 
                 record_response(metadata, user, form_data.get('model'), current_output, usage)

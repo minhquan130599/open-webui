@@ -962,6 +962,49 @@ class ConfigForm(BaseModel):
     web: WebConfig | None = None
 
 
+@router.get('/files/settings')
+async def get_file_pipeline_settings(user=Depends(get_admin_user)):
+    """File processing settings (OCR scoring, vision repair, structure index, summaries) with current values."""
+    from open_webui.file_pipeline.settings import FILE_SETTINGS, FILE_SETTINGS_GROUP, file_settings
+
+    values = await file_settings()
+    return {
+        'title': FILE_SETTINGS_GROUP[1],
+        'note': FILE_SETTINGS_GROUP[2],
+        'settings': [{**setting, 'value': values[setting['key']]} for setting in FILE_SETTINGS],
+    }
+
+
+class FilePipelineSettingsForm(BaseModel):
+    changes: dict
+
+
+@router.post('/files/settings')
+async def update_file_pipeline_settings(form_data: FilePipelineSettingsForm, user=Depends(get_admin_user)):
+    from open_webui.file_pipeline.settings import FILE_SETTINGS_BY_KEY, coerce, file_settings, reset_file_settings_cache
+
+    unknown = [key for key in form_data.changes if key not in FILE_SETTINGS_BY_KEY]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f'Unknown settings: {", ".join(unknown)}')
+    try:
+        changes = {key: coerce(FILE_SETTINGS_BY_KEY[key], value) for key, value in form_data.changes.items()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    before = await file_settings()
+    await Config.upsert(changes)
+    reset_file_settings_cache()
+    for key, value in changes.items():
+        if before.get(key) != value:
+            perf.record(
+                'config_change',
+                source='settings',
+                user_id=user.id,
+                name=key,
+                meta={'label': FILE_SETTINGS_BY_KEY[key]['label'], 'group': 'files', 'old': before.get(key), 'new': value},
+            )
+    return await get_file_pipeline_settings(user=user)
+
+
 @router.post('/config/update')
 async def update_rag_config(request: Request, form_data: ConfigForm, user=Depends(get_admin_user)):
     # RAG settings
@@ -1776,8 +1819,13 @@ async def index_file(
                 file_path = file.path
                 if file_path:
                     file_path = await asyncio.to_thread(Storage.get_file, file_path)
+                    from open_webui.file_pipeline.settings import file_settings
+
+                    pipeline_settings = await file_settings()
                     loader = build_loader_from_config(config)
                     loader.user = user
+                    loader.text_layer_first = pipeline_settings['files.ocr.text_layer_first']
+                    loader.min_score = pipeline_settings['files.ocr.min_score']
                     loader.metadata = {
                         'file_id': file.id,
                         'file_name': file.filename,
@@ -1815,12 +1863,19 @@ async def index_file(
                             },
                         )
                     ]
-                text_content = ' '.join([doc.page_content for doc in docs])
+                text_content = '\n'.join([doc.page_content for doc in docs])
                 # Page and sheet offsets (and pages with unreliable OCR), so readers can open one part.
                 try:
+                    from open_webui.file_pipeline.settings import file_settings
+
                     structure_update = {
                         'structure': build_file_structure(
-                            docs, text_content, file.filename or '', (file.meta or {}).get('content_type')
+                            docs,
+                            text_content,
+                            file.filename or '',
+                            (file.meta or {}).get('content_type'),
+                            min_score=(await file_settings())['files.ocr.min_score'],
+                            engine=config.get('rag.content_extraction_engine'),
                         ),
                         'summaries': None,
                     }

@@ -592,3 +592,77 @@ async def file_reprocess(file_id: str, request: Request, x_monitor_key: Optional
         raise HTTPException(status_code=404, detail='Không tìm thấy file')
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Xử lý lại thất bại: {e}'[:500])
+
+
+@router.get('/files/{file_id}/pages/{page}/image')
+async def file_page_image(file_id: str, page: int, x_monitor_key: Optional[str] = Header(None)):
+    """One PDF page as a JPEG, to compare with its OCR text and vision repair."""
+    _check(x_monitor_key)
+    import base64
+
+    from fastapi.responses import Response
+
+    from open_webui.file_pipeline.settings import file_settings
+    from open_webui.monitoring.files_admin import original_path
+    from open_webui.utils.file_structure import render_pdf_page
+
+    try:
+        path, _, content_type = await original_path(file_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='Không tìm thấy file gốc')
+    if 'pdf' not in (content_type or '') and not path.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail='Không phải file PDF')
+    try:
+        image, _ = await asyncio.to_thread(
+            render_pdf_page, path, page, (await file_settings())['files.page_image_max_side']
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return Response(base64.b64decode(image.split(',', 1)[1]), media_type='image/jpeg')
+
+
+class PipelineForm(BaseModel):
+    pages: list[int] = []
+
+
+@router.post('/files/{file_id}/pipeline')
+async def file_pipeline_enqueue(file_id: str, form: PipelineForm, x_monitor_key: Optional[str] = Header(None)):
+    """Queue a file for processing again; with pages, only those pages are re-read by the vision model."""
+    _check(x_monitor_key)
+    from open_webui.file_pipeline.models import FileJobs
+    from open_webui.models.files import Files
+
+    if not await Files.get_file_by_id(file_id):
+        raise HTTPException(status_code=404, detail='Không tìm thấy file')
+    await FileJobs.enqueue(file_id, {'pages': sorted(set(form.pages))} if form.pages else {'force': True})
+    return {'queued': True}
+
+
+class BackfillForm(BaseModel):
+    days: int = 30
+    limit: int = 50
+
+
+@router.post('/files/pipeline/backfill')
+async def file_pipeline_backfill(form: BackfillForm, x_monitor_key: Optional[str] = Header(None)):
+    """Queue files uploaded in the last days that were never processed by the pipeline."""
+    _check(x_monitor_key)
+    from sqlalchemy import select
+
+    from open_webui.file_pipeline.models import FileJob, FileJobs
+    from open_webui.internal.db import get_async_db_context
+    from open_webui.models.files import File
+
+    since = int(time.time()) - max(form.days, 1) * 86400
+    async with get_async_db_context() as db:
+        ids = (
+            await db.execute(
+                select(File.id)
+                .where(File.created_at >= since, File.id.notin_(select(FileJob.file_id)))
+                .order_by(File.created_at.desc())
+                .limit(min(max(form.limit, 1), 500))
+            )
+        ).scalars().all()
+    for file_id in ids:
+        await FileJobs.enqueue(file_id, {'force': True})
+    return {'queued': len(ids)}

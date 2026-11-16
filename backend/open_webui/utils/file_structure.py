@@ -76,9 +76,122 @@ def text_quality_issues(text: str) -> list[str]:
     return issues
 
 
-def build_file_structure(docs: list, text_content: str, filename: str, content_type: Optional[str]) -> Optional[dict]:
-    """Page/sheet offsets into text_content, which is the loader documents joined with single spaces."""
+# Vietnamese syllable without its tone mark: onset + vowel group + final consonant.
+_VI_ONSET = '(?:ngh|ng|nh|ch|gh|gi|kh|ph|qu|th|tr|[bcdđghklmnprstvx])?'
+_VI_VOWELS = sorted(
+    (
+        'a ă â e ê i o ô ơ u ư y ai ao au ay âu ây eo êu ia iê iêu iu oa oă oai oao oay oe oeo oi oo ôi ơi ua uâ uây '
+        'uê ui uô uôi uơ ươ ươi ươu ưa ưi ưu uy uya uyê uyu yê yêu'
+    ).split(),
+    key=len,
+    reverse=True,
+)
+_VI_SYLLABLE_RE = re.compile(f'^{_VI_ONSET}(?:{"|".join(_VI_VOWELS)})(?:ng|nh|ch|[cmnpt])?$')
+_TONE_MARKS = {'̀', '́', '̃', '̉', '̣'}
+
+
+def _toneless(word: str) -> str:
+    decomposed = unicodedata.normalize('NFD', word.lower())
+    return unicodedata.normalize('NFC', ''.join(c for c in decomposed if c not in _TONE_MARKS))
+
+
+_STOP_FINAL_RE = re.compile(r'(?:ch|[cpt])$')
+_NON_STOP_TONES = {'̀', '̃', '̉'}  # huyền, ngã, hỏi
+
+
+def is_vietnamese_syllable(word: str) -> bool:
+    toneless = _toneless(word)
+    if not _VI_SYLLABLE_RE.match(toneless):
+        return False
+    # A syllable ending in p, t, c or ch only takes the sắc or nặng tone ("bắt", "học"; never "bằt").
+    if _STOP_FINAL_RE.search(toneless) and _NON_STOP_TONES & set(unicodedata.normalize('NFD', word.lower())):
+        return False
+    return True
+
+
+def _page_stats(text: str) -> dict:
+    stripped = (text or '').strip()
+    stats = {'chars': len(stripped)}
+    if not stripped:
+        return stats
+    stats['garbled'] = sum(
+        1 for c in stripped if c == '�' or unicodedata.category(c) in ('Co', 'Cn', 'Cs', 'So', 'Sk')
+    ) / len(stripped)
+    words = [word for word in _WORD_RE.findall(stripped) if word.isalpha()]
+    checked = valid = without_vowel = long_words = 0
+    for word in words:
+        if len(word) > 25:
+            long_words += 1
+        if word.isupper() and len(word) >= 2 and not is_vietnamese_syllable(word):
+            continue  # abbreviation (HTTT, NĐ, CP) or roman numeral
+        checked += 1
+        valid += is_vietnamese_syllable(word)
+        without_vowel += not set(_strip_accents(word).lower()) & _VOWELS
+    stats.update(words=checked, vi_valid=valid, without_vowel=without_vowel, long_words=long_words, all_words=len(words))
+    return stats
+
+
+def score_pages(texts: list[str]) -> list[dict]:
+    """Quality of each page's extracted text: {'score': 0-100, 'issues': [...], 'vi_ratio': ...}.
+
+    A Vietnamese document is scored by the share of words that are valid Vietnamese syllables, which also catches
+    wrong diacritics and mixed-in foreign glyphs; other documents by the share of words that have a vowel. Junk
+    characters and run-together words lower the score.
+    """
+    stats = [_page_stats(text) for text in texts]
+    ratios = sorted(s['vi_valid'] / s['words'] for s in stats if s.get('words', 0) >= 15)
+    vietnamese = bool(ratios) and ratios[len(ratios) // 2] >= 0.6
+    results = []
+    for s in stats:
+        issues = []
+        if s['chars'] < 40:
+            results.append({'score': 0, 'issues': ['little_text'], 'chars': s['chars']})
+            continue
+        words = s.get('words', 0)
+        if words >= 15:
+            ratio = (s['vi_valid'] if vietnamese else words - s['without_vowel']) / words
+        else:
+            ratio = 1.0  # too few words to judge (tables of numbers, forms)
+        garbled = s.get('garbled', 0)
+        merged = s['long_words'] / s['all_words'] if s.get('all_words') else 0
+        score = ratio * max(0.0, 1 - 5 * garbled) * max(0.0, 1 - 4 * merged)
+        if garbled > 0.03:
+            issues.append('garbled_chars')
+        if words >= 15 and ratio < 0.8:
+            issues.append('unreadable_words')
+        if merged > 0.05:
+            issues.append('merged_words')
+        results.append(
+            {
+                'score': round(score * 100),
+                'issues': issues,
+                'chars': s['chars'],
+                'words': words,
+                'valid_ratio': round(ratio, 3),
+                'garbled_ratio': round(garbled, 4),
+            }
+        )
+    return results
+
+
+def low_pages(scores: dict, min_score: int) -> list[int]:
+    return sorted(page for page, score in scores.items() if score < min_score)
+
+
+def build_file_structure(
+    docs: list,
+    text_content: str,
+    filename: str,
+    content_type: Optional[str],
+    min_score: int = 80,
+    engine: Optional[str] = None,
+) -> Optional[dict]:
+    """Page/sheet offsets into text_content, which is the loader documents joined with one separator character (a newline).
+
+    For PDFs it also records each page's score and how it was read (text layer or OCR engine).
+    """
     pages: dict[int, list[int]] = {}
+    methods: dict[int, str] = {}
     sheets: list[list] = []
     position = 0
     for doc in docs:
@@ -92,6 +205,8 @@ def build_file_structure(docs: list, text_content: str, filename: str, content_t
                 pages[page][1] = end
             else:
                 pages[page] = [start, end]
+            if metadata.get('extraction'):
+                methods[page] = metadata['extraction']
         sheet = metadata.get('page_name') or metadata.get('sheet_name')
         if sheet:
             if sheets and sheets[-1][0] == str(sheet):
@@ -114,9 +229,15 @@ def build_file_structure(docs: list, text_content: str, filename: str, content_t
     if len(pages) > 1 or (pages and is_pdf(filename, content_type)):
         structure['pages'] = [[page, start, end] for page, (start, end) in sorted(pages.items())]
         if is_pdf(filename, content_type):
-            structure['low_quality_pages'] = [
-                page for page, start, end in structure['pages'] if text_quality_issues(text_content[start:end])
-            ]
+            scored = score_pages([text_content[start:end] for _, start, end in structure['pages']])
+            structure['page_scores'] = {
+                str(page): result['score'] for (page, _, _), result in zip(structure['pages'], scored)
+            }
+            structure['low_quality_pages'] = low_pages(
+                {int(page): score for page, score in structure['page_scores'].items()}, min_score
+            )
+            default_method = 'ocr' if engine else 'text_layer'
+            structure['page_methods'] = {str(page): methods.get(page, default_method) for page, _, _ in structure['pages']}
     if sheets:
         structure['sheets'] = sheets
     return structure if len(structure) > 1 else None
@@ -231,6 +352,40 @@ def split_segments(content: str, structure: dict, max_chars: int) -> list[tuple[
         segments.append((start, end))
         start = end
     return segments
+
+
+def pdf_text_layer(path: str) -> list[str]:
+    """Text of each page's own text layer (empty for scanned pages), without OCR."""
+    import pypdfium2 as pdfium
+
+    document = pdfium.PdfDocument(path)
+    try:
+        texts = []
+        for index in range(len(document)):
+            page = document[index]
+            try:
+                textpage = page.get_textpage()
+                try:
+                    texts.append(textpage.get_text_range().replace('\r\n', '\n').replace('\r', '\n').strip())
+                finally:
+                    textpage.close()
+            finally:
+                page.close()
+        return texts
+    finally:
+        document.close()
+
+
+def pdf_subset(path: str, pages: list[int], out_path: str) -> None:
+    """Write the given 0-based pages of a PDF, in order, to out_path."""
+    from pypdf import PdfReader, PdfWriter
+
+    reader = PdfReader(path)
+    writer = PdfWriter()
+    for index in pages:
+        writer.add_page(reader.pages[index])
+    with open(out_path, 'wb') as handle:
+        writer.write(handle)
 
 
 def render_pdf_page(path: str, page: int, max_side: int) -> tuple[str, int]:
