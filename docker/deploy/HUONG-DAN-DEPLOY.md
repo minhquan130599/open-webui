@@ -29,6 +29,8 @@ cd E:\key\open-webui\docker
 4. **Kiểm tra `/health`.** Nếu container chính không lên được, script **tự quay về bản cũ**.
 5. **Dọn dẹp.** Tắt container dự phòng, cập nhật service `monitor`, ghi lịch sử, xóa các bản cũ hơn 5 bản gần nhất.
 
+Muốn test bản mới trước khi thay bản đang chạy: gửi bằng `.\release.ps1 -NoDeploy`, chạy `./deploy.sh trial ../images/ncs-chatui-<commit>.tar` trên server (bản thử ở `127.0.0.1:8001`, dùng chung database với bản chính), test qua `ssh -L 8001:127.0.0.1:8001 <user>@<server>`, rồi `./deploy.sh deploy ...` hoặc `./deploy.sh trial-stop`.
+
 Nếu chỉ muốn gửi file trước rồi cập nhật sau (ví dụ ngoài giờ làm việc), dùng `.\release.ps1 -NoDeploy`. Đến lúc cập nhật thì chạy trên server:
 
 ```bash

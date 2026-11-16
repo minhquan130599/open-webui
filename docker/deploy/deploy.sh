@@ -7,6 +7,8 @@
 #
 # Lệnh:
 #   ./deploy.sh deploy <file.tar | đường dẫn trong ../images | image:tag>   cập nhật lên bản mới
+#   ./deploy.sh trial <file.tar | image:tag>   chạy thử bản mới ở 127.0.0.1:${STANDBY_PORT}, bản chính không đổi
+#   ./deploy.sh trial-stop                tắt bản chạy thử
 #   ./deploy.sh rollback [image:tag]      quay về bản trước (hoặc bản chỉ định)
 #   ./deploy.sh status                    bản đang chạy, tình trạng, lịch sử
 #   ./deploy.sh versions                  các bản có sẵn để rollback
@@ -192,6 +194,18 @@ cmd_deploy() {
     rollout "$new" "$previous" deploy
 }
 
+cmd_trial() {
+    [ $# -ge 1 ] || die "cách dùng: ./deploy.sh trial <file.tar | image:tag>"
+    local new
+    new=$(resolve_image "$1")
+    start_standby "$new" || die "Bản $new không khởi động được (xem log ở trên)."
+    ok "Bản $new đang chạy thử tại 127.0.0.1:$STANDBY_PORT; app chính vẫn chạy $(current_image)."
+    echo "Mở từ máy bạn:  ssh -L $STANDBY_PORT:127.0.0.1:$STANDBY_PORT <user>@<server>  rồi vào http://localhost:$STANDBY_PORT"
+    echo "Xem log:        ${DOCKER[*]} logs -f $STANDBY"
+    echo "Đạt yêu cầu:    ./deploy.sh deploy $new      Bỏ:  ./deploy.sh trial-stop"
+    echo "Lưu ý: bản thử dùng CHUNG database và file với bản chính; dữ liệu tạo khi test là dữ liệu thật."
+}
+
 cmd_rollback() {
     local target=${1:-} previous
     previous=$(current_image)
@@ -248,9 +262,11 @@ cmd_restore_db() {
 
 case "${1:-}" in
     deploy) shift; cmd_deploy "$@" ;;
+    trial) shift; cmd_trial "$@" ;;
+    trial-stop) stop_standby; ok "Đã tắt bản chạy thử" ;;
     rollback) shift; cmd_rollback "$@" ;;
     status) cmd_status ;;
     versions) cmd_versions ;;
     restore-db) shift; cmd_restore_db "$@" ;;
-    *) sed -n '2,25p' "$0"; exit 1 ;;
+    *) sed -n '2,27p' "$0"; exit 1 ;;
 esac
