@@ -1,4 +1,6 @@
 import logging
+import os
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from open_webui.config import (
@@ -60,6 +62,10 @@ VECTOR_OPCLASS = 'halfvec_cosine_ops' if USE_HALFVEC else 'vector_cosine_ops'
 Base = declarative_base()
 
 log = logging.getLogger(__name__)
+
+# Memory for building the vector index at startup (session only); the database default of 64 MB is too little
+# once document_chunk holds a few thousand rows.
+PGVECTOR_INDEX_MAINTENANCE_WORK_MEM = os.getenv('PGVECTOR_INDEX_MAINTENANCE_WORK_MEM', '512MB').strip()
 
 
 def pgcrypto_encrypt(val, key):
@@ -234,7 +240,23 @@ class PgvectorClient(VectorDBBase):
             )
             if index_options:
                 index_sql = f'{index_sql} {index_options}'
-            self.session.execute(text(index_sql))
+            # Building the index needs more than the default maintenance_work_mem (64 MB) once the table is
+            # large; a failure must not stop Open WebUI from starting (search still works, only slower).
+            try:
+                with self.session.begin_nested():
+                    if re.fullmatch(r'[0-9]+\s*(kB|MB|GB)', PGVECTOR_INDEX_MAINTENANCE_WORK_MEM):
+                        self.session.execute(
+                            text(f"SET LOCAL maintenance_work_mem = '{PGVECTOR_INDEX_MAINTENANCE_WORK_MEM}'")
+                        )
+                    self.session.execute(text(index_sql))
+            except Exception as e:
+                log.warning(
+                    "Could not create vector index '%s' (%s). Vector search still works without it, more slowly. "
+                    'Raise PGVECTOR_INDEX_MAINTENANCE_WORK_MEM or the database maintenance_work_mem and restart.',
+                    index_name,
+                    e,
+                )
+                return
             log.info(
                 "Ensured vector index '%s' using %s%s.",
                 index_name,

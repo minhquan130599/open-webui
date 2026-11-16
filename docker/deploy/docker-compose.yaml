@@ -17,6 +17,8 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     container_name: owui-postgres
+    # Tạo chỉ mục vector (pgvector) khi đã có vài nghìn đoạn tài liệu cần hơn mức mặc định 64 MB.
+    command: ["postgres", "-c", "maintenance_work_mem=512MB"]
     ports:
       # Chỉ chính server kết nối được (DBeaver/psql trên server, hoặc qua SSH tunnel)
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
