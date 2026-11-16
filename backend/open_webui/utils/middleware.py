@@ -1470,7 +1470,7 @@ async def wait_for_attached_files(files: list[dict], metadata: dict) -> None:
     from open_webui.file_pipeline.status import wait_until_ready
 
     timeout = (await file_settings())['files.wait_seconds']
-    if not timeout or not files:
+    if not files:
         return
     emitter = await get_event_emitter(metadata) if metadata.get('chat_id') and metadata.get('message_id') else None
 

@@ -17,7 +17,8 @@ Tải file lên ─→ trích xuất (như cũ, người dùng hỏi được ng
 ```
 
 **Người dùng hỏi ngay sau khi tải file lên:**
-- Hệ thống chờ tối đa `Chờ sửa OCR xong trước khi trả lời` (mặc định 120 giây) để chữ của file được sửa xong rồi mới trả lời.
+- Upload xong, file vẫn cần thêm vài giây đến vài phút để **trích xuất chữ**. Tin nhắn gửi ngay trong lúc đó được giữ lại tới khi trích xuất xong, tối đa 180 giây, với mọi loại file. Bước này luôn chạy, kể cả khi đặt thời gian chờ sửa OCR bằng 0.
+- Sau đó hệ thống chờ tiếp tối đa `Chờ sửa OCR xong trước khi trả lời` (mặc định 120 giây; chỉ áp dụng cho PDF có trang OCR kém) để chữ được sửa xong. File được chờ được đưa lên đầu hàng đợi.
 - Trong lúc chờ, người dùng thấy dòng trạng thái *"Đang sửa OCR 3/5 trang…"*. Trong channel, dòng này hiện ngay trong tin trả lời và được thay bằng câu trả lời khi xong.
 - Trang nào sửa xong thì chữ của file được cập nhật ngay, không đợi xong cả file.
 - Hết thời gian chờ mà file chưa xong: model được báo file còn đang xử lý và đọc ảnh trang cho các trang lỗi. Dưới câu trả lời có dòng *"ℹ️ … vẫn đang được sửa OCR khi trả lời"*.

@@ -156,7 +156,12 @@ def format_attachment_block(
             'to read a part, query_chat_files to find specific passages, summarize_chat_file for a complete '
             'summary of a long file.'
         )
-    if any(info.get('processing') for info in infos):
+    if any(info.get('processing') and not info['chars'] for info in infos):
+        guide.append(
+            'Files with chars="0" have no text yet because they are still being extracted: tell the user to ask '
+            'again in a moment; do not look for them in the terminal or anywhere else.'
+        )
+    if any(info.get('processing') and info['chars'] for info in infos):
         guide.append(
             'Files marked processing are still having their OCR repaired: their text may still contain OCR errors, '
             'so read the pages listed in low_quality_pages from the page image (view_pdf_page) when they matter, '

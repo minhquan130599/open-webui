@@ -1591,7 +1591,7 @@ async def model_response_handler(request, channel, message, user, db=None):
                     wait_seconds = (await file_settings())['files.wait_seconds']
                     # Only files the user attached to this message / thread; older channel files are settled.
                     waited = [file for file in files if file.get('id') in pointed_ids]
-                    if wait_seconds and waited:
+                    if waited:
                         placeholder = await get_event_emitter(
                             {'chat_id': f'channel:{channel.id}', 'message_id': response_message.id, 'user_id': user.id}
                         )
