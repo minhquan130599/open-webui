@@ -1220,7 +1220,7 @@ def _non_negative_int_env(name: str, default: int) -> int:
 
 # Attached files whose extracted text fits this budget (all files of the message together) are placed in
 # the message once, so the model reads them without picking a tool. 0 = never inline.
-ATTACHMENT_INLINE_MAX_CHARS = _non_negative_int_env('ATTACHMENT_INLINE_MAX_CHARS', 40_000)
+ATTACHMENT_INLINE_MAX_CHARS = _non_negative_int_env('ATTACHMENT_INLINE_MAX_CHARS', 45_000)
 # Total characters returned by one query_chat_files call.
 QUERY_CHAT_FILES_MAX_CHARS = _int_env('QUERY_CHAT_FILES_MAX_CHARS', 20_000)
 # summarize_chat_file: characters per summarized segment, segments summarized at once, and the size above

@@ -6303,16 +6303,22 @@ async def streaming_chat_response_handler(response, ctx):
                                         set_last_user_message_content(
                                             metadata.get('base_user_prompt') or user_message, [message]
                                         )
-                                    messages, context_summary, compacted = await compact_messages_for_request(
-                                        request,
-                                        summary_form_data,
-                                        user,
-                                        messages,
-                                        metadata,
-                                        form_data['model'],
-                                        request.app.state.MODELS,
-                                        bypass_system_prompt=True,
-                                    )
+                                    if metadata.get('tool_loop_compacted'):
+                                        # One compaction per answer. Compacting again drops the file text the
+                                        # model just re-read, so it reads it again and the answer never ends.
+                                        compacted = []
+                                    else:
+                                        messages, context_summary, compacted = await compact_messages_for_request(
+                                            request,
+                                            summary_form_data,
+                                            user,
+                                            messages,
+                                            metadata,
+                                            form_data['model'],
+                                            request.app.state.MODELS,
+                                            bypass_system_prompt=True,
+                                        )
+                                        metadata['tool_loop_compacted'] = bool(compacted)
                                 finally:
                                     for message, content in user_messages:
                                         message['content'] = content

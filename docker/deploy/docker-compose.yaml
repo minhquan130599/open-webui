@@ -170,7 +170,7 @@ services:
       - CONTEXT_COMPACTION_TOKEN_THRESHOLD=${CONTEXT_COMPACTION_TOKEN_THRESHOLD:-40000}
       - CONTEXT_COMPACTION_MODEL=${CONTEXT_COMPACTION_MODEL:-}
       # File đính kèm nhỏ (tổng số ký tự các file của tin nhắn) được đưa nguyên văn vào tin nhắn; 0 = tắt
-      - ATTACHMENT_INLINE_MAX_CHARS=${ATTACHMENT_INLINE_MAX_CHARS:-30000}
+      - ATTACHMENT_INLINE_MAX_CHARS=${ATTACHMENT_INLINE_MAX_CHARS:-45000}
       # Giới hạn ký tự kết quả mỗi lần query_chat_files
       - QUERY_CHAT_FILES_MAX_CHARS=${QUERY_CHAT_FILES_MAX_CHARS:-12000}
       # summarize_chat_file: số ký tự mỗi phần, số phần tóm tắt song song, độ dài bản tóm tắt trả về,
