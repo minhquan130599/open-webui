@@ -137,6 +137,43 @@ async def _candidates(session: aiohttp.ClientSession, model: Optional[str] = Non
 _last_used: Optional[tuple[str, str]] = None
 
 
+_TITLE_RE = re.compile(r'<title>(.*?)</title>', re.IGNORECASE | re.DOTALL)
+
+
+def _short(text: str) -> str:
+    """Readable error text: the <title> of an HTML error page (nginx, Cloudflare), else the first 200 chars."""
+    match = _TITLE_RE.search(text or '')
+    if match:
+        return ' '.join(match.group(1).split())[:200]
+    return ' '.join((text or '').split())[:200]
+
+
+async def _read_stream(response) -> str:
+    """Collect a streamed (SSE) completion into the JSON body a non-streamed call returns.
+
+    Streaming keeps bytes flowing, so proxies that cut a request after ~100 s without a response byte
+    (RunPod, Cloudflare 524) do not cut long summaries.
+    """
+    parts, usage = [], None
+    async for raw in response.content:
+        line = raw.decode('utf-8', 'replace').strip()
+        if not line.startswith('data:'):
+            continue
+        data = line[5:].strip()
+        if data == '[DONE]':
+            break
+        try:
+            chunk = JSONCodec.loads(data)
+        except Exception:
+            continue
+        usage = chunk.get('usage') or usage
+        for choice in chunk.get('choices') or []:
+            content = (choice.get('delta') or {}).get('content')
+            if content:
+                parts.append(content)
+    return JSONCodec.dumps({'choices': [{'message': {'content': ''.join(parts)}}], 'usage': usage or {}})
+
+
 async def _post(
     session: aiohttp.ClientSession, payload: dict, model: Optional[str] = None, purpose: Optional[str] = None
 ) -> tuple[int, dict | str]:
@@ -159,21 +196,22 @@ async def _post(
                 data=JSONCodec.dumps({**payload, 'model': model}),
                 headers=headers,
             ) as response:
-                status, text = response.status, await response.text()
+                status = response.status
+                text = await _read_stream(response) if payload.get('stream') and status == 200 else await response.text()
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             status, text = 0, f'{type(e).__name__}: {e}'
         timer.stop()
         failed = status == 0 or status in _FAILOVER_STATUSES or status >= 500
         _record(endpoint, model, timer, status, text, failover=index > 0, failed=failed, purpose=purpose)
         if failed:
-            errors.append(f'{endpoint.name} ({model}): {status or "no response"} {text[:200]}')
+            errors.append(f'{endpoint.name} ({model}): {status or "no response"} {_short(text)}')
             _down_until[endpoint.url] = time.monotonic() + TRACKER_LLM_COOLDOWN
             _model_cache.pop(endpoint.url, None)  # it may come back with another model list
             if index + 1 < len(pairs):
                 log.warning(
                     'Tracker LLM %s failed (%s); trying %s',
                     endpoint.name,
-                    status or text[:200],
+                    status or _short(text),
                     pairs[index + 1][0].name,
                 )
                 continue
@@ -267,11 +305,13 @@ async def generate_text(
 
     model overrides TRACKER_MODEL (comma-separated ids, first served wins); purpose labels the call for the monitor.
     """
+    payload = _payload(messages, max_tokens, disable_thinking)
+    if purpose:
+        # File summaries and OCR repairs can run longer than a proxy waits for a first byte.
+        payload.update(stream=True, stream_options={'include_usage': True})
     timeout = aiohttp.ClientTimeout(total=TRACKER_LLM_TIMEOUT, sock_connect=20)
     async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
-        return _content(
-            *await _post(session, _payload(messages, max_tokens, disable_thinking), model=model, purpose=purpose)
-        )
+        return _content(*await _post(session, payload, model=model, purpose=purpose))
 
 
 async def generate_state_update(messages: list[dict]) -> StateDelta:

@@ -336,11 +336,16 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
             job.stats['chunks'] = await _index(app, file, content, structure, settings)
             job.stats['index_ms'] = _ms(started)
 
-        # 5. summary
+        # 5. summary: optional, the chat tool can still summarize on demand, so a failure does not fail the job.
         if settings['files.summary.precompute'] and len(content) >= settings['files.summary.precompute_min_chars']:
             started = time.perf_counter()
             await job.stage('summary', 0, 'Tóm tắt sẵn')
-            if await _summarize(job, file, structure, settings):
+            try:
+                if await _summarize(job, file, structure, settings):
+                    job.stats['summary_ms'] = _ms(started)
+            except Exception as error:
+                log.warning('File %s: summary not precomputed (%s)', file_id, error)
+                job.stats['summary_error'] = f'{type(error).__name__}: {error}'[:500]
                 job.stats['summary_ms'] = _ms(started)
 
         job.stats['total_ms'] = _ms(started_all)

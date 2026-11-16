@@ -3200,10 +3200,12 @@ async def _summary_completion(request: Request, user: UserModel, model_id: str, 
     models = request.app.state.MODELS
     params = await Config.get('task.model.params') or {}
     params = {key: value for key, value in params.items() if value is not None and value != ''} if isinstance(params, dict) else {}
+    # Streamed, so proxies that cut a request after ~100 s without a response byte (RunPod, Cloudflare 524)
+    # do not cut a long part summary.
     payload = {
         'model': model_id,
         'messages': [{'role': 'user', 'content': content}],
-        'stream': False,
+        'stream': True,
         'metadata': {
             **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
             'task': 'file_summary',
@@ -3213,7 +3215,25 @@ async def _summary_completion(request: Request, user: UserModel, model_id: str, 
     if disable_thinking:
         payload['chat_template_kwargs'] = {**(payload.get('chat_template_kwargs') or {}), 'enable_thinking': False}
     response = await generate_chat_completion(request, form_data=payload, user=user)
-    return _response_text(response)
+    iterator = getattr(response, 'body_iterator', None)
+    if iterator is None:
+        return _response_text(response)
+    parts, buffer = [], ''
+    async for chunk in iterator:
+        buffer += chunk.decode('utf-8', 'replace') if isinstance(chunk, bytes) else str(chunk)
+        *lines, buffer = buffer.split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line.startswith('data:') or line[5:].strip() == '[DONE]':
+                continue
+            try:
+                data = JSONCodec.loads(line[5:].strip())
+            except Exception:
+                continue
+            for choice in data.get('choices') or []:
+                if (choice.get('delta') or {}).get('content'):
+                    parts.append(choice['delta']['content'])
+    return ''.join(parts)
 
 
 async def summarize_chat_file(
