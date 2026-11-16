@@ -8,6 +8,7 @@ IMPORTANT: DO NOT IMPORT THIS MODULE DIRECTLY IN OTHER PARTS OF THE CODEBASE.
 
 import asyncio
 import logging
+import re
 import time
 from typing import Literal, Optional
 from urllib.parse import unquote
@@ -15,7 +16,14 @@ from urllib.parse import unquote
 from fastapi import HTTPException, Request
 
 from open_webui.env import (
+    FILE_SUMMARY_CONCURRENCY,
+    FILE_SUMMARY_MAX_CHARS,
+    FILE_SUMMARY_MODEL,
+    FILE_SUMMARY_SEGMENT_CHARS,
     KNOWLEDGE_GREP_MAX_MATCHES,
+    PDF_PAGE_IMAGE_MAX_SIDE,
+    QUERY_CHAT_FILES_MAX_CHARS,
+    TERMINAL_ATTACHMENTS_DIR,
     VIEW_FILE_DEFAULT_MAX_CHARS,
     VIEW_FILE_MAX_CHARS,
 )
@@ -2794,7 +2802,9 @@ async def query_chat_files(
     __files__: list[dict] = None,
 ) -> str:
     """
-    Search files attached to the current chat using semantic/vector search.
+    Search files attached to the current chat using semantic/vector search and return the matching passages.
+    Use it to find specific facts; to read a whole file use view_file, to summarize a long file use
+    summarize_chat_file.
     Pass file_id from the attached_files block to search one file, or omit it to search all attached chat files.
 
     :param query: The search query to find semantically relevant content
@@ -2850,9 +2860,12 @@ async def query_chat_files(
         )
         top_k = rag_config.get('rag.top_k') or 5
         count = top_k if count is None else max(1, min(count, top_k))
-        full_context = all(item.get('context') == 'full' for item in file_items) or rag_config.get('rag.full_context')
-
         embedding_function = getattr(__request__.app.state, 'EMBEDDING_FUNCTION', None)
+        # A search returns matching passages; whole files are read with view_file or summarize_chat_file.
+        # Global full-context mode is for automatic RAG injection, so it only applies here without embeddings.
+        full_context = all(item.get('context') == 'full' for item in file_items) or (
+            not embedding_function and rag_config.get('rag.full_context')
+        )
         if not embedding_function and not full_context:
             return JSONCodec.dumps({'error': 'Embedding function not configured'})
 
@@ -2878,6 +2891,7 @@ async def query_chat_files(
             hybrid_search=rag_config.get('rag.enable_hybrid_search'),
             full_context=full_context,
             user=user_model,
+            full_context_char_threshold=0,
         )
 
         chunks = []
@@ -2899,7 +2913,23 @@ async def query_chat_files(
                     chunk['distance'] = distances[idx]
                 chunks.append(chunk)
 
-        return JSONCodec.dumps(chunks[:count], ensure_ascii=False)
+        # Keep the result within budget so repeated searches cannot flood the context.
+        selected, used = [], 0
+        for chunk in chunks[:count]:
+            content = chunk.get('content') or ''
+            remaining = QUERY_CHAT_FILES_MAX_CHARS - used
+            if remaining <= 0:
+                break
+            if len(content) > remaining:
+                chunk = {
+                    **chunk,
+                    'content': content[:remaining],
+                    'truncated': True,
+                    'hint': 'Passage cut to fit the result budget; read the rest with view_file.',
+                }
+            selected.append(chunk)
+            used += len(chunk['content'])
+        return JSONCodec.dumps(selected, ensure_ascii=False)
     except Exception as e:
         log.exception(f'query_chat_files error: {e}')
         return JSONCodec.dumps({'error': str(e)})
@@ -3041,6 +3071,421 @@ def _numbered_lines_within_cap(all_lines: list[str], start: int, end: int) -> tu
     return '\n'.join(numbered_lines), end
 
 
+def _view_file_section(file, content: str, page, sheet, offset: int, max_chars: int, line_numbers: bool) -> dict:
+    """One page or sheet of a file, paged by offset inside it."""
+    from open_webui.utils.file_structure import get_structure, page_range, sheet_range
+
+    structure = get_structure(file)
+    section = {}
+    if page is not None:
+        page = int(page)
+        found = page_range(structure, page)
+        if not found:
+            pages = len(structure.get('pages') or [])
+            return {
+                'error': f'Page {page} is not available.'
+                + (f' The file has {pages} pages.' if pages else ' This file has no page information; read it by offset.')
+            }
+        start, end = found
+        section['page'] = page
+        if page in (structure.get('low_quality_pages') or []):
+            section['ocr_quality'] = 'low'
+            section['hint'] = 'The OCR text of this page is unreliable; use view_pdf_page to see the page image.'
+    else:
+        found = sheet_range(structure, sheet)
+        if not found:
+            names = [name for name, _, _ in structure.get('sheets') or []]
+            return {
+                'error': f'Sheet "{sheet}" not found.'
+                + (f' Sheets: {", ".join(names)}.' if names else ' This file has no sheet information; read it by offset.')
+            }
+        name, start, end = found
+        section['sheet'] = name
+
+    window = content[start:end]
+    sliced = window[offset : offset + max_chars]
+    if line_numbers:
+        first_line = content[: start + offset].count('\n') + 1
+        sliced = '\n'.join(f'{first_line + i}: {line}' for i, line in enumerate(sliced.split('\n')))
+    result = {
+        'id': file.id,
+        'filename': file.filename,
+        **section,
+        'content': sliced,
+        'section_chars': len(window),
+    }
+    if offset + max_chars < len(window):
+        result['truncated'] = True
+        result['next_offset'] = offset + max_chars
+    return result
+
+
+async def _readable_file(file_id: str, user: dict):
+    from open_webui.models.files import Files
+
+    file = await Files.get_file_by_id(file_id) if isinstance(file_id, str) and file_id else None
+    if not file or not await _has_read_access_to_file(file, user):
+        return None
+    return file
+
+
+async def list_available_skills(__metadata__: dict = None) -> str:
+    """
+    List the skills available in this chat with their id, name and description. Open one with view_skill.
+
+    :return: The available skills
+    """
+    return (__metadata__ or {}).get('skill_manifest') or 'No skills are available.'
+
+
+async def file_outline(
+    file_id: str,
+    __request__: Request = None,
+    __user__: dict = None,
+) -> str:
+    """
+    Show the structure of an attached file before reading it: headings (parts, chapters, sections, articles)
+    with their page, the number of pages, spreadsheet sheets with their size, and pages whose OCR text is
+    unreliable. Use the offsets, pages and sheet names with view_file.
+
+    :param file_id: The ID of the file
+    :return: JSON outline of the file
+    """
+    if __request__ is None or not __user__:
+        return JSONCodec.dumps({'error': 'Request and user context required'})
+    try:
+        from open_webui.utils.file_structure import build_outline, get_structure
+
+        file = await _readable_file(file_id, __user__)
+        if not file:
+            return JSONCodec.dumps({'error': 'File not found'})
+        content = (file.data or {}).get('content') or ''
+        outline = await asyncio.to_thread(build_outline, content, get_structure(file))
+        return JSONCodec.dumps({'id': file.id, 'filename': file.filename, **outline}, ensure_ascii=False)
+    except Exception as e:
+        log.exception(f'file_outline error: {e}')
+        return JSONCodec.dumps({'error': str(e)})
+
+
+_THINK_RE = re.compile(r'<think>.*?</think>', re.DOTALL)
+
+_SUMMARY_PART_PROMPT = """You are reading part {index} of {total} of the document "{name}"{pages}.
+Summarize this part completely, in the language of the document, as bullet points in the order the content appears.
+Keep every heading (part, chapter, section, article, clause), every number, date, deadline, amount, threshold,
+person, organization, obligation, condition and exception. Do not add anything that is not in the text and do not
+comment on missing context.{focus}{images}
+
+<part>
+{text}
+</part>"""
+
+_SUMMARY_MERGE_PROMPT = """Below are consecutive partial summaries of the document "{name}".
+Merge them into one summary in the language of the document, keeping the document order and every heading,
+number, date, deadline, obligation and exception; only remove repetition and shorten wording.{focus}
+
+{text}"""
+
+
+async def _summary_completion(request: Request, user: UserModel, model_id: str, content) -> str:
+    from open_webui.utils.chat import generate_chat_completion
+    from open_webui.utils.context_compaction import _response_text
+    from open_webui.utils.payload import apply_params_to_form_data
+
+    models = request.app.state.MODELS
+    params = await Config.get('task.model.params') or {}
+    params = {key: value for key, value in params.items() if value is not None and value != ''} if isinstance(params, dict) else {}
+    payload = {
+        'model': model_id,
+        'messages': [{'role': 'user', 'content': content}],
+        'stream': False,
+        'metadata': {
+            **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
+            'task': 'file_summary',
+        },
+    }
+    payload = apply_params_to_form_data(payload, models[model_id], params)
+    response = await generate_chat_completion(request, form_data=payload, user=user)
+    return _THINK_RE.sub('', _response_text(response)).strip()
+
+
+async def summarize_chat_file(
+    file_id: str,
+    focus: Optional[str] = None,
+    __request__: Request = None,
+    __user__: dict = None,
+    __metadata__: dict = None,
+    __event_emitter__: callable = None,
+) -> str:
+    """
+    Summarize a whole attached file without leaving parts out. The server reads the file part by part
+    (pages with unreliable OCR are read from their images when the model supports vision) and returns one
+    structured summary plus the sections and pages it covered. Use it for long files; files whose full text
+    is already in the message can be read directly.
+
+    :param file_id: The ID of the file to summarize
+    :param focus: Optional topic or question the summary should concentrate on
+    :return: JSON with the summary, the covered sections and pages, and the number of parts read
+    """
+    if __request__ is None or not __user__:
+        return JSONCodec.dumps({'error': 'Request and user context required'})
+    if isinstance(focus, str) and focus.strip().lower() in ('', 'none', 'null'):
+        focus = None
+    try:
+        import hashlib
+
+        from open_webui.models.files import Files
+        from open_webui.utils.file_structure import (
+            build_outline,
+            get_structure,
+            is_pdf,
+            pages_between,
+            render_pdf_page,
+            split_segments,
+        )
+
+        file = await _readable_file(file_id, __user__)
+        if not file:
+            return JSONCodec.dumps({'error': 'File not found'})
+        content = (file.data or {}).get('content') or ''
+        if not content.strip():
+            return JSONCodec.dumps({'error': 'The file has no extracted text'})
+
+        models = __request__.app.state.MODELS
+        model_id = FILE_SUMMARY_MODEL if FILE_SUMMARY_MODEL in models else (__metadata__ or {}).get('model_id')
+        if model_id not in models:
+            return JSONCodec.dumps({'error': 'No model available to summarize the file'})
+
+        cache_key = hashlib.sha256(f'{len(content)}:{file.hash or ""}:{(focus or "").strip().lower()}'.encode()).hexdigest()[:16]
+        cached = ((file.data or {}).get('summaries') or {}).get(cache_key)
+        if isinstance(cached, dict) and cached.get('summary'):
+            return JSONCodec.dumps({**cached, 'cached': True}, ensure_ascii=False)
+
+        structure = get_structure(file)
+        outline = await asyncio.to_thread(build_outline, content, structure, 60)
+        segments = await asyncio.to_thread(split_segments, content, structure, FILE_SUMMARY_SEGMENT_CHARS)
+        user = UserModel(**__user__)
+        model = models[model_id]
+        vision = (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('vision', True)
+        low_pages = set(structure.get('low_quality_pages') or [])
+        pdf_path = None
+        if vision and low_pages and file.path and is_pdf(file.filename, (file.meta or {}).get('content_type')):
+            from open_webui.storage.provider import Storage
+
+            pdf_path = await asyncio.to_thread(Storage.get_file, file.path)
+        focus_line = f'\nPay special attention to: {focus}' if focus else ''
+        total = len(segments)
+        done = 0
+        semaphore = asyncio.Semaphore(FILE_SUMMARY_CONCURRENCY)
+
+        async def emit(description: str, finished: bool = False):
+            if __event_emitter__:
+                await __event_emitter__({'type': 'status', 'data': {'description': description, 'done': finished}})
+
+        async def summarize_part(index: int, start: int, end: int) -> str:
+            nonlocal done
+            pages = pages_between(structure, start, end)
+            page_label = f' (pages {pages[0]}-{pages[-1]})' if len(pages) > 1 else (f' (page {pages[0]})' if pages else '')
+            image_pages = [page for page in pages if page in low_pages][:2] if pdf_path else []
+            prompt = _SUMMARY_PART_PROMPT.format(
+                index=index,
+                total=total,
+                name=file.filename,
+                pages=page_label,
+                focus=focus_line,
+                images=(
+                    f'\nThe OCR text of page(s) {", ".join(map(str, image_pages))} is unreliable; the page images are '
+                    'attached, read those pages from the images.'
+                    if image_pages
+                    else ''
+                ),
+                text=content[start:end],
+            )
+            message_content = prompt
+            if image_pages:
+                images = []
+                for page in image_pages:
+                    try:
+                        url, _ = await asyncio.to_thread(render_pdf_page, pdf_path, page, PDF_PAGE_IMAGE_MAX_SIDE)
+                        images.append({'type': 'image_url', 'image_url': {'url': url}})
+                    except Exception as error:
+                        log.warning('summarize_chat_file: page %s not rendered (%s)', page, error)
+                message_content = [{'type': 'text', 'text': prompt}, *images]
+            async with semaphore:
+                summary = await _summary_completion(__request__, user, model_id, message_content)
+            done += 1
+            await emit(f'Đã đọc {done}/{total} phần của {file.filename}')
+            return f'### Part {index}/{total}{page_label}\n{summary or "(no summary returned)"}'
+
+        await emit(f'Đang đọc {file.filename} ({total} phần)')
+        parts = await asyncio.gather(*(summarize_part(i + 1, s, e) for i, (s, e) in enumerate(segments)))
+
+        # Merge neighbouring summaries until the result fits, keeping document order.
+        while sum(len(part) for part in parts) > FILE_SUMMARY_MAX_CHARS and len(parts) > 1:
+            groups, current = [], []
+            for part in parts:
+                if current and sum(len(p) for p in current) + len(part) > FILE_SUMMARY_SEGMENT_CHARS:
+                    groups.append(current)
+                    current = []
+                current.append(part)
+            groups.append(current)
+            if len(groups) == len(parts):
+                groups = [parts[i : i + 2] for i in range(0, len(parts), 2)]
+            await emit(f'Đang gộp tóm tắt {file.filename}')
+
+            async def merge(group: list[str]) -> str:
+                if len(group) == 1:
+                    return group[0]
+                async with semaphore:
+                    return await _summary_completion(
+                        __request__,
+                        user,
+                        model_id,
+                        _SUMMARY_MERGE_PROMPT.format(name=file.filename, focus=focus_line, text='\n\n'.join(group)),
+                    )
+
+            parts = await asyncio.gather(*(merge(group) for group in groups))
+
+        result = {
+            'id': file.id,
+            'filename': file.filename,
+            'parts_read': total,
+            **({'pages': len(structure['pages'])} if structure.get('pages') else {}),
+            'coverage': [
+                f'{item["title"]}' + (f' (p.{item["page"]})' if item.get('page') else '')
+                for item in outline.get('headings', [])
+            ],
+            **({'focus': focus} if focus else {}),
+            'summary': '\n\n'.join(parts),
+            'note': 'The summary covers the whole file in order; use view_file (page, sheet or offset) for exact wording.',
+        }
+        summaries = dict((file.data or {}).get('summaries') or {})
+        summaries = dict(list(summaries.items())[-4:])
+        summaries[cache_key] = result
+        await Files.update_file_data_by_id(file.id, {'summaries': summaries})
+        await emit(f'Đã tóm tắt xong {file.filename}', True)
+        return JSONCodec.dumps(result, ensure_ascii=False)
+    except Exception as e:
+        log.exception(f'summarize_chat_file error: {e}')
+        return JSONCodec.dumps({'error': str(e)})
+
+
+async def view_pdf_page(
+    file_id: str,
+    page: int,
+    __request__: Request = None,
+    __user__: dict = None,
+):
+    """
+    Look at one page of an attached PDF as an image. Use it for pages listed in low_quality_pages (their OCR
+    text is unreliable) or to check tables, stamps, signatures and layout. One page per call.
+
+    :param file_id: The ID of the PDF file
+    :param page: 1-indexed page number
+    :return: The page image and the text extracted from that page
+    """
+    if __request__ is None or not __user__:
+        return JSONCodec.dumps({'error': 'Request and user context required'})
+    try:
+        from open_webui.storage.provider import Storage
+        from open_webui.utils.file_structure import get_structure, is_pdf, page_range, render_pdf_page
+
+        page = int(page)
+        file = await _readable_file(file_id, __user__)
+        if not file:
+            return JSONCodec.dumps({'error': 'File not found'})
+        if not file.path or not is_pdf(file.filename, (file.meta or {}).get('content_type')):
+            return JSONCodec.dumps({'error': 'view_pdf_page only works on PDF files'})
+        path = await asyncio.to_thread(Storage.get_file, file.path)
+        image, page_count = await asyncio.to_thread(render_pdf_page, path, page, PDF_PAGE_IMAGE_MAX_SIDE)
+        structure = get_structure(file)
+        found = page_range(structure, page)
+        text = ((file.data or {}).get('content') or '')[found[0] : found[1]][:3000] if found else ''
+        return {
+            'id': file.id,
+            'filename': file.filename,
+            'page': page,
+            'page_count': page_count,
+            'image': image,
+            **({'extracted_text': text} if text else {}),
+            'note': 'The extracted text comes from OCR and may contain errors; the image is authoritative.',
+        }
+    except ValueError as e:
+        return JSONCodec.dumps({'error': str(e)})
+    except Exception as e:
+        log.exception(f'view_pdf_page error: {e}')
+        return JSONCodec.dumps({'error': str(e)})
+
+
+async def open_in_terminal(
+    file_id: str,
+    __request__: Request = None,
+    __user__: dict = None,
+    __metadata__: dict = None,
+    __event_call__: callable = None,
+) -> str:
+    """
+    Copy an attached file into the terminal so code can work on the original file: spreadsheets by sheet and
+    cell, pandas analysis, or filling a Word/Excel report template. Then use the returned terminal_path in
+    terminal commands, and deliver created files with attach_terminal_file.
+
+    :param file_id: The ID of the attached file
+    :return: JSON with the file's terminal_path
+    """
+    if __request__ is None or not __user__:
+        return JSONCodec.dumps({'error': 'Request and user context required'})
+    metadata = __metadata__ or {}
+    if not metadata.get('terminal_id'):
+        return JSONCodec.dumps({'error': 'No terminal is available in this chat'})
+    try:
+        from pathlib import Path
+        from urllib.parse import quote
+
+        from open_webui.utils.terminals import get_terminal_json
+
+        file = await _readable_file(file_id, __user__)
+        if not file or not file.path:
+            return JSONCodec.dumps({'error': 'File not found'})
+        user = UserModel(**__user__)
+        extra_params = {'__event_call__': __event_call__}
+        cwd = await get_terminal_json(__request__, user, metadata, '/files/cwd', extra_params)
+        cwd = cwd.get('cwd') if isinstance(cwd, dict) else None
+        if not cwd:
+            return JSONCodec.dumps({'error': 'Terminal working directory unavailable'})
+        filename = Path(file.filename or 'file')
+        stem = re.sub(r'[^\w.-]+', '_', filename.stem, flags=re.UNICODE).strip('_') or 'file'
+        name = f'{stem}_{file.id[:8]}{filename.suffix}'
+        upload = {'id': file.id, 'name': name}
+        result = None
+        # A per-user folder keeps attachments apart; fall back to the working directory if it cannot be used.
+        for directory in (f'{cwd.rstrip("/")}/{TERMINAL_ATTACHMENTS_DIR}/{user.id}', cwd):
+            result = await get_terminal_json(
+                __request__,
+                user,
+                metadata,
+                f'/files/upload?directory={quote(directory, safe="")}',
+                extra_params,
+                file=upload,
+                verified_access=True,
+            )
+            if isinstance(result, dict) and isinstance(result.get('path'), str) and result['path']:
+                break
+            result = None
+        if not result:
+            return JSONCodec.dumps({'error': 'Upload to the terminal failed'})
+        return JSONCodec.dumps(
+            {
+                'id': file.id,
+                'filename': file.filename,
+                'terminal_path': result['path'],
+                'note': 'This is a copy of the original file; read it with code (e.g. pandas, openpyxl, python-docx).',
+            },
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        log.exception(f'open_in_terminal error: {e}')
+        return JSONCodec.dumps({'error': str(e)})
+
+
 async def view_file(
     file_id: str,
     offset: int = 0,
@@ -3048,6 +3493,8 @@ async def view_file(
     line_numbers: bool = False,
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
+    page: Optional[int] = None,
+    sheet: Optional[str] = None,
     __request__: Request = None,
     __user__: dict = None,
     __model_knowledge__: Optional[list[dict]] = None,
@@ -3056,11 +3503,13 @@ async def view_file(
     Get the content of a file by its ID. Supports pagination for large files.
 
     :param file_id: The ID of the file to retrieve
-    :param offset: Character offset to start reading from (default: 0)
+    :param offset: Character offset to start reading from (default: 0); with page or sheet, relative to it
     :param max_chars: Maximum characters to return (a server-side hard cap applies)
     :param line_numbers: If true, prefix each line with its 1-indexed line number
     :param start_line: Optional 1-indexed start line (overrides offset/max_chars when set)
     :param end_line: Optional 1-indexed end line (inclusive; reads from line 1 if no start line is given)
+    :param page: Optional 1-indexed page of a PDF or document to read (see file_outline)
+    :param sheet: Optional spreadsheet sheet name (or 1-indexed number) to read
     :return: JSON with the file's id, filename, content, and pagination metadata if truncated
     """
     if __request__ is None:
@@ -3098,6 +3547,15 @@ async def view_file(
         content = ''
         if file.data:
             content = file.data.get('content', '')
+
+        if isinstance(page, str):
+            page = int(page) if page.strip().isdigit() else None
+        if isinstance(sheet, str) and sheet.strip().lower() in ('', 'none', 'null'):
+            sheet = None
+        if page is not None or sheet:
+            return JSONCodec.dumps(
+                _view_file_section(file, content, page, sheet, offset, max_chars, line_numbers), ensure_ascii=False
+            )
 
         total_chars = len(content)
 

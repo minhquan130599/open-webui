@@ -62,6 +62,10 @@ KNOWLEDGE_TOOLS = (
     'list_chat_files',
     'query_chat_files',
     'grep_chat_files',
+    'file_outline',
+    'summarize_chat_file',
+    'view_pdf_page',
+    'open_in_terminal',
     'kb_exec',
 )
 

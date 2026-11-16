@@ -187,8 +187,13 @@ async def get_terminal_json(
     file: dict | None = None,
     method: str = 'GET',
     body: dict | None = None,
+    verified_access: bool = False,
 ):
-    """Read JSON or upload a file through an admin terminal or a personal terminal's browser."""
+    """Read JSON or upload a file through an admin terminal or a personal terminal's browser.
+
+    Uploads are limited to the user's own files unless the caller already checked read access
+    (verified_access), e.g. a file a colleague shared in a channel.
+    """
     metadata = metadata or {}
     terminal_id = metadata.get('terminal_id')
     if not ENABLE_TOOL_SERVERS or not terminal_id:
@@ -208,7 +213,7 @@ async def get_terminal_json(
             from open_webui.storage.provider import Storage
 
             source = await Files.get_file_by_id(file['id'])
-            if not source or source.user_id != headers['X-User-Id'] or not source.path:
+            if not source or not source.path or (not verified_access and source.user_id != headers['X-User-Id']):
                 return None
             local_path = await asyncio.to_thread(Storage.get_file, source.path)
             body = aiohttp.FormData()

@@ -166,6 +166,18 @@ services:
       - CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS=40
       - ENABLE_CONTEXT_COMPACTION=true
       - CONTEXT_COMPACTION_TOKEN_THRESHOLD=20000
+      # File đính kèm nhỏ (tổng số ký tự các file của tin nhắn) được đưa nguyên văn vào tin nhắn; 0 = tắt
+      - ATTACHMENT_INLINE_MAX_CHARS=${ATTACHMENT_INLINE_MAX_CHARS:-30000}
+      # Giới hạn ký tự kết quả mỗi lần query_chat_files
+      - QUERY_CHAT_FILES_MAX_CHARS=${QUERY_CHAT_FILES_MAX_CHARS:-12000}
+      # summarize_chat_file: số ký tự mỗi phần, số phần tóm tắt song song, độ dài bản tóm tắt trả về,
+      # model dùng để tóm tắt (trống = model đang trả lời)
+      - FILE_SUMMARY_SEGMENT_CHARS=${FILE_SUMMARY_SEGMENT_CHARS:-24000}
+      - FILE_SUMMARY_CONCURRENCY=${FILE_SUMMARY_CONCURRENCY:-3}
+      - FILE_SUMMARY_MAX_CHARS=${FILE_SUMMARY_MAX_CHARS:-16000}
+      - FILE_SUMMARY_MODEL=${FILE_SUMMARY_MODEL:-}
+      # Cạnh dài (px) của ảnh trang PDF gửi cho model vision (view_pdf_page)
+      - PDF_PAGE_IMAGE_MAX_SIDE=${PDF_PAGE_IMAGE_MAX_SIDE:-1600}
 
       # --- AI khi được @mention trong kênh ---
       - CHANNEL_MODEL_DEFAULT_TIMEZONE=Asia/Ho_Chi_Minh

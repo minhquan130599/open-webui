@@ -62,7 +62,12 @@ from open_webui.tools.builtin import (
     edit_image,
     execute_code,
     fetch_url,
+    file_outline,
     generate_image,
+    list_available_skills,
+    open_in_terminal,
+    summarize_chat_file,
+    view_pdf_page,
     get_current_timestamp,
     grep_chat_files,
     grep_knowledge_files,
@@ -748,7 +753,18 @@ async def get_builtin_tools(
         and has_chat_files
         and await has_user_chat_permission('file_upload')
     ):
-        builtin_functions.extend([list_chat_files, query_chat_files, grep_chat_files, view_file, display_file])
+        builtin_functions.extend(
+            [list_chat_files, query_chat_files, grep_chat_files, view_file, display_file, file_outline, summarize_chat_file]
+        )
+        if get_model_capability('vision') and any(
+            str(item.get('name') or item.get('filename') or '').lower().endswith('.pdf')
+            or (item.get('content_type') or (item.get('meta') or {}).get('content_type')) == 'application/pdf'
+            for item in chat_files
+            if isinstance(item, dict)
+        ):
+            builtin_functions.append(view_pdf_page)
+        if is_builtin_tool_enabled('terminal') and metadata.get('terminal_id'):
+            builtin_functions.append(open_in_terminal)
 
     # Knowledge base tools - conditional injection based on model knowledge
     # If model has attached knowledge (any type), only provide query_knowledge_files
@@ -921,6 +937,9 @@ async def get_builtin_tools(
     skill_ids = sorted(set(extra_params.get('__skill_ids__') or []))
     workspace_skill_ids = [skill_id for skill_id in skill_ids if not skill_id.startswith('terminal:')]
     if is_builtin_tool_enabled('skills'):
+        # The manifest is preloaded as a list_available_skills result; the real tool answers repeat calls.
+        if metadata.get('skill_manifest'):
+            builtin_functions.append(list_available_skills)
         if skill_ids:
             builtin_functions.extend([view_skill, read_skill_file, grep_skill_files])
         if workspace_skill_ids:

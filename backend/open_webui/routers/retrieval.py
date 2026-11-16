@@ -84,6 +84,7 @@ from open_webui.retrieval.utils import (
 from open_webui.retrieval.vector.async_client import ASYNC_VECTOR_DB_CLIENT
 from open_webui.retrieval.vector.factory import get_vector_db_client
 from open_webui.retrieval.vector.utils import filter_metadata
+from open_webui.utils.file_structure import build_file_structure
 from open_webui.retrieval.web.azure import search_azure
 from open_webui.retrieval.web.bing import search_bing
 from open_webui.retrieval.web.bocha import search_bocha
@@ -1701,6 +1702,7 @@ async def index_file(
             else:
                 await _validate_collection_access([collection_name], user, access_type='write')
             collection_names = [collection_name]
+            structure_update = {}
 
             if form_data.content:
                 # Update the content in the file
@@ -1727,6 +1729,8 @@ async def index_file(
                 ]
 
                 text_content = form_data.content
+                # Edited text no longer matches recorded page offsets or cached summaries.
+                structure_update = {'structure': None, 'summaries': None}
             elif form_data.collection_name:
                 # Add this file to a knowledge collection.
                 # Usage: /knowledge/{id}/file/add, /knowledge/{id}/file/update
@@ -1812,11 +1816,21 @@ async def index_file(
                         )
                     ]
                 text_content = ' '.join([doc.page_content for doc in docs])
+                # Page and sheet offsets (and pages with unreliable OCR), so readers can open one part.
+                try:
+                    structure_update = {
+                        'structure': build_file_structure(
+                            docs, text_content, file.filename or '', (file.meta or {}).get('content_type')
+                        ),
+                        'summaries': None,
+                    }
+                except Exception:
+                    log.exception('Could not record the layout of file %s', file.id)
 
             log.debug('text_content: %s', text_content)
             await Files.update_file_data_by_id(
                 file.id,
-                {'content': text_content},
+                {'content': text_content, **structure_update},
                 db=db,
             )
             hash = calculate_sha256_string(text_content)

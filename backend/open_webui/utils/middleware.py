@@ -152,6 +152,13 @@ from open_webui.utils.task import (
     rag_template,
     tools_function_calling_generation_template,
 )
+from open_webui.utils.attachments import (
+    choose_inline,
+    describe_attachments,
+    format_attachment_block,
+    log_attachments,
+    unknown_tool_error,
+)
 from open_webui.utils.tether import get_terminal_connections
 from open_webui.utils.terminals import filter_user_terminal_tools, upload_files_to_terminal
 from open_webui.utils.tool_approval import complete_tool_call, pending_tool_calls
@@ -667,6 +674,10 @@ async def tool_result_with_citations(name, params, result, tool, model, source_i
             content = f'{content}\n\n{citation_context}'
     return content
 
+
+TERMINAL_PATH_TOOLS = frozenset(
+    {'read_file', 'list_files', 'match_files', 'search_files', 'grep_files', 'glob_files', 'find_files'}
+)
 
 BASE64_IMAGE_DATA_URI_RE = re.compile(r'data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/]+={0,2}', re.IGNORECASE)
 
@@ -1413,6 +1424,39 @@ async def get_image_urls(delta_images, request, metadata, user) -> list[str]:
     return image_urls
 
 
+async def prepare_latest_attachments(messages: list, user, model: dict, terminal: bool = False) -> None:
+    """Describe the newest user message's files (ids, sizes, layout) and include small ones in full.
+
+    Earlier messages keep plain references, so included text is sent once and history does not grow with it.
+    """
+    latest = next((message for message in reversed(messages) if message.get('role') == 'user'), None)
+    items = [
+        item
+        for item in (latest or {}).get('files') or []
+        if isinstance(item, dict) and item.get('type', 'file') == 'file'
+    ]
+    if not items:
+        return
+    try:
+        infos = await describe_attachments(items, user.model_dump())
+    except Exception:
+        log.exception('Could not describe attached files')
+        return
+    if not infos:
+        return
+    inline_ids = choose_inline(infos)
+    latest['attachment_block'] = {
+        'ids': [info['id'] for info in infos],
+        'text': format_attachment_block(
+            infos,
+            inline_ids,
+            terminal=terminal,
+            vision=(model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('vision', True),
+        ),
+    }
+    log_attachments('chat', infos, inline_ids, f'terminal={terminal}')
+
+
 def add_file_context(messages: list) -> list:
     """
     Replay attachment references beside their original user messages for native tools.
@@ -1428,6 +1472,11 @@ def add_file_context(messages: list) -> list:
     for message in messages:
         if message.get('role') != 'user':
             continue
+        # The latest message's files come as a prepared block with ids, sizes, reading guidance and
+        # small files in full; its other references (notes, chats, URLs) are still tagged below.
+        attachment_block = message.pop('attachment_block', None) or {}
+        described_ids = set(attachment_block.get('ids') or [])
+        attachment_block = attachment_block.get('text')
         # Notes, collections, and chats can be addressed by ID without a URL.
         attached_files = [
             file
@@ -1437,12 +1486,17 @@ def add_file_context(messages: list) -> list:
                 (isinstance(file.get('url'), str) and file['url'] and not file['url'].startswith('data:'))
                 or (file.get('type') in ('chat', 'note', 'collection') and file.get('id'))
             )
+            and file.get('id') not in described_ids
         ]
-        if not attached_files:
+        if not attached_files and not attachment_block:
             continue
 
-        file_tags = [format_file_tag(file) for file in attached_files]
-        file_context = '<attached_files>\n' + '\n'.join(file_tags) + '\n</attached_files>\n\n'
+        file_context = ''
+        if attachment_block:
+            file_context += attachment_block + '\n\n'
+        if attached_files:
+            file_tags = [format_file_tag(file) for file in attached_files]
+            file_context += '<attached_files>\n' + '\n'.join(file_tags) + '\n</attached_files>\n\n'
 
         content = message.get('content', '')
         if isinstance(content, list):
@@ -1991,6 +2045,7 @@ def process_messages_with_output(
         add_file_context(processed)
     for message in processed:
         message.pop('files', None)
+        message.pop('attachment_block', None)
 
     return processed
 
@@ -2194,6 +2249,11 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             message['output'] = strip_reasoning_details(output)
         if message.get('role') == 'assistant' and isinstance(output, list):
             message['output'] = strip_tool_images(message['output'], model)
+
+    if metadata['include_file_context']:
+        await prepare_latest_attachments(
+            form_data.get('messages', []), user, model, terminal=bool(form_data.get('terminal_id'))
+        )
 
     form_data['messages'] = process_messages_with_output(
         form_data.get('messages', []),
@@ -2603,6 +2663,8 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 skill_manifest += format_terminal_skill_manifest_entry(skill)
 
         if skill_tools_enabled and skill_manifest:
+            # Served again by the list_available_skills tool when the model calls it.
+            metadata['skill_manifest'] = f'<available_skills>\n{skill_manifest}</available_skills>'
             if not metadata.get('assistant_message_id'):
                 initial_output.extend(
                     hidden_tool_result(
@@ -2873,6 +2935,30 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     tools_dict[name] = {**tools_dict[name], 'file_tool': tool_dict}
 
         await filter_user_terminal_tools(request, user, tools_dict, metadata, extra_params)
+
+        if metadata.get('files'):
+            # Attached files live in chat storage, so say which terminal tools cannot see them.
+            for name, tool in list(tools_dict.items()):
+                is_terminal = tool.get('type') == 'terminal' or (tool.get('server') or {}).get('is_terminal') is True
+                if is_terminal and name in TERMINAL_PATH_TOOLS:
+                    spec = tool.get('spec') or {}
+                    tools_dict[name] = {
+                        **tool,
+                        'spec': {
+                            **spec,
+                            'description': (spec.get('description') or '').rstrip()
+                            + ' Only for paths in the terminal filesystem. Files attached to the chat are not there:'
+                            ' read them with the chat file tools, or copy one in with open_in_terminal first.',
+                        },
+                    }
+
+        log.info(
+            'request tools [%s]: %d files, %d tools: %s',
+            metadata.get('chat_id'),
+            len(metadata.get('files') or []),
+            len(tools_dict),
+            ', '.join(sorted(tools_dict)),
+        )
 
         if tools_dict:
             # Always store resolved tools in metadata so downstream consumers
@@ -3181,7 +3267,7 @@ async def execute_tool_call(form_data, metadata, event_caller, tool_call, histor
             approval_review=tool.get('approval_review', False),
         )
         if tool
-        else f'Error: Tool "{name}" not found.'
+        else unknown_tool_error(name, metadata.get('tools'))
     )
     if history is not None:
         error = error or tool_repetition_error(tool_call, history)
@@ -5898,7 +5984,7 @@ async def streaming_chat_response_handler(response, ctx):
                                 approval_review=tool.get('approval_review', False),
                             )
                             if tool
-                            else f'Error: Tool "{item["name"]}" not found.'
+                            else unknown_tool_error(item['name'], metadata.get('tools'))
                         )
                         blocked = tool_repetition_error(item, tool_history)
                         is_incomplete = tool_call.get('execution_error') == INCOMPLETE_CALL_ERROR

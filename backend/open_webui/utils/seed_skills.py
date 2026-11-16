@@ -26,7 +26,10 @@ SEEDED_KEY = 'seed.skills'
 VERSIONS_KEY = 'seed.skill_versions'  # skill id -> hash of the SKILL.md this deployment installed
 # SKILL.md hashes shipped before versions were recorded, so those installs can still be upgraded.
 _EARLIER_RELEASES = {
-    'project-reports': {'d621350b83fdbe49ef8524c3d6f85a57233ce0a0b268c7beee4066e4270c4e79'},
+    'project-reports': {
+        'd621350b83fdbe49ef8524c3d6f85a57233ce0a0b268c7beee4066e4270c4e79',
+        '48db0d0ff58fbe5f18ace8975d017fd9a52f1ac4981c86295cbc472240715d1e',
+    },
 }
 PUBLIC_READ_GRANT = {'principal_type': 'user', 'principal_id': '*', 'permission': 'read'}
 RETRY_SECONDS = 60

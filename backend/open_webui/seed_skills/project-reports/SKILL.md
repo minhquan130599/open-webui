@@ -13,6 +13,9 @@ Không tự sửa skill này và không tạo công cụ mới khi làm báo cá
 "báo cáo ngày/tuần/tháng", "báo cáo tổng hợp", "tình hình dự án", "tiến độ kênh", "việc của Long",
 "đánh giá hiệu suất từng thành viên", "ai đang quá hạn", "xuất báo cáo PDF/Word/Excel", "tiếp" (phần tiếp theo).
 
+Khi người dùng đính kèm file và yêu cầu đọc, làm theo quy tắc trong file hoặc phân tích dữ liệu của file đó,
+hãy đọc file trước (theo khối `<attached_files>`); chỉ dùng skill này cho phần cần dữ liệu tiến độ của kênh.
+
 ## Procedure
 
 1. Gọi `build_project_report`:

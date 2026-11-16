@@ -1429,12 +1429,18 @@ async def get_sources_from_items(
     hybrid_search,
     full_context=False,
     user: UserModel | None = None,
+    full_context_char_threshold: int | None = None,
 ):
+    """full_context_char_threshold overrides the configured whole-file threshold (0 = always search)."""
     log.debug('items: %s %s %s %s %s', items, queries, embedding_function, reranking_function, full_context)
 
     context_config = await Config.get_many('rag.bypass_embedding_and_retrieval', 'rag.full_context_char_threshold')
     bypass_embedding_and_retrieval = context_config.get('rag.bypass_embedding_and_retrieval')
-    char_threshold = context_config.get('rag.full_context_char_threshold') or 0
+    char_threshold = (
+        context_config.get('rag.full_context_char_threshold') or 0
+        if full_context_char_threshold is None
+        else full_context_char_threshold
+    )
     extracted_collections = []
     query_results = []
     folder_items = set()

@@ -68,6 +68,7 @@ from open_webui.utils.apps import (
     has_app_access,
     send_app_mention,
 )
+from open_webui.utils.attachments import choose_inline, describe_attachments, format_attachment_block, log_attachments
 from open_webui.utils.auth import get_admin_user, get_verified_user, get_verified_user_by_id
 from open_webui.utils.channels import extract_mentions, replace_mentions
 from open_webui.utils.files import get_image_base64_from_file_id
@@ -1561,14 +1562,54 @@ async def model_response_handler(request, channel, message, user, db=None):
                     listed.append(f'- {label}')
                     await _add_model_file(file, images, files, seen_files, user, label=label)
 
+                terminal_id = None
+                if CHANNEL_MODEL_TERMINAL_ID:
+                    if await _can_use_terminal(user, CHANNEL_MODEL_TERMINAL_ID):
+                        terminal_id = CHANNEL_MODEL_TERMINAL_ID
+                    else:
+                        log.info(
+                            'Channel terminal %s not used for user %s: connection missing, disabled or not granted',
+                            CHANNEL_MODEL_TERMINAL_ID,
+                            user.id,
+                        )
+
+                # Files the user pointed at (this message, its thread, the message it replies to) may be
+                # included in full; files only found among recent channel uploads are listed by id.
+                pointed_messages = [message, *thread_messages]
+                if getattr(message, 'reply_to_message', None):
+                    pointed_messages.append(message.reply_to_message)
+                pointed_ids = {
+                    file.get('id') for source in pointed_messages for file in _message_files(source) if file.get('id')
+                }
+                try:
+                    attachment_infos = await describe_attachments(files, user.model_dump())
+                except Exception:
+                    log.exception('Could not describe channel files for the model')
+                    attachment_infos = []
+                inline_ids = choose_inline(attachment_infos, pointed_ids)
+                attachment_block = format_attachment_block(
+                    attachment_infos,
+                    inline_ids,
+                    terminal=bool(terminal_id),
+                    vision=(model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('vision', True),
+                )
+                log_attachments(f'channel:{channel.id}', attachment_infos, inline_ids, f'terminal={bool(terminal_id)}')
+
                 files_note = ''
                 if channel_files:
                     files_note = (
                         '\n\nFiles from this channel are attached to this request, most relevant first:\n'
                         + '\n'.join(listed)
                         + '\nWhen the user mentions "the file" or "file đó" without a name, they mean the first one listed. '
-                        'Read the files with the available file tools (list them, then view or search their content) '
-                        'or use the provided file content; do not answer that no file was found while files are listed here. '
+                        + (
+                            'Their ids and sizes (and the full text of small files) are in the <attached_files> block at '
+                            'the start of the user message; read them as described there. They are not in the terminal. '
+                            if attachment_block
+                            else ''
+                        )
+                        + 'Do not answer that no file was found while files are listed here. '
+                        'When the request is about these files (read them, follow their rules, analyze their data), '
+                        'work from the files first and use project data or skills only for what the files do not cover. '
                         'Each attached image is introduced by a line naming who posted it and when; '
                         'use those names when asked who sent an image.'
                     )
@@ -1577,8 +1618,8 @@ async def model_response_handler(request, channel, message, user, db=None):
                 system_message = {
                     'role': 'system',
                     'content': f'You are {model.get("name", model_id)}, participating in a threaded conversation. Be concise and conversational.'
-                    + channel_context
                     + files_note
+                    + channel_context
                     + (
                         f"Here's the thread history:\n\n\n{thread_history_string}\n\n\nContinue the conversation naturally as {model.get('name', model_id)}, addressing the most recent message while being aware of the full context."
                         if thread_history
@@ -1600,6 +1641,8 @@ async def model_response_handler(request, channel, message, user, db=None):
                 own_attachments = _message_file_names(message)
                 if own_attachments:
                     content += f' [attached: {", ".join(own_attachments)}]'
+                if attachment_block:
+                    content = f'{attachment_block}\n\n{content}'
                 if images:
                     content = [
                         {
@@ -1640,15 +1683,8 @@ async def model_response_handler(request, channel, message, user, db=None):
                 }
                 if files:
                     form_data['files'] = files
-                if CHANNEL_MODEL_TERMINAL_ID:
-                    if await _can_use_terminal(user, CHANNEL_MODEL_TERMINAL_ID):
-                        form_data['terminal_id'] = CHANNEL_MODEL_TERMINAL_ID
-                    else:
-                        log.info(
-                            'Channel terminal %s not used for user %s: connection missing, disabled or not granted',
-                            CHANNEL_MODEL_TERMINAL_ID,
-                            user.id,
-                        )
+                if terminal_id:
+                    form_data['terminal_id'] = terminal_id
 
                 # Run the chat pipeline as a task; the channel emitter streams progress over socket events.
                 await request.app.state.CHAT_COMPLETION_HANDLER(request, form_data, user=user)
