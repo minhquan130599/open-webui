@@ -9,7 +9,6 @@ import html
 import logging
 from typing import Optional
 
-from open_webui.env import ATTACHMENT_INLINE_MAX_CHARS
 from open_webui.utils.file_structure import get_structure, is_pdf
 
 log = logging.getLogger(__name__)
@@ -69,7 +68,7 @@ async def describe_attachments(items: list[dict], user: dict) -> list[dict]:
     return described
 
 
-def choose_inline(infos: list[dict], eligible_ids: Optional[set] = None, budget: int = ATTACHMENT_INLINE_MAX_CHARS) -> set:
+def choose_inline(infos: list[dict], eligible_ids: Optional[set] = None, budget: int = 0) -> set:
     """Ids of files to include in full: smallest first, while they fit the budget together."""
     if budget <= 0:
         return set()
