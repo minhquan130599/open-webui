@@ -175,10 +175,14 @@ services:
       - QUERY_CHAT_FILES_MAX_CHARS=${QUERY_CHAT_FILES_MAX_CHARS:-12000}
       # summarize_chat_file: số ký tự mỗi phần, số phần tóm tắt song song, độ dài bản tóm tắt trả về,
       # model dùng để tóm tắt (trống = model đang trả lời)
-      - FILE_SUMMARY_SEGMENT_CHARS=${FILE_SUMMARY_SEGMENT_CHARS:-24000}
-      - FILE_SUMMARY_CONCURRENCY=${FILE_SUMMARY_CONCURRENCY:-3}
+      - FILE_SUMMARY_SEGMENT_CHARS=${FILE_SUMMARY_SEGMENT_CHARS:-40000}
+      - FILE_SUMMARY_CONCURRENCY=${FILE_SUMMARY_CONCURRENCY:-6}
       - FILE_SUMMARY_MAX_CHARS=${FILE_SUMMARY_MAX_CHARS:-16000}
       - FILE_SUMMARY_MODEL=${FILE_SUMMARY_MODEL:-}
+      # Tắt thinking của Qwen3 khi tóm tắt từng phần (nhanh hơn 2-3 lần); false nếu provider không phải vLLM
+      - FILE_SUMMARY_DISABLE_THINKING=${FILE_SUMMARY_DISABLE_THINKING:-true}
+      # Tổng ký tự file model được đọc (view_file, query_chat_files) trong 1 câu trả lời; 0 = không giới hạn
+      - FILE_READ_BUDGET_CHARS=${FILE_READ_BUDGET_CHARS:-60000}
       # Cạnh dài (px) của ảnh trang PDF gửi cho model vision (view_pdf_page)
       - PDF_PAGE_IMAGE_MAX_SIDE=${PDF_PAGE_IMAGE_MAX_SIDE:-1600}
 

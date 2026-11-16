@@ -16,7 +16,9 @@ from urllib.parse import unquote
 from fastapi import HTTPException, Request
 
 from open_webui.env import (
+    FILE_READ_BUDGET_CHARS,
     FILE_SUMMARY_CONCURRENCY,
+    FILE_SUMMARY_DISABLE_THINKING,
     FILE_SUMMARY_MAX_CHARS,
     FILE_SUMMARY_MODEL,
     FILE_SUMMARY_SEGMENT_CHARS,
@@ -2800,6 +2802,7 @@ async def query_chat_files(
     __request__: Request = None,
     __user__: dict = None,
     __files__: list[dict] = None,
+    __metadata__: dict = None,
 ) -> str:
     """
     Search files attached to the current chat using semantic/vector search and return the matching passages.
@@ -2842,6 +2845,8 @@ async def query_chat_files(
 
         if not attached_ids:
             return JSONCodec.dumps({'error': 'No files are attached to this chat'})
+        if exhausted := _read_budget_exhausted(__metadata__):
+            return exhausted
         if file_id and file_id not in attached_ids:
             return JSONCodec.dumps({'error': 'File not found'})
 
@@ -2929,6 +2934,7 @@ async def query_chat_files(
                 }
             selected.append(chunk)
             used += len(chunk['content'])
+        _charge_read(__metadata__, ''.join(chunk['content'] for chunk in selected))
         return JSONCodec.dumps(selected, ensure_ascii=False)
     except Exception as e:
         log.exception(f'query_chat_files error: {e}')
@@ -3120,6 +3126,27 @@ def _view_file_section(file, content: str, page, sheet, offset: int, max_chars: 
     return result
 
 
+def _read_budget_exhausted(metadata: Optional[dict]) -> Optional[str]:
+    """Message when this answer has already read FILE_READ_BUDGET_CHARS of file text, else None."""
+    if not FILE_READ_BUDGET_CHARS or metadata is None:
+        return None
+    used = metadata.get('file_read_chars', 0)
+    if used < FILE_READ_BUDGET_CHARS:
+        return None
+    return JSONCodec.dumps(
+        {
+            'error': f'Read limit reached: this answer has already read {used} characters of file text. '
+            'Answer now from what you have read (or from a summarize_chat_file result). Read more only in a '
+            'new answer, when the user asks about a specific part.'
+        }
+    )
+
+
+def _charge_read(metadata: Optional[dict], text: str) -> None:
+    if metadata is not None and text:
+        metadata['file_read_chars'] = metadata.get('file_read_chars', 0) + len(text)
+
+
 async def _readable_file(file_id: str, user: dict):
     from open_webui.models.files import Files
 
@@ -3204,6 +3231,8 @@ async def _summary_completion(request: Request, user: UserModel, model_id: str, 
         },
     }
     payload = apply_params_to_form_data(payload, models[model_id], params)
+    if FILE_SUMMARY_DISABLE_THINKING:
+        payload['chat_template_kwargs'] = {**(payload.get('chat_template_kwargs') or {}), 'enable_thinking': False}
     response = await generate_chat_completion(request, form_data=payload, user=user)
     return _THINK_RE.sub('', _response_text(response)).strip()
 
@@ -3220,7 +3249,8 @@ async def summarize_chat_file(
     Summarize a whole attached file without leaving parts out. The server reads the file part by part
     (pages with unreliable OCR are read from their images when the model supports vision) and returns one
     structured summary plus the sections and pages it covered. Use it for long files; files whose full text
-    is already in the message can be read directly.
+    is already in the message can be read directly. The result is complete: answer from it without
+    re-reading the file.
 
     :param file_id: The ID of the file to summarize
     :param focus: Optional topic or question the summary should concentrate on
@@ -3356,7 +3386,11 @@ async def summarize_chat_file(
             ],
             **({'focus': focus} if focus else {}),
             'summary': '\n\n'.join(parts),
-            'note': 'The summary covers the whole file in order; use view_file (page, sheet or offset) for exact wording.',
+            'note': (
+                'This summary already covers every part of the file, in order. Answer from it now; do not read the '
+                'file again with view_file or query_chat_files to check it. Open a specific page only if the user '
+                'asks for the exact wording of one part.'
+            ),
         }
         summaries = dict((file.data or {}).get('summaries') or {})
         summaries = dict(list(summaries.items())[-4:])
@@ -3498,6 +3532,7 @@ async def view_file(
     __request__: Request = None,
     __user__: dict = None,
     __model_knowledge__: Optional[list[dict]] = None,
+    __metadata__: dict = None,
 ) -> str:
     """
     Get the content of a file by its ID. Supports pagination for large files.
@@ -3543,6 +3578,8 @@ async def view_file(
 
         if not await _has_read_access_to_file(file, __user__, __model_knowledge__):
             return JSONCodec.dumps({'error': 'File not found'})
+        if exhausted := _read_budget_exhausted(__metadata__):
+            return exhausted
 
         content = ''
         if file.data:
@@ -3553,9 +3590,9 @@ async def view_file(
         if isinstance(sheet, str) and sheet.strip().lower() in ('', 'none', 'null'):
             sheet = None
         if page is not None or sheet:
-            return JSONCodec.dumps(
-                _view_file_section(file, content, page, sheet, offset, max_chars, line_numbers), ensure_ascii=False
-            )
+            section = _view_file_section(file, content, page, sheet, offset, max_chars, line_numbers)
+            _charge_read(__metadata__, section.get('content') or '')
+            return JSONCodec.dumps(section, ensure_ascii=False)
 
         total_chars = len(content)
 
@@ -3579,6 +3616,7 @@ async def view_file(
             if is_truncated:
                 result['truncated'] = True
                 result['next_start_line'] = end_index + 1
+            _charge_read(__metadata__, result['content'])
             return JSONCodec.dumps(result, ensure_ascii=False)
 
         sliced = content[offset : offset + max_chars]
@@ -3606,6 +3644,7 @@ async def view_file(
             if is_truncated:
                 result['next_offset'] = offset + returned_chars
 
+        _charge_read(__metadata__, result['content'])
         return JSONCodec.dumps(result, ensure_ascii=False)
     except Exception as e:
         log.exception(f'view_file error: {e}')

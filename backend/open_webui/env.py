@@ -1221,6 +1221,12 @@ def _non_negative_int_env(name: str, default: int) -> int:
 # Attached files whose extracted text fits this budget (all files of the message together) are placed in
 # the message once, so the model reads them without picking a tool. 0 = never inline.
 ATTACHMENT_INLINE_MAX_CHARS = _non_negative_int_env('ATTACHMENT_INLINE_MAX_CHARS', 45_000)
+# Characters of file text view_file and query_chat_files may return within one answer, so a model cannot
+# keep re-reading a file page by page; past it they ask the model to answer from what it has. 0 = no limit.
+FILE_READ_BUDGET_CHARS = _non_negative_int_env('FILE_READ_BUDGET_CHARS', 60_000)
+# Send chat_template_kwargs.enable_thinking=false with summarize_chat_file calls (Qwen3 templates, as the
+# tracker does): much faster on reasoning models; ignored by other templates.
+FILE_SUMMARY_DISABLE_THINKING = os.getenv('FILE_SUMMARY_DISABLE_THINKING', 'True').lower() == 'true'
 # Total characters returned by one query_chat_files call.
 QUERY_CHAT_FILES_MAX_CHARS = _int_env('QUERY_CHAT_FILES_MAX_CHARS', 20_000)
 # summarize_chat_file: characters per summarized segment, segments summarized at once, and the size above
