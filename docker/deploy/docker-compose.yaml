@@ -5,7 +5,7 @@
 #   copy .env.example .env      (điền mật khẩu, khóa API)
 #   docker compose up -d
 #
-# Đổi phiên bản: nạp file .tar mới, đặt OWUI_IMAGE trong .env (vd ncs-chatui:9647ea6d0), chạy lại
+# Cập nhật/rollback ít gián đoạn: dùng deploy.sh (xem HUONG-DAN-DEPLOY.md). Cách thủ công: nạp file .tar mới, đặt OWUI_IMAGE trong .env (vd ncs-chatui:9647ea6d0), chạy lại
 # `docker compose up -d`. Dữ liệu nằm trong các volume bên dưới nên giữ nguyên khi đổi image.
 # Logo/tên thương hiệu đã nằm sẵn trong image lúc build; BRAND_NAME ở đây chỉ đặt tên hiển thị.
 

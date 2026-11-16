@@ -315,3 +315,9 @@ cypress/screenshots
 
 # Local temporary fixtures and screenshots
 /tmp/
+
+# Deploy artifacts
+docker/images/
+docker/.release-target
+docker/deploy/backups/
+docker/deploy/.deploy-history

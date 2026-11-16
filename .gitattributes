@@ -47,3 +47,5 @@
 # Misc
 *.env text eol=lf
 *.lock text eol=lf
+# Shell scripts run on Linux servers
+*.sh text eol=lf
