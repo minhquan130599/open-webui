@@ -40,6 +40,7 @@ def unknown_tool_error(name: str, tools: Optional[dict]) -> str:
 
 async def describe_attachments(items: list[dict], user: dict) -> list[dict]:
     """Readable attached files with their size and layout, in the order given."""
+    from open_webui.file_pipeline.status import processing_state
     from open_webui.tools.builtin import _get_accessible_chat_files
 
     described = []
@@ -64,6 +65,9 @@ async def describe_attachments(items: list[dict], user: dict) -> list[dict]:
             info['low_quality_pages'] = structure['low_quality_pages']
         if structure.get('sheets'):
             info['sheets'] = [name for name, _, _ in structure['sheets']]
+        state = await processing_state(file.id)
+        if state:
+            info['processing'] = state['label']
         described.append(info)
     return described
 
@@ -120,6 +124,8 @@ def format_attachment_block(
             attrs['sheets'] = ', '.join(info['sheets'])
         if info.get('low_quality_pages'):
             attrs['low_quality_pages'] = ','.join(str(page) for page in info['low_quality_pages'])
+        if info.get('processing'):
+            attrs['processing'] = info['processing']
         if info['id'] in inline_ids:
             attrs['content'] = 'included below'
         elif info.get('status') == 'pending':
@@ -148,6 +154,12 @@ def format_attachment_block(
             'For the other files use their id: file_outline for the structure, view_file (page, sheet or offset) '
             'to read a part, query_chat_files to find specific passages, summarize_chat_file for a complete '
             'summary of a long file.'
+        )
+    if any(info.get('processing') for info in infos):
+        guide.append(
+            'Files marked processing are still having their OCR repaired: their text may still contain OCR errors, '
+            'so read the pages listed in low_quality_pages from the page image (view_pdf_page) when they matter, '
+            'and tell the user the file is still being processed.'
         )
     if vision and any(info.get('low_quality_pages') for info in infos):
         guide.append(

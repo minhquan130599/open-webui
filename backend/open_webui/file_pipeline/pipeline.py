@@ -135,7 +135,13 @@ async def _page_rows(file, content: str, structure: dict, min_score: int, keep_e
 
 
 async def _repair_pages(
-    job: Job, file, rows: list, settings: dict, only_pages: Optional[list], force: bool = False
+    job: Job,
+    file,
+    rows: list,
+    settings: dict,
+    only_pages: Optional[list],
+    force: bool = False,
+    engine: Optional[str] = None,
 ) -> int:
     """Transcribe low pages from their images; returns how many pages now use the vision text."""
     from open_webui.storage.provider import Storage
@@ -159,6 +165,18 @@ async def _repair_pages(
     max_side = settings['files.page_image_max_side']
     done = changed = 0
     await job.stage('repair', len(targets), 'Sửa trang OCR kém bằng model vision')
+    # Repaired pages reach the file text as they come (at most every few seconds), so a question asked
+    # mid-way already reads them; the full rebuild after this stage settles the final text.
+    rebuild_lock = asyncio.Lock()
+    last_rebuild = 0.0
+
+    async def publish() -> None:
+        nonlocal last_rebuild
+        async with rebuild_lock:
+            if time.monotonic() - last_rebuild < 5:
+                return
+            last_rebuild = time.monotonic()
+            await _rebuild(file, await FilePages.list(file.id), settings, engine)
 
     async def repair(row) -> None:
         nonlocal done, changed
@@ -202,6 +220,8 @@ async def _repair_pages(
                 repair={**record, 'text': text, 'used': better},
             )
             changed += better
+            if better:
+                await publish()
         except Exception as error:
             record.update(ms=_ms(started), error=str(error)[:500])
             log.warning('File %s page %s: repair failed (%s)', file.id, row.page, error)
@@ -366,7 +386,9 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
         changed = 0
         if rows and settings['files.repair.enable']:
             started = time.perf_counter()
-            changed = await _repair_pages(job, file, rows, settings, options.get('pages'), bool(options.get('force')))
+            changed = await _repair_pages(
+                job, file, rows, settings, options.get('pages'), bool(options.get('force')), engine
+            )
             job.stats['repaired_pages'] = changed
             job.stats['repair_ms'] = _ms(started)
             rows = await FilePages.list(file_id)

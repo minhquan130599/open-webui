@@ -1436,6 +1436,16 @@ async def append_file_verification(form_data: dict, metadata: dict, output: list
         if not (metadata.get('files') or used_file_tool):
             return output
         note = verification_note(get_output_text(output), sources, single_pdf(metadata.get('files') or []))
+        from open_webui.file_pipeline.status import processing_state
+
+        still = []
+        for item in metadata.get('files') or []:
+            if isinstance(item, dict) and item.get('id') and await processing_state(item['id']):
+                still.append(item.get('name') or item.get('filename') or 'file')
+        if still:
+            note = (note + '\n\n' if note else '') + (
+                f'> ℹ️ {", ".join(still)} vẫn đang được sửa OCR khi trả lời; hỏi lại sau ít phút để có kết quả từ bản đã sửa.'
+            )
         if not note:
             return output
         content_parts.append(note)
@@ -1454,7 +1464,37 @@ async def append_file_verification(form_data: dict, metadata: dict, output: list
         return output
 
 
-async def prepare_latest_attachments(messages: list, user, model: dict, terminal: bool = False) -> None:
+async def wait_for_attached_files(files: list[dict], metadata: dict) -> None:
+    """Give files uploaded a moment ago the time to finish their OCR repair (files.wait_seconds) before answering."""
+    from open_webui.file_pipeline.settings import file_settings
+    from open_webui.file_pipeline.status import wait_until_ready
+
+    timeout = (await file_settings())['files.wait_seconds']
+    if not timeout or not files:
+        return
+    emitter = await get_event_emitter(metadata) if metadata.get('chat_id') and metadata.get('message_id') else None
+
+    async def emit(description: str) -> None:
+        if emitter:
+            await emitter({'type': 'status', 'data': {'action': 'file_processing', 'description': description, 'done': False}})
+
+    pending = await wait_until_ready(files, timeout, emit)
+    if emitter:
+        await emitter(
+            {
+                'type': 'status',
+                'data': {
+                    'action': 'file_processing',
+                    'description': 'File vẫn đang được sửa OCR, trả lời bằng chữ hiện có' if pending else 'File đã xử lý xong',
+                    'done': True,
+                },
+            }
+        )
+
+
+async def prepare_latest_attachments(
+    messages: list, user, model: dict, terminal: bool = False, metadata: Optional[dict] = None
+) -> None:
     """Describe the newest user message's files (ids, sizes, layout) and include small ones in full.
 
     Earlier messages keep plain references, so included text is sent once and history does not grow with it.
@@ -1467,6 +1507,10 @@ async def prepare_latest_attachments(messages: list, user, model: dict, terminal
     ]
     if not items:
         return
+    try:
+        await wait_for_attached_files(items, metadata or {})
+    except Exception:
+        log.exception('Waiting for attached files failed')
     try:
         infos = await describe_attachments(items, user.model_dump())
     except Exception:
@@ -2284,7 +2328,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
     if metadata['include_file_context']:
         await prepare_latest_attachments(
-            form_data.get('messages', []), user, model, terminal=bool(form_data.get('terminal_id'))
+            form_data.get('messages', []), user, model, terminal=bool(form_data.get('terminal_id')), metadata=metadata
         )
 
     form_data['messages'] = process_messages_with_output(

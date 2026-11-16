@@ -3274,6 +3274,31 @@ async def summarize_chat_file(
             return JSONCodec.dumps({**cached, 'cached': True}, ensure_ascii=False)
 
         settings = await file_settings()
+
+        async def emit(description: str, finished: bool = False):
+            if __event_emitter__:
+                await __event_emitter__({'type': 'status', 'data': {'description': description, 'done': finished}})
+
+        # The background pipeline is (about to be) summarizing this file: wait for its result instead of
+        # summarizing the same text twice.
+        if focus is None and settings['files.summary.precompute']:
+            from open_webui.file_pipeline.models import FileJobs
+            from open_webui.models.files import Files
+
+            deadline = time.monotonic() + settings['files.summary.wait_seconds']
+            min_chars = settings['files.summary.precompute_min_chars']
+            while time.monotonic() < deadline:
+                job = await FileJobs.get(file.id)
+                content_chars = len((file.data or {}).get('content') or '')
+                if not job or job.status not in ('queued', 'running') or content_chars < min_chars:
+                    break
+                await emit(f'Đang chờ bản tóm tắt nền của {file.filename}')
+                await asyncio.sleep(3)
+                file = await Files.get_file_by_id(file.id)
+                cached = cached_summary(file, None)
+                if cached:
+                    await emit(f'Đã có bản tóm tắt {file.filename}', True)
+                    return JSONCodec.dumps({**cached, 'cached': True}, ensure_ascii=False)
         models = __request__.app.state.MODELS
         chat_model = settings['files.summary.chat_model']
         model_id = chat_model if chat_model in models else (__metadata__ or {}).get('model_id')
@@ -3289,10 +3314,6 @@ async def summarize_chat_file(
             from open_webui.storage.provider import Storage
 
             pdf_path = await asyncio.to_thread(Storage.get_file, file.path)
-
-        async def emit(description: str, finished: bool = False):
-            if __event_emitter__:
-                await __event_emitter__({'type': 'status', 'data': {'description': description, 'done': finished}})
 
         result = await summarize_file(
             file,

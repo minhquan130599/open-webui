@@ -16,6 +16,13 @@ Tải file lên ─→ trích xuất (như cũ, người dùng hỏi được ng
                  5. File dài: tóm tắt sẵn, lưu vào bộ nhớ đệm của file
 ```
 
+**Người dùng hỏi ngay sau khi tải file lên:**
+- Hệ thống chờ tối đa `Chờ sửa OCR xong trước khi trả lời` (mặc định 120 giây) để chữ của file được sửa xong rồi mới trả lời.
+- Trong lúc chờ, người dùng thấy dòng trạng thái *"Đang sửa OCR 3/5 trang…"*. Trong channel, dòng này hiện ngay trong tin trả lời và được thay bằng câu trả lời khi xong.
+- Trang nào sửa xong thì chữ của file được cập nhật ngay, không đợi xong cả file.
+- Hết thời gian chờ mà file chưa xong: model được báo file còn đang xử lý và đọc ảnh trang cho các trang lỗi. Dưới câu trả lời có dòng *"ℹ️ … vẫn đang được sửa OCR khi trả lời"*.
+- Yêu cầu tóm tắt trong lúc bước tóm tắt nền đang chạy: hệ thống chờ lấy kết quả đó, không tóm tắt lại lần nữa.
+
 Khi trả lời về file, model trích dẫn trang dạng `[tr.12]`. Dưới câu trả lời, hệ thống liệt kê **con số và ngày tháng không tìm thấy trong phần tài liệu đã đọc**. Với PDF, câu trả lời có thêm link mở ảnh trang gốc.
 
 ## Điểm OCR của một trang (0–100)
@@ -55,6 +62,9 @@ Chỉnh ở **Cài đặt → Tài liệu → Xử lý file** hoặc trên monit
 | Tham số | Mặc định | Ghi chú |
 |---|---|---|
 | Xử lý nâng cao sau khi tải file lên | bật | Tắt thì upload chạy như trước |
+| Chờ sửa OCR xong trước khi trả lời (giây) | 120 | 0 = trả lời ngay bằng chữ OCR gốc |
+| Chờ bản tóm tắt nền khi được hỏi (giây) | 300 | |
+| Gửi kèm chữ OCR khi sửa bằng vision | tắt | Bật dễ khiến model chép lỗi OCR |
 | Số file xử lý nền cùng lúc | 2 | |
 | PDF có sẵn chữ: đọc trực tiếp, chỉ OCR trang lỗi | bật | Chỉ có tác dụng khi engine trích xuất là OCR |
 | Điểm OCR tối thiểu (%) | 80 | Ngưỡng trang "OCR kém" |

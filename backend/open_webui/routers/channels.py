@@ -1581,6 +1581,27 @@ async def model_response_handler(request, channel, message, user, db=None):
                 pointed_ids = {
                     file.get('id') for source in pointed_messages for file in _message_files(source) if file.get('id')
                 }
+                # Files uploaded a moment ago may still be having their OCR repaired: wait (bounded), showing it
+                # in the reply placeholder, which the answer then replaces.
+                try:
+                    from open_webui.file_pipeline.settings import file_settings
+                    from open_webui.file_pipeline.status import wait_until_ready
+                    from open_webui.socket.main import get_event_emitter
+
+                    wait_seconds = (await file_settings())['files.wait_seconds']
+                    if wait_seconds and files:
+                        placeholder = await get_event_emitter(
+                            {'chat_id': f'channel:{channel.id}', 'message_id': response_message.id, 'user_id': user.id}
+                        )
+
+                        async def show_wait(description: str) -> None:
+                            await placeholder(
+                                {'type': 'chat:completion', 'data': {'content': f'_⏳ {description}_', 'flush': True}}
+                            )
+
+                        await wait_until_ready(files, wait_seconds, show_wait)
+                except Exception:
+                    log.exception('Waiting for channel files failed')
                 try:
                     attachment_infos = await describe_attachments(files, user.model_dump())
                 except Exception:
