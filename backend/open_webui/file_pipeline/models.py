@@ -117,6 +117,8 @@ class FileJobTable:
             jobs = (await db.execute(query)).scalars().all()
             claimed = []
             for job in jobs:
+                if job.queued_at == 1 and (job.stats or {}).get('queued_at'):
+                    job.queued_at = job.stats['queued_at']  # restore the real time after a priority bump
                 job.lease_id = uuid.uuid4().hex
                 job.lease_until = now + lease_seconds * 1_000_000_000
                 job.status = 'running'
@@ -168,6 +170,17 @@ class FileJobTable:
                 job.stage = None
                 job.progress = None
             await db.commit()
+
+    async def prioritize(self, file_id: str) -> None:
+        """Move a queued job to the front of the queue (a user is waiting for it)."""
+        async with get_async_db_context() as db:
+            job = await db.get(FileJob, file_id)
+            if job and job.status == 'queued' and job.queued_at > 1:
+                # queued_at orders the queue; keep it as the time shown on the monitor in stats.
+                job.stats = {**(job.stats or {}), 'queued_at': job.queued_at}
+                job.queued_at = 1
+                job.next_attempt_at = None
+                await db.commit()
 
     async def get(self, file_id: str) -> Optional[FileJob]:
         async with get_async_db_context() as db:

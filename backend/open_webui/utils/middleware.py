@@ -3012,6 +3012,13 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
         await filter_user_terminal_tools(request, user, tools_dict, metadata, extra_params)
 
+        from open_webui.utils.attachments import PROJECT_TOOLS, asks_only_about_files
+
+        if asks_only_about_files(get_last_user_message(form_data.get('messages', [])) or ''):
+            # A question about the attached files: keep project-report tools out of this answer.
+            for name in PROJECT_TOOLS & set(tools_dict):
+                tools_dict.pop(name)
+
         if metadata.get('files'):
             # Attached files live in chat storage, so say which terminal tools cannot see them.
             for name, tool in list(tools_dict.items()):

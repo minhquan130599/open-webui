@@ -20,10 +20,23 @@ STAGE_LABELS = {
 
 
 async def processing_state(file_id: str) -> Optional[dict]:
-    """None when the file text is final, else {'stage', 'done', 'total', 'label'}."""
+    """None when the file text is final, else {'stage', 'done', 'total', 'label'}.
+
+    Only PDFs with pages under the OCR threshold get new text; any other file (CSV, Markdown, Word, a clean
+    PDF) is final as soon as it is uploaded, even while its index or summary is still being built.
+    """
     job = await FileJobs.get(file_id)
     if not job or job.status in ('done', 'failed', 'skipped') or job.stage in READY_STAGES:
         return None
+    if job.stage not in ('repair', 'rebuild'):
+        from open_webui.models.files import Files
+        from open_webui.utils.file_structure import get_structure, is_pdf
+
+        file = await Files.get_file_by_id(file_id)
+        if not file or not is_pdf(file.filename, (file.meta or {}).get('content_type')):
+            return None
+        if not get_structure(file).get('low_quality_pages'):
+            return None
     progress = job.progress or {}
     label = STAGE_LABELS.get(job.stage if job.status == 'running' else None, 'đang xử lý')
     done, total = progress.get('done') or 0, progress.get('total') or 0
@@ -42,6 +55,9 @@ async def wait_until_ready(
             state = await processing_state(item['id'])
             if state:
                 pending[item['id']] = (item.get('name') or item.get('filename') or 'file', state)
+    # Someone is waiting for these files: they go ahead of background work in the queue.
+    for file_id in pending:
+        await FileJobs.prioritize(file_id)
     deadline = time.monotonic() + max(timeout, 0)
     last = ''
     while pending and time.monotonic() < deadline:

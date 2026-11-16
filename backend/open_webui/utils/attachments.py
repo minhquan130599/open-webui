@@ -7,6 +7,7 @@ never has to guess where a file lives or which tool reads it.
 import difflib
 import html
 import logging
+import re
 from typing import Optional
 
 from open_webui.utils.file_structure import get_structure, is_pdf
@@ -190,3 +191,33 @@ def log_attachments(where: str, infos: list[dict], inline_ids: set, extra: str =
         ),
         f' | {extra}' if extra else '',
     )
+
+
+PROJECT_TOOLS = frozenset(
+    {
+        'build_project_report',
+        'export_project_report',
+        'get_project_status',
+        'get_project_timeline',
+        'list_my_projects',
+        'search_project_evidence',
+    }
+)
+_PROJECT_WORDS = re.compile(
+    r'dự án|tiến độ|báo cáo (?:tuần|ngày|tháng|quý|tổng hợp|dự án|tiến độ)|quá hạn|hạng mục|việc của|'
+    r'ai đang|người phụ trách|deadline|project|sprint',
+    re.IGNORECASE,
+)
+_FILE_TEXT_RE = re.compile(r'<file_content\b.*?</file_content>|<attached_files>.*?</attached_files>', re.DOTALL)
+
+
+def asks_only_about_files(user_text: str) -> bool:
+    """The newest message brings attached files and its own words say nothing about project progress.
+
+    Then project-report tools are left out for that answer: models otherwise read "tóm tắt" in a project
+    channel as a progress report and never open the files.
+    """
+    if '<attached_files>' not in (user_text or ''):
+        return False
+    own_words = _FILE_TEXT_RE.sub(' ', user_text)
+    return not _PROJECT_WORDS.search(own_words)

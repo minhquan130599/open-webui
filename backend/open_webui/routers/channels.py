@@ -1589,7 +1589,9 @@ async def model_response_handler(request, channel, message, user, db=None):
                     from open_webui.socket.main import get_event_emitter
 
                     wait_seconds = (await file_settings())['files.wait_seconds']
-                    if wait_seconds and files:
+                    # Only files the user attached to this message / thread; older channel files are settled.
+                    waited = [file for file in files if file.get('id') in pointed_ids]
+                    if wait_seconds and waited:
                         placeholder = await get_event_emitter(
                             {'chat_id': f'channel:{channel.id}', 'message_id': response_message.id, 'user_id': user.id}
                         )
@@ -1599,7 +1601,7 @@ async def model_response_handler(request, channel, message, user, db=None):
                                 {'type': 'chat:completion', 'data': {'content': f'_⏳ {description}_', 'flush': True}}
                             )
 
-                        await wait_until_ready(files, wait_seconds, show_wait)
+                        await wait_until_ready(waited, wait_seconds, show_wait)
                 except Exception:
                     log.exception('Waiting for channel files failed')
                 try:
