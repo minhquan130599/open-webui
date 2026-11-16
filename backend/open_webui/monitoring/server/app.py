@@ -511,11 +511,16 @@ async def trace(message_id: str):
     calls = [e for e in events if e['kind'] == 'llm_call' and e['source'] != 'task']
     tools = [e for e in events if e['kind'] == 'tool']
     tasks = [e for e in events if e['kind'] == 'llm_call' and e['source'] == 'task']
-    steps = sorted(calls + tools, key=lambda e: e['ts'])
+    response_end = response['ts'] + (response['duration_ms'] or 0) if response else None
+    # Helper model calls made while the answer was produced (context compaction, file summaries...) are
+    # steps of the answer; those after it (title, follow-ups) stay background tasks.
+    inline_tasks = [e for e in tasks if response_end is None or e['ts'] < response_end]
+    tasks = [e for e in tasks if e not in inline_tasks]
+    steps = sorted(calls + tools + inline_tasks, key=lambda e: e['ts'])
     start = response['ts'] if response else steps[0]['ts'] if steps else events[0]['ts']
     ends = [e['ts'] + (e['duration_ms'] or 0) for e in steps]
     if response:
-        ends.append(response['ts'] + (response['duration_ms'] or 0))
+        ends.append(response_end)
     end = max(ends) if ends else start
 
     # Time covered by at least one model or tool call; the rest is preparation and NCS AI's own work.
@@ -544,6 +549,8 @@ async def trace(message_id: str):
             'llm_ms': sum(e['duration_ms'] or 0 for e in calls),
             'ttft_ms': sum(e['ttft_ms'] or 0 for e in calls),
             'tool_ms': sum(e['duration_ms'] or 0 for e in tools),
+            'task_ms': sum(e['duration_ms'] or 0 for e in inline_tasks),
+            'task_calls': len(inline_tasks),
             'other_ms': max(end - start - covered - max(first - start, 0), 0),
             'llm_calls': len(calls),
             'tool_calls': len(tools),

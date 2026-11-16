@@ -160,12 +160,15 @@ services:
       - ENABLE_RAG_HYBRID_SEARCH=${ENABLE_RAG_HYBRID_SEARCH:-false}
       - RAG_FILE_MAX_SIZE=50
 
-      # --- Đọc file vừa với context 32k ---
+      # --- Đọc file vừa với context của model (mặc định cho context 64k) ---
       - VIEW_FILE_DEFAULT_MAX_CHARS=12000
       - VIEW_FILE_MAX_CHARS=20000
       - CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS=40
       - ENABLE_CONTEXT_COMPACTION=true
-      - CONTEXT_COMPACTION_TOKEN_THRESHOLD=20000
+      # Thu gọn ngữ cảnh = thêm 1 lần gọi LLM (thường 1-2 phút với model lớn). Đặt khoảng 60-65% context:
+      # 32k -> 20000, 64k -> 40000. CONTEXT_COMPACTION_MODEL: model nhanh hơn để thu gọn (trống = model đang chat).
+      - CONTEXT_COMPACTION_TOKEN_THRESHOLD=${CONTEXT_COMPACTION_TOKEN_THRESHOLD:-40000}
+      - CONTEXT_COMPACTION_MODEL=${CONTEXT_COMPACTION_MODEL:-}
       # File đính kèm nhỏ (tổng số ký tự các file của tin nhắn) được đưa nguyên văn vào tin nhắn; 0 = tắt
       - ATTACHMENT_INLINE_MAX_CHARS=${ATTACHMENT_INLINE_MAX_CHARS:-30000}
       # Giới hạn ký tự kết quả mỗi lần query_chat_files
