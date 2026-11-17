@@ -29,7 +29,7 @@ from open_webui.tracker.schema import _STATUS_ALIASES, STATUSES, WorkItem, _clea
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 14
+EXTRACT_VERSION = 15
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 ROW_BATCH_CHARS = 10_000
@@ -611,15 +611,29 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
                 'xac_minh': True,
                 'ngu_canh': '\n'.join(_unbullet(cell(row, i)) for i in context_idx if cell(row, i))[:1500],
                 'mo_ta': '\n'.join(_unbullet(cell(row, i)) for i in detail_idx if cell(row, i))[:1500],
+                'han_chu': due_text if due_text and not due else None,
             }
         )
+    results = [i['ket_qua'] for i in items if i.get('ket_qua')]
+    if results and all(parse_number(str(r).rstrip('%')) is not None for r in results):
+        for i in items:
+            i['ket_qua'] = None
     rows = len(data)
     issues = []
     if not name_idx:
         issues.append('chưa chọn cột tên việc')
     if rows and named / rows < MIN_NAMED_RATIO:
         issues.append(f'chỉ {named}/{rows} dòng có tên việc')
-    if date_filled and date_ok / date_filled < MIN_DATE_RATIO:
+    due_as_text = bool(date_filled) and not date_ok
+    if due_as_text:
+        # The deadline column holds no date at all ("Hàng tháng", "Khi đóng dự án"): a recurrence or a condition,
+        # kept as a point of the task under the column's own header, not a column read wrongly.
+        header = names[idx['han']] if idx['han'] is not None and idx['han'] < len(names) else ''
+        for i in items:
+            if i.get('han_chu'):
+                line = f'{header}: {i["han_chu"]}' if header else i['han_chu']
+                i['mo_ta'] = f'{i["mo_ta"]}\n{line}'.strip()
+    elif date_filled and date_ok / date_filled < MIN_DATE_RATIO:
         issues.append(f'chỉ đọc được {date_ok}/{date_filled} ô hạn thành ngày')
     if unmapped:
         issues.append('giá trị trạng thái chưa ánh xạ: ' + ', '.join(f'"{k}"' for k in list(unmapped)[:10]))
@@ -633,7 +647,10 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
         )
     return {
         'items': items,
-        'stats': {'sheet': sheet['name'], 'rows': rows, 'named': named, 'dates': date_filled, 'dates_ok': date_ok, 'shared_codes': shared_codes},
+        'stats': {
+            'sheet': sheet['name'], 'rows': rows, 'named': named, 'dates': date_filled, 'dates_ok': date_ok,
+            'shared_codes': shared_codes, 'due_as_text': due_as_text,
+        },
         'issues': issues,
         'bad_rows': bad_rows[:8],
         'columns': names,
@@ -706,7 +723,9 @@ YÊU CẦU / BỐI CẢNH đánh số [Y1], [Y2]...
 {rows}
 </tai_lieu>
 
-Với mỗi dòng, lập đầu việc để theo dõi tiến độ:
+Với mỗi dòng, lập đầu việc để theo dõi tiến độ. Dòng chỉ là tiêu đề nhóm / mục ("A. TÀI CHÍNH", "II. QUY TRÌNH NỘI
+BỘ"), dòng tổng cộng, hoặc dòng chữ ký / người duyệt thì không phải việc: trả "loai": "khong_phai_viec" và bỏ qua
+các quy tắc dưới cho dòng đó.
 0. Tách ô người phụ trách, chép đúng chữ trong ô, không thêm ai ngoài ô: "nguoi" = từng NGƯỜI (ô "Long / Triển" là 2
    người "Long", "Triển"); "nhom" = từng TEAM / phòng ban / chức vụ (ô "SOC, PM" là 2 nhóm "SOC", "PM"; "Phòng R & D"
    là 1 nhóm). Chữ trong ngoặc sau tên người là phòng ban của người đó: ô "Long (BE)" là người "Long", không thêm
@@ -729,7 +748,7 @@ Với mỗi dòng, lập đầu việc để theo dõi tiến độ:
    một vấn đề) thành MỘT việc; tối đa 3 việc mỗi dòng, chọn yêu cầu quan trọng nhất. Không liệt kê yêu cầu đã được một
    hành động xử lý, hoặc mà dòng đã quyết định không làm (một ý hay nhận định nói "không nên…", "không cần…" về nó).
 Trả về đúng một JSON:
-{{"dong": [{{"ma": "R1", "nguoi": ["..."], "nhom": ["..."],
+{{"dong": [{{"ma": "R1", "loai": "viec | khong_phai_viec", "nguoi": ["..."], "nhom": ["..."],
   "viec": [{{"ten": "...", "chi_tiet": ["..."], "y": [1, 2], "phu_trach": ["trong nguoi, chỉ khi ý ghi rõ ai làm"],
             "han": "YYYY-MM-DD chỉ khi ý ghi hạn riêng, không thì null", "han_goc": "ngày đó chép đúng như trong ý, vd 13/11/2026"}}],
   "han_rieng": [{{"y": 3, "han": "YYYY-MM-DD", "han_goc": "ngày chép đúng như trong ý", "ten": "tên việc của ý đó, tối đa 15 từ"}}],
@@ -752,7 +771,9 @@ def segment_ideas(text: str, limit: int = MAX_IDEAS) -> list[str]:
             continue
         current = ''
         for sentence in _IDEA_SPLIT_RE.split(line):
-            if current and (len(current) + len(sentence) > 300 or len(sentence) >= MIN_IDEA_CHARS):
+            if current and len(current) >= MIN_IDEA_CHARS and (
+                len(current) + len(sentence) > 300 or len(sentence) >= MIN_IDEA_CHARS
+            ):
                 ideas.append(current)
                 current = ''
             current = f'{current} {sentence}'.strip()
@@ -912,6 +933,8 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
     def build(row: dict, answer: dict) -> Optional[dict]:
         """Validated tasks, blocker and unassigned requests of one row, or None when nothing usable came back."""
         item, ideas, context = row['item'], row['ideas'], row['context']
+        if str(answer.get('loai') or '').strip() == 'khong_phai_viec' and not item['phu_trach'] and not item['han']:
+            return {'skip': True, 'placed': set(range(1, len(ideas) + 1))}
         cell = f' {normalize_key(item.get("phu_trach_o") or " ".join(item["phu_trach"]))} '
 
         def in_cell(name) -> bool:
@@ -1102,6 +1125,9 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
     output = []
     for row in rows:
         item, built = row['item'], results.get(row['label'])
+        if built and built.get('skip'):
+            report['not_tasks'] = report.get('not_tasks', 0) + 1
+            continue
         if not built:
             built = {'people': list(item['phu_trach']),
                      'tasks': [{'ten': short_title(item['ten']), 'chi_tiet': [], 'y': [1] if row['ideas'] else [],
@@ -1173,6 +1199,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
     for entry in output:
         entry.pop('ngu_canh', None)
         entry.pop('mo_ta', None)
+        entry.pop('han_chu', None)
         entry.pop('ket_qua', None)
         entry.pop('phu_trach_o', None)
     return output, report

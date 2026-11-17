@@ -238,3 +238,11 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   server): các dòng cùng mã có cùng khóa nên bị gộp còn một. Nay mã dùng cho nhiều dòng thì khóa thêm số dòng
   ("Doanh số dòng 2"), thống kê "shared_codes" hiện trên monitor; nhãn "yêu cầu chưa giao" đổi thành "đề xuất từ yêu cầu".
   Kênh đã nhập file kiểu này cần "Tổng hợp lại kênh" để lấy lại các dòng bị gộp.
+- KPI_PM.xlsx (phiếu giao chỉ tiêu, hcm_pmo_kpi): 13 dòng → 11 đầu việc sai cả hai chiều. Thiếu 2 chỉ tiêu (mã "1"
+  lặp lại ở mỗi nhóm nên bị gộp: đã sửa ở ff423acb3); thừa các việc bịa từ dòng tiêu đề nhóm ("TÀI CHÍNH" → "Xử lý
+  công việc tài chính"), dòng tổng, dòng chữ ký ("Phối hợp giữa Ban Giám đốc và Trưởng phòng Nhân sự"); chi tiết có "0"
+  (cột Kết quả là điểm số) và "1" (câu "1. Tử …" bị cắt ở số thứ tự); cột "Thời gian hoàn thành" ghi chữ ("Hàng tháng")
+  bị báo đỏ 0/6 ô hạn. Sửa: model đánh dấu dòng không phải việc (tiêu đề nhóm / tổng / chữ ký), code chỉ bỏ dòng không
+  có người và hạn; cột kết quả toàn số không đưa vào chi tiết; mẩu ngắn ghép vào câu sau; cột hạn không có ô nào là
+  ngày thì nội dung thành chi tiết kèm tên cột của file ("Thời gian hoàn thành: Hàng tháng"), không còn báo lỗi và gọi
+  model sửa bản mô tả. EXTRACT_VERSION 15. Thử với file thật: đủ 6 chỉ tiêu, bỏ 6 dòng không phải việc.
