@@ -586,7 +586,7 @@ async def _deliver(per_user: dict, build, label: str) -> dict:
     day = today_iso()
     for user_id, payload in per_user.items():
         user = await Users.get_user_by_id(user_id)
-        if not user or not user.email or '@' not in user.email:
+        if not user or not user.email or '@' not in user.email or user.role == 'pending':
             result['skipped'] += 1
             continue
         user_settings = user.settings.model_dump() if hasattr(user.settings, 'model_dump') else user.settings
@@ -635,3 +635,80 @@ async def send_owner_digests(per_owner: dict[str, list[dict]]) -> dict:
         'email_owner',
     )
 
+
+PROBLEM_TEXT = {
+    'unassigned': ('Chưa có người phụ trách', '#b54708'),
+    'group': ('Giao cho nhóm chưa khai báo người', '#b54708'),
+    'outside': ('Người phụ trách không phải thành viên kênh', '#c4320a'),
+    'left': ('Người phụ trách đã nghỉ / tài khoản bị khóa', '#b42318'),
+}
+
+
+def unassigned_subject(channels: list[dict]) -> str:
+    total = sum(len(c['items']) for c in channels)
+    where = f'kênh {channels[0]["name"]}' if len(channels) == 1 else f'{len(channels)} kênh bạn quản lý'
+    return f'[NCS AI] {total} việc cần phân công trong {where}'
+
+
+def unassigned_html(name: str, channels: list[dict], link: str, base: str = '', day: str = '') -> str:
+    """Monday email to a channel's owner and managers: open items nobody can be reminded about (no owner, a team
+    with nobody declared, an owner outside the channel or who left), so they assign them."""
+    esc = html.escape
+    total = sum(len(c['items']) for c in channels)
+    blocks = []
+    for channel in sorted(channels, key=lambda c: c['name']):
+        title = esc(channel['name'])
+        if base and channel.get('id'):
+            title = f'<a href="{esc(base)}/channels/{esc(channel["id"])}" style="color:#101828;text-decoration:none">#{title}</a>'
+        else:
+            title = f'#{title}'
+        rows = []
+        for problem, entry, who in channel['items']:
+            label, color = PROBLEM_TEXT.get(problem, (problem, '#475467'))
+            due = f' · hạn {_date_vn(entry.han)}' if entry.han else ''
+            rows.append(
+                '<tr><td style="padding:0 0 8px 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+                f'style="border:1px solid #eaecf0;border-left:4px solid {color};border-radius:8px;background:#ffffff"><tr>'
+                f'<td style="padding:10px 14px"><div style="font-size:14px;font-weight:600;color:#101828">{esc(entry.ten)}</div>'
+                f'<div style="margin-top:3px;font-size:12.5px;color:{color}">{esc(label)}{(": " + esc(who)) if who else ""}'
+                f'<span style="color:#475467">{esc(due)}</span></div></td></tr></table></td></tr>'
+            )
+        blocks.append(
+            f'<tr><td style="padding:16px 0 8px 0;font-size:15px;font-weight:700">{title} '
+            f'<span style="font-size:12.5px;font-weight:400;color:#475467">({len(channel["items"])} việc)</span></td></tr>'
+            + ''.join(rows)
+        )
+    button = (
+        '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px 0 4px 0"><tr>'
+        f'<td style="border-radius:8px;background:#101828"><a href="{esc(link)}" style="display:inline-block;'
+        'padding:10px 18px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none">Mở bảng tiến độ để phân công</a>'
+        '</td></tr></table>'
+        if link
+        else ''
+    )
+    return f'''<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Việc cần phân công</title></head>
+<body style="margin:0;padding:0;background:#f2f4f7">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0">{total} việc chưa có người phụ trách hoặc cần gán lại.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f4f7"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#101828">
+<tr><td style="padding:0 4px 12px 4px;font-size:13px;color:#475467"><b style="color:#101828">NCS AI</b> &nbsp;·&nbsp; Việc cần phân công{f" – tuần {esc(_date_vn(day))}" if day else ""}</td></tr>
+<tr><td style="background:#ffffff;border:1px solid #eaecf0;border-radius:12px;padding:22px 22px 18px 22px">
+<div style="font-size:18px;font-weight:700;margin-bottom:6px">Chào {esc(name)},</div>
+<div style="font-size:14px;color:#344054;line-height:1.5">Có <b>{total}</b> việc chưa ai nhận được nhắc hạn: chưa có người phụ trách, giao cho nhóm chưa khai báo thành viên, hoặc người phụ trách không thuộc kênh / đã nghỉ. Mở bảng tiến độ của kênh để gán người (một lần bấm), hoặc khai báo thành viên nhóm trong mục "Thành viên &amp; chức vụ".</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">{''.join(blocks)}</table>
+{button}
+</td></tr>
+<tr><td style="padding:14px 6px 0 6px;font-size:12px;color:#667085;line-height:1.5">Email tự động từ NCS AI (Knight) mỗi sáng thứ Hai, chỉ gửi chủ kênh và người quản lý kênh khi có việc cần phân công.
+Tắt email nhắc việc: Cài đặt → Thông báo.</td></tr>
+</table></td></tr></table></body></html>'''
+
+
+async def send_unassigned(per_user: dict[str, list[dict]]) -> dict:
+    return await _deliver(
+        per_user,
+        lambda user, channels, link, base, day: (
+            unassigned_subject(channels),
+            unassigned_html(user.name or user.email, channels, f'{base}/my-work?mode=team' if base else link, base, day),
+        ),
+        'email_unassigned',
+    )

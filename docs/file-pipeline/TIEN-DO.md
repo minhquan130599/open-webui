@@ -62,7 +62,7 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
 - 🔄 T5. Nhãn Ngoài kênh / Bên ngoài / Đã nghỉ; bí danh kênh; gán nhanh việc chưa có người
 - ✅ T6. Yêu cầu chưa giao: gom 1 việc / dòng, gán người phụ trách của dòng
 - ✅ T7. Lỗi nhỏ việc từ file: hạn đặt sai việc, chi tiết trùng, vướng mắc là nhận định, tên cắt ở ":"
-- ⬜ T8. Nhắc thứ Hai cho chủ kênh / người quản lý (thông báo + email), cấu hình trên monitor
+- ✅ T8. Nhắc thứ Hai cho chủ kênh / người quản lý (thông báo + email), cấu hình trên monitor
 - 🔄 T9. Người quản lý kênh (vai trò manager): gán / bỏ, quyền tiến độ như chủ kênh
 - 🔄 T10. Chuyển chủ kênh; tài khoản bị khóa (tự chuyển, việc "đã nghỉ")
 - ⬜ T11. Monitor: % chưa gán / chưa liên kết theo kênh, đổi chủ kênh / người quản lý
@@ -140,3 +140,7 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   trách của dòng, yêu cầu ở phần chi tiết; hạn model đặt nhầm việc → tách ý chứa ngày đó thành việc riêng (PH-000006 có
   việc hạn 13/11); bỏ chi tiết trùng / lặp tên; tên không cắt ở ":"; dòng tiêu đề "PHẢN ÁNH CHUNG:" không thành ý. Đã test
   trên file phản hồi thật (model giả lập mắc đúng lỗi av).
+- Nhóm 9 / T8, T10 (tự động): sáng thứ Hai (cùng giờ nhắc hạn) chủ kênh + người quản lý nhận thông báo + email "việc cần
+  phân công" (chưa có người, nhóm chưa khai báo, ngoài kênh, đã nghỉ); bật/tắt trên monitor (mục Email). Email tổng hợp
+  hằng ngày gửi cả người quản lý. Không gửi mail tới tài khoản đã khóa. Mỗi ngày, kênh có chủ kênh bị khóa tự chuyển cho
+  người quản lý lâu nhất; không có người quản lý thì ghi log để admin chọn (monitor hiện ở T11).

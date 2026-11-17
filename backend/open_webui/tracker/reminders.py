@@ -12,10 +12,11 @@ import logging
 import os
 import random
 import re
+from typing import Optional
 
 from open_webui.internal.db import get_async_db
 from open_webui.models.config import Config
-from open_webui.tracker import mywork
+from open_webui.tracker import mywork, team
 from open_webui.tracker.service import TZ
 
 log = logging.getLogger(__name__)
@@ -25,6 +26,9 @@ ENABLE_KEY = 'tracker.reminder.enable'
 TIME_KEY = 'tracker.reminder.time'
 DAY_BEFORE_KEY = 'tracker.reminder.day_before'
 LAST_RUN_KEY = 'tracker.reminder.last_run'
+# Monday reminder to channel owners and managers about items nobody can be reminded about.
+WEEKLY_KEY = 'tracker.reminder.weekly_unassigned'
+WEEKLY_LAST_KEY = 'tracker.reminder.weekly_last_run'
 CHECK_SECONDS = 60
 _TIME_RE = re.compile(r'^([01]?\d|2[0-3]):([0-5]\d)$')
 
@@ -146,6 +150,7 @@ async def _owner_digests(by_channel: dict[str, list]) -> None:
             continue
         first = items[0][1]
         owner_id = first.channel_owner_id
+        recipients_of_channel = {owner_id, *await team.manager_ids(channel_id)} - {None}
         message = (
             f'Kênh "{first.channel_name}" có {len(due)} việc đến hạn hôm nay hoặc ngày mai'
             + (f' và {len(items) - len(due)} việc quá hạn' if len(items) > len(due) else '')
@@ -153,7 +158,7 @@ async def _owner_digests(by_channel: dict[str, list]) -> None:
         )
         async with get_async_db() as db:
             recipients = await insert_notifications(
-                recipients={owner_id: EVENT_TYPE},
+                recipients={user_id: EVENT_TYPE for user_id in recipients_of_channel},
                 event_key=f'{EVENT_TYPE}:owner:{channel_id}:{day}',
                 resource_type='channel',
                 resource_id=channel_id,
@@ -163,11 +168,9 @@ async def _owner_digests(by_channel: dict[str, list]) -> None:
                 db=db,
             )
             await db.commit()
-        if owner_id in recipients:
-            notified.add(owner_id)
-            per_owner.setdefault(owner_id, []).append(
-                {'id': channel_id, 'name': first.channel_name, 'items': items}
-            )
+        for user_id in recipients:
+            notified.add(user_id)
+            per_owner.setdefault(user_id, []).append({'id': channel_id, 'name': first.channel_name, 'items': items})
     if notified:
         await emit_changes(notified)
     if per_owner:
@@ -175,15 +178,105 @@ async def _owner_digests(by_channel: dict[str, list]) -> None:
 
 
 async def run_if_due(now: dt.datetime) -> bool:
-    """Send today's reminders once the configured time has passed. Returns True when it sent them."""
+    """Send today's reminders once the configured time has passed. Returns True when it sent them.
+    The same run hands over channels whose owner left, and on Mondays sends the "to assign" reminder."""
     settings = await get_settings()
     today = now.date().isoformat()
     if not settings['enable'] or settings['last_run'] == today or now.strftime('%H:%M') < settings['time']:
         return False
     await Config.upsert({LAST_RUN_KEY: today})
+    try:
+        await handover_channels()
+    except Exception:
+        log.exception('Channel handover failed')
     created = await send_due_reminders(settings['day_before'])
     log.info('Due reminders for %s: %d notifications', today, created)
+    if now.weekday() == 0:
+        values = await Config.get_many(WEEKLY_KEY, WEEKLY_LAST_KEY)
+        enabled = True if values.get(WEEKLY_KEY) is None else bool(values.get(WEEKLY_KEY))
+        if enabled and values.get(WEEKLY_LAST_KEY) != today:
+            await Config.upsert({WEEKLY_LAST_KEY: today})
+            try:
+                await send_unassigned_reminders()
+            except Exception:
+                log.exception('Unassigned reminders failed')
     return True
+
+
+async def handover_channels() -> list[dict]:
+    """Channels whose owner's account was disabled pass to a manager (team lead); logged when there is none."""
+    from open_webui.models.channels import Channels
+
+    channels = mywork.project_channels(await Channels.get_channels())
+    moves = await team.handover_left_owners([c.id for c in channels])
+    for move in moves:
+        if move['to']:
+            log.info('Channel %s: owner %s left, now owned by manager %s', move['channel'], move['from'], move['to'])
+        else:
+            log.warning('Channel %s: owner %s left and the channel has no manager; an admin must choose', move['channel'], move['from'])
+    return moves
+
+
+def problem_of(entry) -> tuple[Optional[str], str]:
+    """Why nobody can be reminded about an open item: (problem, who) or (None, '')."""
+    if entry.bucket == 'done':
+        return None, ''
+    left = [o['name'] for o in entry.owners if o['status'] == 'left']
+    outside = [o['name'] for o in entry.owners if o['status'] == 'outside']
+    if left:
+        return 'left', ', '.join(left)
+    if not entry.owner_ids and not entry.ben_ngoai:
+        if entry.nhom and entry.nhom != 'Cả nhóm':
+            return 'group', entry.nhom
+        if outside:
+            return 'outside', ', '.join(outside)
+        return 'unassigned', ''
+    return None, ''
+
+
+async def send_unassigned_reminders() -> int:
+    """Monday: each channel's owner and managers (never other admins) get one notification and email listing the open
+    items nobody can be reminded about. Returns the number of people notified."""
+    from open_webui.models.channels import Channels
+    from open_webui.models.notifications import emit_changes, insert_notifications
+    from open_webui.tracker import mailer
+
+    channels = mywork.project_channels(await Channels.get_channels())
+    week = mywork.today()
+    by_channel: dict[str, list] = {}
+    names: dict[str, str] = {}
+    owners: dict[str, Optional[str]] = {}
+    for entry in await mywork.collect(channels):
+        problem, who = problem_of(entry)
+        if problem:
+            by_channel.setdefault(entry.channel_id, []).append((problem, entry, who))
+            names[entry.channel_id] = entry.channel_name
+            owners[entry.channel_id] = entry.channel_owner_id
+    per_user: dict[str, list[dict]] = {}
+    notified: set[str] = set()
+    for channel_id, items in by_channel.items():
+        recipients_of_channel = {owners[channel_id], *await team.manager_ids(channel_id)} - {None}
+        async with get_async_db() as db:
+            recipients = await insert_notifications(
+                recipients={user_id: EVENT_TYPE for user_id in recipients_of_channel},
+                event_key=f'{EVENT_TYPE}:unassigned:{channel_id}:{week}',
+                resource_type='channel',
+                resource_id=channel_id,
+                object_type='channel',
+                object_id=channel_id,
+                data={'message': f'Kênh "{names[channel_id]}" có {len(items)} việc cần phân công người phụ trách.',
+                      'kind': 'unassigned'},
+                db=db,
+            )
+            await db.commit()
+        for user_id in recipients:
+            notified.add(user_id)
+            per_user.setdefault(user_id, []).append({'id': channel_id, 'name': names[channel_id], 'items': items})
+    if notified:
+        await emit_changes(notified)
+    if per_user:
+        await mailer.send_unassigned(per_user)
+    return len(notified)
 
 
 async def reminder_loop() -> None:

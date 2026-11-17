@@ -148,6 +148,9 @@ SETTINGS: list[dict[str, Any]] = [
     # Due-reminder emails: Microsoft 365 (Microsoft Graph) or the company SMTP server
     {'key': 'tracker.reminder.email.enable', 'label': 'Gửi email nhắc việc đến hạn', 'type': 'bool', 'group': 'email',
      'help': 'Mỗi người nhận một email gom các việc đến hạn hôm nay/ngày mai, cùng lúc với thông báo nhắc việc trong NCS AI.'},
+    {'key': 'tracker.reminder.weekly_unassigned', 'label': 'Nhắc chủ kênh việc cần phân công (sáng thứ Hai)', 'type': 'bool',
+     'group': 'email', 'default': True,
+     'help': 'Mỗi sáng thứ Hai, chủ kênh và người quản lý kênh (không gửi admin khác) nhận thông báo + email các việc chưa có người phụ trách, giao cho nhóm chưa khai báo, người phụ trách ngoài kênh hoặc đã nghỉ.'},
     {'key': 'tracker.reminder.email.owner_digest', 'label': 'Gửi email tổng hợp cho chủ kênh', 'type': 'bool', 'group': 'email',
      'default': True,
      'help': 'Chủ kênh dự án nhận một email mỗi ngày có việc đến hạn: các việc quá hạn, đến hạn hôm nay/ngày mai trong kênh, ai phụ trách, việc chưa gắn được tài khoản người phụ trách.'},
