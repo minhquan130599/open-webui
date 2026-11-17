@@ -1302,6 +1302,7 @@ def _attachment_label(file: dict, author: str, posted: datetime, content: str) -
 
 
 CHANNEL_FILE_SCAN_LIMIT = 1000  # newest channel messages (threads included) searched for a file the user names
+CHANNEL_FILE_CONTEXT_MESSAGES = 6  # last messages whose file names keep that file for a follow-up question
 
 
 def _file_stem(file: dict) -> str:
@@ -1352,14 +1353,24 @@ async def get_channel_files_for_model(channel, message, db=None) -> list[tuple[d
     # Then files of the channel the message names ("tóm tắt Nghị định 331" -> "Nghị định 331.pdf", however old, in a
     # thread or not), then the files recently posted in the channel, newest first. Files pointed at come first but
     # no longer hide the others: a question asked in a thread with files can still be about another channel file.
+    # A follow-up that does not repeat the name keeps the file the conversation just used: names written in the
+    # last messages (questions and the model's answers, which cite the file) count after those in the question.
     posted = await _channel_file_messages(channel.id, CHANNEL_FILE_SCAN_LIMIT, db)
-    asked = f' {_name_key(getattr(message, "content", "") or "")} '
-    named = [
-        m for m in posted
-        if m.id != message.id and any(len(_name_key(_file_stem(f))) >= 4 and f' {_name_key(_file_stem(f))} ' in asked for f in _message_files(m))
-    ]
     recent = await Messages.get_messages_by_channel_id(channel.id, 0, max(CHANNEL_MODEL_HISTORY_LIMIT, 1), db=db)
-    candidates = [*explicit, *named, *(m for m in recent if m.id != message.id)]
+    thread = await Messages.get_messages_by_parent_id(channel.id, message.parent_id, db=db) if getattr(message, 'parent_id', None) else []
+    conversation = [m for m in [*thread, *recent] if m.id != message.id][:CHANNEL_FILE_CONTEXT_MESSAGES]
+
+    def naming(text: str) -> list:
+        said = f' {_name_key(text or "")} '
+        return [
+            m for m in posted
+            if m.id != message.id
+            and any(len(_name_key(_file_stem(f))) >= 4 and f' {_name_key(_file_stem(f))} ' in said for f in _message_files(m))
+        ]
+
+    named = naming(getattr(message, 'content', '') or '')
+    named_before = naming(' '.join(m.content or '' for m in conversation))
+    candidates = [*explicit, *named, *named_before, *(m for m in recent if m.id != message.id)]
 
     selected, seen = [], set()
     for source in candidates:
@@ -1432,6 +1443,17 @@ async def get_channel_context_for_model(
         '- Leave out requests asking for a summary; they are not reports.\n'
         '- If no report matches the requested day, say so plainly instead of summarizing other days.'
     )
+
+
+CHANNEL_ANSWER_RULES = (
+    '\n\nHow to answer:\n'
+    '- Write everything the user sees in the language of their message, including the short notes between tool calls.\n'
+    '- Answer the question asked, once. Do not go on to other topics, extra reports, exports or files nobody asked for.\n'
+    '- What a document says (its articles, clauses, figures) comes only from reading the document. If the document '
+    'is not among the files you can read, say so and ask for it; never write its content from memory, and never '
+    'contradict what you already quoted from it earlier in the conversation.\n'
+    '- If the question is unclear about which file or topic it means, use the file the conversation was just about.'
+)
 
 
 async def _add_model_file(file: dict, images: list, files: list, seen: set, user, label: str = '') -> None:
@@ -1678,6 +1700,7 @@ async def model_response_handler(request, channel, message, user, db=None):
                 system_message = {
                     'role': 'system',
                     'content': f'You are {model.get("name", model_id)}, participating in a threaded conversation. Be concise and conversational.'
+                    + CHANNEL_ANSWER_RULES
                     + files_note
                     + channel_context
                     + (

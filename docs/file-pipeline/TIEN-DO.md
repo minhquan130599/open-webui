@@ -222,3 +222,9 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
 - Kênh: tin trả lời của AI đang chạy (giữa các lần gọi công cụ, lúc model đang viết) hiện dòng "Đang trả lời…" có
   vòng quay dưới các bước công cụ, tắt khi xong (meta.done). Tin không bao giờ được đánh dấu xong (máy chủ dừng giữa
   chừng) thôi hiện sau 10 phút không thay đổi.
+- Kênh, hỏi tiếp về tài liệu (20:40 "trách nhiệm và nghĩa vụ của các tổ chức an toàn thông tin"): câu hỏi không nhắc
+  tên file nên PDF không được đưa vào, Knight tự viết nội dung "Điều 23–26" từ trí nhớ (trái với Điều 24 vừa trích đúng),
+  rồi tự làm thêm báo cáo dự án, xuất Word, ghi chú giữa các bước bằng tiếng Anh. Sửa: tên file nhắc trong 6 tin gần
+  nhất (câu hỏi trước, câu trả lời có trích file, tin trong luồng) giữ file đó cho câu hỏi tiếp theo; prompt kênh thêm
+  quy tắc trả lời: cùng ngôn ngữ người hỏi kể cả ghi chú giữa các bước, trả lời đúng câu hỏi một lần, nội dung tài liệu
+  chỉ lấy từ việc đọc tài liệu (không đọc được thì nói và xin file, không viết từ trí nhớ, không trái với đoạn đã trích).
