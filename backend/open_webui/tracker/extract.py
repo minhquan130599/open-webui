@@ -29,7 +29,7 @@ from open_webui.tracker.schema import _STATUS_ALIASES, STATUSES, WorkItem, _clea
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 12
+EXTRACT_VERSION = 13
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 ROW_BATCH_CHARS = 10_000
@@ -678,6 +678,7 @@ MIN_IDEA_CHARS = 25
 MAX_CONTEXT_IDEAS = 20
 # Share of a summary's words that must come from the ideas it cites, else the first idea becomes its name.
 MIN_WORD_SUPPORT = 0.25
+DETAIL_SUPPORT = 0.5  # a description point counts as written when half its words are in the task's name or details
 
 ROW_PROMPT = """Bảng công việc "{name}". Hôm nay là {today}. Mỗi mục là một dòng: ô người phụ trách (nguyên văn), hạn của
 dòng, các ý của VIỆC CẦN LÀM đánh số [1], [2]... (có thể kèm MÔ TẢ CHI TIẾT CỦA VIỆC, đánh số tiếp), và có thể có
@@ -694,6 +695,7 @@ Với mỗi dòng, lập đầu việc để theo dõi tiến độ:
 1. Mặc định cả dòng là MỘT việc. Chỉ tách thành nhiều việc khi các ý có người phụ trách khác nhau (chọn trong "nguoi")
    hoặc có hạn riêng ghi rõ trong ý. Ý nào ghi hạn riêng của chính nó thì liệt kê trong "han_rieng".
 2. "ten": tóm tắt việc tối đa 15 từ, bắt đầu bằng động từ, giữ tên đơn vị, khách hàng, sản phẩm; không chép nguyên câu.
+   Tên, chi tiết, việc trong "chua_xu_ly" viết CÙNG NGÔN NGỮ với ô của dòng (ô tiếng Anh thì viết tiếng Anh).
 3. "chi_tiet": các ý phụ chưa có trong tên, mỗi ý một câu ngắn (tối đa 4). Ý của MÔ TẢ CHI TIẾT thuộc việc của dòng:
    đưa vào "chi_tiet" (gộp ý gần nhau), không tạo việc riêng trừ khi ghi người hoặc hạn khác.
    Ý phủ định hoặc kết luận KHÔNG làm ("không nên…", "không cần…") không phải việc: xếp vào "nhan_dinh", không đưa
@@ -704,7 +706,7 @@ Với mỗi dòng, lập đầu việc để theo dõi tiến độ:
 5. Nếu dòng có [Y..]: xét TỪNG yêu cầu, kể cả yêu cầu về thời gian ("phải nhắc mới có", "chậm") và sự chủ động.
    Với các yêu cầu mà KHÔNG ý nào của VIỆC CẦN LÀM xử lý (kể cả gián tiếp), ghi vào "chua_xu_ly" VIỆC CẦN LÀM để đáp
    ứng yêu cầu đó: "ten" bắt đầu bằng động từ, tối đa 15 từ, như một đầu việc bình thường (vd "Xây dựng dashboard ticket
-   management cho CEO", "Chủ động gửi báo cáo IR không chờ khách nhắc"). Gộp các yêu cầu cùng nội dung (nhiều khách cùng
+   management cho CEO", "Chủ động gửi báo cáo IR không chờ nhắc"). Gộp các yêu cầu cùng nội dung (nhiều người / đơn vị nêu cùng
    một vấn đề) thành MỘT việc; tối đa 3 việc mỗi dòng, chọn yêu cầu quan trọng nhất. Yêu cầu đã được một hành động xử lý
    thì không liệt kê.
 Trả về đúng một JSON:
@@ -1088,13 +1090,23 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                      'placed': {1} if row['ideas'] else set(), 'blocker': None, 'gaps': []}
             report['titles_replaced'] += 1
         report['placed_by_model'] += len(built['placed'])
+        # A description point the model cited but wrote nowhere (not in the name, not in the details) is added as it is.
+        for task in built['tasks']:
+            written = ' '.join([task['ten'], *task['chi_tiet']])
+            missing = [
+                row['ideas'][j - 1] for j in task.get('y') or []
+                if j > row.get('own', len(row['ideas'])) and word_support(row['ideas'][j - 1], written) < DETAIL_SUPPORT
+            ]
+            if missing:
+                task['chi_tiet'] = [*task['chi_tiet'], *(clip(idea, 200) for idea in missing)]
+                report['added_by_code'] += len(missing)
         # Nothing is lost: points the model did not place go to the details of the row's first task.
         unplaced = [row['ideas'][i - 1] for i in range(1, len(row['ideas']) + 1) if i not in built['placed']]
         if unplaced:
             first = built['tasks'][0]
             first['chi_tiet'] = [*first['chi_tiet'], *(clip(idea, 200) for idea in unplaced)]
             report['added_by_code'] += len(unplaced)
-        extra = [f'Kết quả: {clip(item["ket_qua"], 300)}'] if item.get('ket_qua') else []
+        extra = [clip(item['ket_qua'], 300)] if item.get('ket_qua') else []
         for index, task in enumerate(built['tasks'], 1):
             output.append(
                 {
@@ -1120,7 +1132,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                 {
                     **item,
                     'ten': gap['ten'][:TITLE_MAX],
-                    'chi_tiet': [f'Khách yêu cầu: {clip(gap["trich_dan"], 300)}'],
+                    'chi_tiet': [clip(gap['trich_dan'], 300)],
                     'phu_trach': owners,
                     'han': None,
                     'trang_thai': 'chua_bat_dau',

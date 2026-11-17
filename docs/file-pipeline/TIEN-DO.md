@@ -193,3 +193,8 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   lập chưa có "mo_ta" thì được lập lại (bản sửa tay giữ nguyên). Cột kết quả và các ý thêm vào chi tiết không còn bị cắt
   ở dấu ";" đầu tiên; dòng "Kết quả" luôn giữ khi chi tiết đủ 6 dòng. Prompt: "Long (BE)" là người Long, không thêm nhóm
   BE; tên viết tắt SOC / TI / CX / PM là nhóm. EXTRACT_VERSION 12.
+- Nhóm 9 bổ sung (không ghi cứng nhãn): chi tiết việc chỉ ghi nội dung của file, bỏ nhãn "Khách yêu cầu:" và "Kết quả:"
+  do code thêm (file khác có thể là mô tả lỗi, yêu cầu nội bộ…); prompt không giả định nguồn là khách. Ý của cột mô tả
+  mà model trích dẫn nhưng không viết vào tên / chi tiết thì code thêm nguyên văn. Model viết tên, chi tiết cùng ngôn
+  ngữ với ô (file tiếng Anh không bị thay tên vì kiểm tra trùng từ). Đã thử 3 dạng bảng khác: nhật ký lỗi tiếng Anh
+  (ngày mdy, cột Resolution), danh sách việc không mã có % dạng 0.5, bảng không có cột người và hạn. EXTRACT_VERSION 13.
