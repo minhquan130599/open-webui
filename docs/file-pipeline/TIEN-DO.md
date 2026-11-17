@@ -177,3 +177,8 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
 - Nhóm 9 bổ sung: bảng tiến độ mỗi việc chỉ hiện người phụ trách (người / team), hạn, tiến độ, chi tiết, vướng mắc; bỏ các
   nhãn cảnh báo, nhãn nhóm và mã dòng. Xóa tin nhắn → việc chỉ có nguồn là tin đó bị gỡ; sửa tin gỡ file / ảnh → việc chỉ
   đến từ file đó bị gỡ (việc trích từ file ghi nguồn "file:<id>"); việc còn tin khác nhắc thì giữ, chỉ bỏ nguồn đã mất.
+- Nhóm 9 bổ sung (kênh av 17/11): việc gom yêu cầu chưa có hành động có tên theo nội dung ("Yêu cầu chưa có hành động:
+  rà soát dữ liệu cũ… (+2)"), chi tiết chỉ là các yêu cầu (bỏ câu "còn thiếu" lộ chữ nội bộ); hạn chép đúng như trong ý
+  ("han_goc") được ưu tiên, hạn chỉ viết ở một ý thì tách ý đó thành việc riêng (PH-000006 hạn 13/11); bỏ chi tiết trùng
+  (kể cả sau khi gộp việc); tên mà bảng gọi là team ở dòng khác (TI) là team ở mọi dòng; tên trùng chức vụ đã khai báo
+  tự gán thành viên.

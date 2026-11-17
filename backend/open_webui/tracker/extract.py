@@ -29,7 +29,7 @@ from open_webui.tracker.schema import _STATUS_ALIASES, STATUSES, WorkItem, _clea
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 9
+EXTRACT_VERSION = 10
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 ROW_BATCH_CHARS = 10_000
@@ -694,8 +694,8 @@ Với mỗi dòng, lập đầu việc để theo dõi tiến độ:
 Trả về đúng một JSON:
 {{"dong": [{{"ma": "R1", "nguoi": ["..."], "nhom": ["..."],
   "viec": [{{"ten": "...", "chi_tiet": ["..."], "y": [1, 2], "phu_trach": ["trong nguoi, chỉ khi ý ghi rõ ai làm"],
-            "han": "YYYY-MM-DD chỉ khi ý ghi hạn riêng, không thì null"}}],
-  "han_rieng": [{{"y": 3, "han": "YYYY-MM-DD", "ten": "tên việc của ý đó, tối đa 15 từ"}}],
+            "han": "YYYY-MM-DD chỉ khi ý ghi hạn riêng, không thì null", "han_goc": "ngày đó chép đúng như trong ý, vd 13/11/2026"}}],
+  "han_rieng": [{{"y": 3, "han": "YYYY-MM-DD", "han_goc": "ngày chép đúng như trong ý", "ten": "tên việc của ý đó, tối đa 15 từ"}}],
   "vuong_mac": {{"noi_dung": "tóm tắt hoặc null", "y": [3]}},
   "nhan_dinh": [4],
   "chua_xu_ly": [{{"ten": "tóm tắt yêu cầu tối đa 15 từ", "y": ["Y2"], "con_thieu": "phần chưa đáp ứng hoặc null"}}]}}]}}"""
@@ -764,6 +764,31 @@ def dates_in(text: str, year: int) -> set[str]:
         except ValueError:
             continue
     return found
+
+
+def _repeats(text: str, others: list[str]) -> bool:
+    """Says the same as one of the others: close wording, or most of its words."""
+    return any(similarity(text, o) >= 0.75 or word_overlap(text, o) >= 0.7 for o in others if o)
+
+
+def _unique_details(title: str, details: list[str], limit: int = 6) -> list[str]:
+    kept: list[str] = []
+    for detail in details:
+        if detail and not _repeats(detail, [title, *kept]):
+            kept.append(detail)
+    return kept[:limit]
+
+
+def _written_date(raw: dict, ideas: list[str], year: int) -> Optional[str]:
+    """The deadline the model gave: the date as written in the point ("13/11/2026", in "han_goc") when it is one of
+    the dates of these points, else its YYYY-MM-DD. A model that gets the format or the year wrong still lands on the
+    date the text holds."""
+    written = dates_in(str(raw.get('han_goc') or ''), year)
+    in_points = set().union(*(dates_in(i, year) for i in ideas)) if ideas else set()
+    for date in sorted(written):
+        if date in in_points:
+            return date
+    return _clean_date(raw.get('han'))
 
 
 def _title(text: str) -> str:
@@ -873,7 +898,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                 detail = str(detail).strip()[:300]
                 if not detail or word_support(detail, source) < MIN_WORD_SUPPORT:
                     continue
-                if similarity(detail, title) >= 0.75 or any(similarity(detail, d) >= 0.75 for d in details):
+                if _repeats(detail, [title, *details]):
                     continue
                 details.append(detail)
             details = details[:4]
@@ -886,9 +911,13 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                 elif not match:
                     report['owners_rejected'] += 1
             due = item['han']
-            if raw.get('han'):
-                proposed = _clean_date(raw.get('han'))
-                if proposed and proposed in dates_in(source, year):
+            if raw.get('han') or raw.get('han_goc'):
+                proposed = _written_date(raw, ideas, year)
+                holders = [j for j in cited if proposed and proposed in dates_in(ideas[j - 1], year)]
+                if proposed and holders and len(holders) < len(cited):
+                    # The date is written in only some of the task's points: it is their deadline, not the task's.
+                    misplaced += [(j, proposed) for j in holders]
+                elif proposed and proposed in dates_in(source, year):
                     due = proposed
                     report['due_accepted'] += proposed != item['han']
                 elif proposed and proposed != item['han']:
@@ -914,7 +943,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                 None,
             )
             if twin:
-                twin['chi_tiet'] = [*twin['chi_tiet'], task['ten'], *task['chi_tiet']]
+                twin['chi_tiet'] = _unique_details(twin['ten'], [*twin['chi_tiet'], task['ten'], *task['chi_tiet']])
                 twin['y'] = sorted(set(twin['y']) | set(task['y']))
                 twin['trich_dan'] = ' '.join(ideas[i - 1] for i in twin['y'])[:QUOTE_CHARS]
             else:
@@ -946,7 +975,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
             if not isinstance(raw, dict):
                 continue
             point = (numbers([raw.get('y')], len(ideas)) or [0])[0]
-            due = _clean_date(raw.get('han'))
+            due = _written_date(raw, [ideas[point - 1]] if point else ideas, year)
             if not point or not due or due not in dates_in(ideas[point - 1], year):
                 report['due_rejected'] += bool(point and due)
                 continue
@@ -1060,11 +1089,15 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
             # missing actions (or close it). The requests are its details.
             gaps = built['gaps']
             owners = list(built.get('people') or item['phu_trach'])
-            points = [g['ten'] + (f' – còn thiếu: {g["chi_tiet"][0]}' if g['chi_tiet'] else '') for g in gaps]
+            points = _unique_details('', [g['ten'] for g in gaps], 12)
+            first = points[0].rstrip('.') if points else ''
+            title = f'Yêu cầu chưa có hành động: {first[:1].lower() + first[1:]}' + (
+                f' (+{len(points) - 1})' if len(points) > 1 else ''
+            )
             output.append(
                 {
                     **item,
-                    'ten': f'Bổ sung hành động cho {len(gaps)} yêu cầu chưa được xử lý',
+                    'ten': title[:TITLE_MAX],
                     'chi_tiet': [p[:300] for p in points[:6]] + ([f'… và {len(points) - 6} yêu cầu khác'] if len(points) > 6 else []),
                     'phu_trach': owners,
                     'han': None,
@@ -1081,6 +1114,10 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
             )
             report['gaps'] += len(gaps)
             report['gap_tasks'] = report.get('gap_tasks', 0) + 1
+    teams_seen = {normalize_key(t) for built in results.values() for t in built.get('teams') or []}
+    for entry in output:
+        teams = [o for o in entry.get('phu_trach') or [] if normalize_key(o) in teams_seen]
+        entry['doi_nhom'] = list(dict.fromkeys([*(entry.get('doi_nhom') or []), *teams]))
     for entry in output:
         entry.pop('ngu_canh', None)
         entry.pop('ket_qua', None)

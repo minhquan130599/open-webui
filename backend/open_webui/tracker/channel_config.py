@@ -82,6 +82,10 @@ def apply_roles(state, config: dict) -> bool:
     role follow its current people. Returns True when something changed."""
     changed = False
     for item in state.hang_muc:
+        # An owner written as a declared role or team ("TI"), even when it was not marked as one.
+        for name in item.phu_trach:
+            if name not in item.doi_nhom and name not in item.phu_trach_links and find_role(config, name):
+                item.doi_nhom = [*item.doi_nhom, name]
         for team in list(item.doi_nhom):
             role = find_role(config, team)
             if not role or not role.get('nguoi'):
