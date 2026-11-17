@@ -29,7 +29,7 @@ from open_webui.tracker.schema import _STATUS_ALIASES, STATUSES, WorkItem, _clea
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 13
+EXTRACT_VERSION = 14
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 ROW_BATCH_CHARS = 10_000
@@ -707,8 +707,8 @@ Với mỗi dòng, lập đầu việc để theo dõi tiến độ:
    Với các yêu cầu mà KHÔNG ý nào của VIỆC CẦN LÀM xử lý (kể cả gián tiếp), ghi vào "chua_xu_ly" VIỆC CẦN LÀM để đáp
    ứng yêu cầu đó: "ten" bắt đầu bằng động từ, tối đa 15 từ, như một đầu việc bình thường (vd "Xây dựng dashboard ticket
    management cho CEO", "Chủ động gửi báo cáo IR không chờ nhắc"). Gộp các yêu cầu cùng nội dung (nhiều người / đơn vị nêu cùng
-   một vấn đề) thành MỘT việc; tối đa 3 việc mỗi dòng, chọn yêu cầu quan trọng nhất. Yêu cầu đã được một hành động xử lý
-   thì không liệt kê.
+   một vấn đề) thành MỘT việc; tối đa 3 việc mỗi dòng, chọn yêu cầu quan trọng nhất. Không liệt kê yêu cầu đã được một
+   hành động xử lý, hoặc mà dòng đã quyết định không làm (một ý hay nhận định nói "không nên…", "không cần…" về nó).
 Trả về đúng một JSON:
 {{"dong": [{{"ma": "R1", "nguoi": ["..."], "nhom": ["..."],
   "viec": [{{"ten": "...", "chi_tiet": ["..."], "y": [1, 2], "phu_trach": ["trong nguoi, chỉ khi ý ghi rõ ai làm"],
