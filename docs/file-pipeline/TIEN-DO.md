@@ -198,3 +198,8 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   mà model trích dẫn nhưng không viết vào tên / chi tiết thì code thêm nguyên văn. Model viết tên, chi tiết cùng ngôn
   ngữ với ô (file tiếng Anh không bị thay tên vì kiểm tra trùng từ). Đã thử 3 dạng bảng khác: nhật ký lỗi tiếng Anh
   (ngày mdy, cột Resolution), danh sách việc không mã có % dạng 0.5, bảng không có cột người và hạn. EXTRACT_VERSION 13.
+- Nhóm 9 bổ sung (test01: xóa hết tin vẫn còn 16 việc): tin bị xóa trong lúc một lượt tổng hợp đang đọc nó (nhất là ngay
+  sau "Tổng hợp lại kênh", mốc đọc về 0) bị bỏ qua, lượt đó vẫn ghi việc vào. Nay lần xóa trong lúc đang chạy được ghi
+  nhận; mỗi lượt còn đối chiếu nguồn: việc mà mọi tin nguồn đã không còn trong kênh (kể cả trả lời bị xóa theo tin gốc,
+  vốn không qua hook xóa) được gỡ như tin bị xóa. Nút làm mới ↻ trên bảng tiến độ luôn chạy một lượt (không có gì mới thì
+  chỉ đối chiếu, không gọi model).

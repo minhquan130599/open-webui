@@ -416,8 +416,18 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                     extractions[message.id] = result.extractions
 
         deletions = list(row.pending_deletions or [])
+        # Sources whose message is gone without a recorded deletion (deleted while a run was reading it, a reply
+        # removed with its thread): their items are retracted the same way.
+        referenced = {
+            source[4:] for entry in (row.state or {}).get('hang_muc') or [] for source in entry.get('nguon') or []
+            if source.startswith('msg:')
+        }
+        vanished = {
+            f'msg:{i}'
+            for i in await Trackers.missing_message_ids(channel_id, referenced - {d.get('id') for d in deletions})
+        }
         candidates = edited + batch
-        if not candidates and not deletions:
+        if not candidates and not deletions and not vanished:
             await Trackers.complete(
                 channel_id,
                 lease_id,
@@ -506,12 +516,12 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                 summaries.append(delta.tom_tat_lo)
 
         _drop_ai_tasks(state, old_state, candidates, await _ai_names(candidates))
-        retracted = _retract(state, {f'msg:{d.get("id")}' for d in deletions}, edited)
+        retracted = _retract(state, {f'msg:{d.get("id")}' for d in deletions} | vanished, edited)
         # Teams declared in the channel ("AM: @…", now or before) replace the team names that owned items.
         channel_config.apply_roles(state, ctx.config)
         link_owners(state, people, ctx.config.get('bi_danh'))
         stored = {**state.model_dump(), 'schema_version': SCHEMA_VERSION}
-        _drop_sources(stored, {f'msg:{d.get("id")}' for d in deletions})
+        _drop_sources(stored, {f'msg:{d.get("id")}' for d in deletions} | vanished)
         sources = [m.id for m in candidates]
         item = {
             'source_type': 'message_batch',
@@ -521,7 +531,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             'summary': ' '.join([*_file_summary(file_tasks, retracted), *summaries]),
             'data': {
                 'edited_ids': [m.id for m in edited],
-                'deleted_ids': [d.get('id') for d in deletions],
+                'deleted_ids': [d.get('id') for d in deletions] + sorted(v[4:] for v in vanished),
                 'attachments': [line for lines in attachments.values() for line in lines],
                 **({'file_tasks': file_tasks} if file_tasks else {}),
                 **({'giao_viec': counts} if counts else {}),

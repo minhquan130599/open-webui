@@ -172,12 +172,13 @@ class TrackerTable:
             await db.commit()
 
     async def request_refresh(self, channel_id: str, db: Optional[AsyncSession] = None) -> None:
-        """Process the channel on the next poll if anything is pending (used when someone asks)."""
+        """Process the channel on the next poll (used when someone asks). With nothing pending the run only checks
+        that the items' messages still exist (no model call)."""
         async with get_async_db_context(db) as db:
             await db.execute(
                 update(TrackerState)
-                .where(TrackerState.channel_id == channel_id, TrackerState.dirty_at.is_not(None))
-                .values(force=True, next_attempt_at=None)
+                .where(TrackerState.channel_id == channel_id)
+                .values(force=True, next_attempt_at=None, dirty_at=func.coalesce(TrackerState.dirty_at, time.time_ns()))
             )
             await db.commit()
 
@@ -249,6 +250,18 @@ class TrackerTable:
                 .limit(limit)
             )
             return list(result.scalars().all())
+
+    async def missing_message_ids(self, channel_id: str, ids: set[str], db: Optional[AsyncSession] = None) -> set[str]:
+        """Of the given message ids, those no longer in the channel (deleted, or a reply deleted with its thread)."""
+        if not ids:
+            return set()
+        async with get_async_db_context(db) as db:
+            found = set(
+                (
+                    await db.execute(select(Message.id).where(Message.channel_id == channel_id, Message.id.in_(list(ids))))
+                ).scalars()
+            )
+        return set(ids) - found
 
     async def get_edited_messages(
         self, channel_id: str, watermark: int, edit_watermark: int, limit: int, db: Optional[AsyncSession] = None
@@ -457,8 +470,11 @@ class TrackerTable:
             if db.bind.dialect.name == 'postgresql':
                 stmt = stmt.with_for_update()
             row = (await db.execute(stmt)).scalar_one_or_none()
-            if not row or entry.get('created_at', 0) > (row.watermark or 0):
-                return  # never folded into the state, nothing to retract
+            # A message after the watermark was never folded into the state, unless a run reading it is under way
+            # (a rebuild starts again from 0): that run commits its items, the next one retracts them.
+            running = bool(row and row.lease_until and row.lease_until > now)
+            if not row or (entry.get('created_at', 0) > (row.watermark or 0) and not running):
+                return
             row.pending_deletions = [*(row.pending_deletions or []), entry][-50:]
             row.pending_count = (row.pending_count or 0) + 1
             row.dirty_at = row.dirty_at or now
