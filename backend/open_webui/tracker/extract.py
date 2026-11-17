@@ -32,7 +32,7 @@ from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 17
+EXTRACT_VERSION = 18
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 SIMILAR = 0.72  # trigram similarity above which two names are the same item
@@ -675,6 +675,8 @@ MIN_WORD_SUPPORT = 0.2
 # A cell with this many words that the tasks of its row do not reflect (share of its words found in them) is copied
 # into the details as it is: nothing in the table is lost.
 COVER_MIN_WORDS = 4
+# Share of a detail's words that must be in the row (a detail restates the row; an invented step shares little).
+DETAIL_SUPPORT = 0.5
 COVER_SUPPORT = 0.35
 
 ROW_PROMPT = """Bảng "{name}". Hôm nay là {today}.
@@ -687,9 +689,11 @@ ROW_PROMPT = """Bảng "{name}". Hôm nay là {today}.
 - "loai": "khong_phai_viec" khi dòng không giao hay yêu cầu việc gì: tiêu đề nhóm / mục, dòng tổng cộng, dòng tiêu đề
   phụ, dòng chữ ký / người duyệt, ghi chú chung, phản hồi chỉ khen hoặc nhận xét mà không đòi hỏi gì. Còn lại "viec".
 - Mặc định mỗi dòng là MỘT việc. Chỉ tách nhiều việc khi dòng giao các phần cho người khác nhau hoặc ghi hạn khác nhau.
-- "ten": tóm tắt việc tối đa 15 từ, bắt đầu bằng động từ, giữ tên đơn vị, khách hàng, sản phẩm, viết cùng ngôn ngữ với dòng.
-- "chi_tiet": tối đa 5 ý ngắn giúp người làm biết phải làm gì và khi nào xong: phạm vi, các bước, đầu ra / tiêu chí hoàn
-  thành, công thức, tần suất, việc phải làm trước (vd "Làm sau CV-01"), con số và tên quan trọng. KHÔNG đưa vào chi tiết
+- "ten": tóm tắt CHÍNH việc / chỉ tiêu của dòng (không phải phần việc của một người được nhắc trong mô tả) tối đa 15 từ,
+  bắt đầu bằng động từ, giữ tên đơn vị, khách hàng, sản phẩm, viết cùng ngôn ngữ với dòng.
+- "chi_tiet": tối đa 5 ý ngắn lấy từ CHỮ CỦA DÒNG, viết gọn lại: những gì dòng ghi về cách làm, đầu ra / tiêu chí, công
+  thức, tần suất, việc phải làm trước (vd "Làm sau CV-01"), con số và tên quan trọng. Dòng không ghi thì không có: không
+  tự nghĩ thêm bước, phạm vi hay mục đích, không thêm nhãn "Bước 1:", "Phạm vi:" khi dòng không viết. KHÔNG đưa vào chi tiết
   các ô chỉ để phân loại hay quản lý bảng: mã, giai đoạn, hạng mục, nhóm / loại / segment, mức ưu tiên, ngày bắt đầu,
   ước tính, trạng thái, số ngày còn lại, cảnh báo tự tính, người cung cấp thông tin. Liệt kê tên các cột đó trong
   "cot_phan_loai".
@@ -797,9 +801,6 @@ async def summarize_rows(
     context = ''
     if intro_text:
         context += f'Phần đầu trang (áp dụng cho mọi dòng):\n<tai_lieu>\n{intro_text}\n</tai_lieu>\n'
-    if roles:
-        hints = '; '.join(f'{ROLE_LABELS.get(r, r)}: {", ".join(c)}' for r, c in roles.items() if c)
-        context += f'Gợi ý vai trò các cột (chỉ để tham khảo, đọc theo nội dung thật của dòng): {hints}\n'
     labelled = [{**row, 'label': f'R{n}'} for n, row in enumerate(rows, 1)]
     by_label = {row['label']: row for row in labelled}
     semaphore = asyncio.Semaphore(max(concurrency, 1))
@@ -861,7 +862,7 @@ async def summarize_rows(
                 detail = ' '.join(str(detail).split())[:300]
                 if not detail:
                     continue
-                if word_support(detail, source + ' ' + intro_text) < MIN_WORD_SUPPORT:
+                if word_support(detail, source + ' ' + intro_text) < DETAIL_SUPPORT:
                     report['details_dropped'] += 1
                     continue
                 if not _repeats(detail, [title, *details]):

@@ -296,3 +296,12 @@ Làm lại:
 - Khởi động lại server giữa lúc một kênh đang tổng hợp: kênh bị giữ "đang chạy" tới hết hạn 15 phút mà không ai làm
   (file chỉ vài chục KB). Vì lượt đang chạy đã tự gia hạn mỗi phút, hạn giữ kênh mặc định giảm còn 3 phút
   (TRACKER_LEASE_SECONDS=180): sau khi khởi động lại, kênh được nhận lại trong vòng 3 phút.
+- Chấm bản v17 trên dev (model thật): KPI_PM đủ 6 chỉ tiêu, bỏ đúng 7 dòng tiêu đề / tổng / chữ ký, mục tiêu L2 và tần
+  suất vào chi tiết, hạn "Kết thúc năm tài chính" đọc thành 2027-03-31 từ đầu trang; CX Feedback tách việc theo SOC / PM,
+  chi tiết gọn, không còn ô phân loại; Project Plan 122 dòng → 115 việc, bỏ đúng 7 dòng giai đoạn, 0 vướng mắc giả, đúng
+  hạn / trạng thái. Còn lỗi: Alpha-X người góp ý vẫn là người phụ trách (bản mô tả cột cũ của model gắn nhầm cột "Vai trò
+  (Ẩn danh)" là cột phụ trách và gợi ý này được đưa vào mọi dòng); KPI_PM model tự thêm "Bước 1/2", "Phạm vi" và đặt tên
+  theo phần việc của PM. Sửa: bỏ gợi ý vai trò cột khỏi lời nhắc đọc dòng (model đọc theo tên cột thật); hướng dẫn tên là
+  chính việc / chỉ tiêu của dòng, chi tiết chỉ lấy từ chữ của dòng, không tự thêm bước / nhãn; chi tiết phải có ≥50% chữ
+  trong dòng (trước 20%). Lưu ý: kiểm tra chữ không bắt được bước "suy ra" dùng lại chữ của dòng, phần này dựa vào hướng
+  dẫn. Lượt đọc file trên dev trung bình 47 giây / lượt (p95 96 giây). EXTRACT_VERSION 18.
