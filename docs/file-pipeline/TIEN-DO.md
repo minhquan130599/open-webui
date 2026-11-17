@@ -305,3 +305,13 @@ Làm lại:
   chính việc / chỉ tiêu của dòng, chi tiết chỉ lấy từ chữ của dòng, không tự thêm bước / nhãn; chi tiết phải có ≥50% chữ
   trong dòng (trước 20%). Lưu ý: kiểm tra chữ không bắt được bước "suy ra" dùng lại chữ của dòng, phần này dựa vào hướng
   dẫn. Lượt đọc file trên dev trung bình 47 giây / lượt (p95 96 giây). EXTRACT_VERSION 18.
+- Chấm bằng model thật (Knight dev, Qwen 27B) trên các file production, bằng bộ chấm tự động (mất dòng, vướng mắc, ô phân
+  loại trong chi tiết, nhãn tự đặt, chi tiết ít chữ của dòng, người lấy từ cột nào, hạn khác ô ngày). Sửa theo kết quả:
+  - Bảng không có dòng tiêu đề (Lịch KS BN): model vẫn chọn dòng dữ liệu đầu làm tiêu đề; code báo "dòng tiêu đề trông
+    như dữ liệu" (ô là số hoặc giá trị lặp lại trong cột) để model sửa bản mô tả (dong_tieu_de = 0).
+  - Model xử lý không nhất quán giữa các lô (6 dòng đầu bị bỏ, 8 dòng giống hệt sau lại là việc; NCS Project Status bỏ
+    dòng Issue/Risk cần CEO): dòng bị bỏ có cùng các cột với ≥2 dòng là việc được hỏi lại, kèm một dòng mẫu.
+  - Chi tiết bắt đầu bằng tên cột mà chính model khai là cột phân loại bị bỏ.
+  - Excel đảo ngày / tháng khi nhập (NganTT: "2/11" thành 11/02, hạn lệch 9 tháng): model được báo hiện tượng này; code
+    nhận ngày model sửa chỉ khi đúng là ngày đó đảo ngày / tháng.
+  EXTRACT_VERSION 20.

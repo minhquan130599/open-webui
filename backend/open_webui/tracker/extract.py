@@ -32,7 +32,7 @@ from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 19
+EXTRACT_VERSION = 20
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 SIMILAR = 0.72  # trigram similarity above which two names are the same item
@@ -597,6 +597,18 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
     issues = []
     if header >= 0 and sum(1 for v in (raw[header] if header < len(raw) else []) if _is_text(v)) < 2:
         issues.append(f'dòng tiêu đề {header + 1} không có tên cột')
+    elif header >= 0 and header < len(raw):
+        titles = [v.strip() for v in raw[header]]
+        below = [row for _, row in data]
+        like_data = [
+            v for i, v in enumerate(titles)
+            if v and (not _is_text(v) or sum(1 for row in below if i < len(row) and row[i].strip() == v) >= 2)
+        ]
+        if len([v for v in titles if v]) and len(like_data) * 2 >= len([v for v in titles if v]):
+            issues.append(
+                f'dòng tiêu đề {header + 1} trông như một dòng dữ liệu ({", ".join(like_data[:4])}): nếu bảng không có '
+                'dòng tiêu đề thì đặt dong_tieu_de = 0'
+            )
     if not rows:
         issues.append('sheet không có dòng dữ liệu dưới dòng tiêu đề')
     return {
@@ -705,7 +717,9 @@ ROW_PROMPT = """Bảng "{name}". Hôm nay là {today}.
   tách từng tên. "nhom": những tên trong "phu_trach" là team, phòng ban hoặc chức vụ (SOC, PM, BA, DevOps, BE Lead,
   QA Lead, AI Engineer, Phòng KD), không phải tên một người. "Long (BE)" là người "Long" (BE là phòng ban của Long).
 - "han_goc": chép đúng chữ ghi hạn của việc trong dòng; "han": ngày đó dạng YYYY-MM-DD. Hạn không phải một ngày ("Hàng
-  tháng", "Khi đóng dự án", "Q4") thì "han" null và ghi vào "chi_tiet". Ngày bắt đầu không phải hạn.
+  tháng", "Khi đóng dự án", "Q4") thì "han" null và ghi vào "chi_tiet". Ngày bắt đầu không phải hạn. Excel có thể đã
+  đảo ngày / tháng (ô 2026-02-11 trong khi các ô khác của bảng là tháng 11, vd "13/11"): khi chắc chắn, ghi ngày đúng vào
+  "han" (2026-11-02) và vẫn chép ô gốc vào "han_goc".
 - "trang_thai": chua_bat_dau | dang_lam | bi_chan | tam_dung | hoan_thanh, theo ô trạng thái / tiến độ của dòng; không ghi
   gì thì null. "tien_do": số phần trăm 0-100 (ô 0.6 trong cột % là 60), "tien_do_goc": chép đúng ô đó.
   "hoan_thanh_goc" / "hoan_thanh_luc": ngày hoàn thành thực tế nếu dòng ghi.
@@ -778,7 +792,12 @@ def _checked_date(iso, written, folded: str) -> tuple[Optional[str], bool]:
     if not written or not _written_in(written, folded):
         return None, True
     plain = parse_date(str(written))
-    date = plain or _clean_date(iso)
+    read = _clean_date(iso)
+    # Excel may have swapped day and month when the date was typed ("2/11" stored as 11 February): the model may
+    # correct it from the other dates of the table, but only to that same date with day and month exchanged.
+    if plain and read and read != plain and read == f'{plain[:4]}-{plain[8:10]}-{plain[5:7]}':
+        return read, False
+    date = plain or read
     return date, not date
 
 
@@ -954,6 +973,47 @@ async def summarize_rows(
     if again:
         report['retried'] = len(again)
         await ask(again, 1)
+    # Consistency: a row left out while at least two rows with the same filled columns are tasks is read again,
+    # next to one of those task rows (rows of one table are alike; one batch read differently is the model's slip).
+    def shape(row: dict) -> frozenset:
+        return frozenset(column for column, _ in row['cells'])
+
+    task_shapes: dict[frozenset, list[dict]] = {}
+    for row in labelled:
+        if row['label'] in results and not results[row['label']].get('skip'):
+            task_shapes.setdefault(shape(row), []).append(row)
+    doubtful = [
+        row for row in labelled
+        if results.get(row['label'], {}).get('skip') and len(task_shapes.get(shape(row), [])) >= 2
+    ]
+    if doubtful:
+        report['rechecked_not_tasks'] = len(doubtful)
+        for row in doubtful:
+            results.pop(row['label'], None)
+        example = render(task_shapes[shape(doubtful[0])][0])
+        note = (
+            'Lưu ý: các dòng dưới đây có cùng các cột với những dòng khác của bảng đã được xác định là việc, ví dụ:\n'
+            f'{example}\nChỉ trả "khong_phai_viec" khi dòng thật sự không giao việc gì.\n'
+        )
+        for batch in batches_of(doubtful, ROW_BATCH_ROWS):
+            text = '\n\n'.join(render(row) for row in batch)
+            async with semaphore:
+                try:
+                    answer = await _ask_json(ROW_PROMPT.format(name=name, today=today, context=context + note, rows=text))
+                except llm.TrackerLLMError:
+                    raise
+                except Exception as error:
+                    log.warning('Tracker: row recheck failed (%s)', error)
+                    answer = {}
+            for raw in answer.get('dong') or []:
+                if isinstance(raw, dict):
+                    label = str(raw.get('ma') or '').strip('[] ').upper()
+                    if label in by_label and label not in results:
+                        built = build(by_label[label], raw)
+                        if built:
+                            results[label] = built
+        for row in doubtful:
+            results.setdefault(row['label'], {'skip': True})
 
     output = []
     for row in labelled:
@@ -982,6 +1042,11 @@ async def summarize_rows(
             + [t['vuong_mac'] or '' for t in built['tasks']] + [g['yeu_cau'] for g in built['gaps']]
         )
         labels = set(built.get('labels') or [])
+        # The model's own call: a column it names as classification is not a detail, even when it wrote one.
+        for task in built['tasks']:
+            kept = [d for d in task['chi_tiet'] if not (':' in d[:48] and d.split(':', 1)[0].strip() in labels)]
+            report['details_dropped'] += len(task['chi_tiet']) - len(kept)
+            task['chi_tiet'] = kept
         for column in labels:
             report.setdefault('label_columns', {})
             report['label_columns'][column] = report['label_columns'].get(column, 0) + 1
