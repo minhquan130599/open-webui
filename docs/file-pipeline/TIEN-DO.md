@@ -273,3 +273,8 @@ Làm lại:
 - Thử bằng model giả trên 29 file bảng của production: không mất dòng, không trùng khóa, không còn "nan"; 14/14 kiểm tra
   (KPI_PM 6 chỉ tiêu, loại người / hạn / % không có trong dòng, ngày gốc thắng ngày model đổi sai, dòng không trả lời
   được giữ, ô gộp được điền, văn bản giữ hạn có chữ gốc). Chất lượng đọc của model thật cần chạy table_check trên dev.
+- Kênh có danh sách việc rất dài (BD2 Timeline 252 việc): lời nhắc tổng hợp tin nhắn đưa toàn bộ danh sách (~62.000 ký
+  tự, ~20k token) cộng đợt tin (~8k) và câu trả lời (4k) vượt ngữ cảnh 32k, mọi tin mới của kênh sẽ lỗi. Nay danh sách
+  trong lời nhắc giới hạn TRACKER_STATE_PROMPT_CHARS (24.000 ký tự): ưu tiên việc mà tin mới nói tới (trùng chữ ở tên,
+  người, chi tiết), rồi việc từ tin nhắn và việc mới cập nhật; ghi rõ "còn N việc khác vẫn giữ nguyên". Với 252 việc và
+  một tin về OPP NAC: còn ~8k token, đủ 28 việc NAC. Bảng tiến độ và dữ liệu không đổi.

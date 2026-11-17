@@ -51,6 +51,9 @@ TRACKER_BATCH_MAX_CHARS = _int_env('TRACKER_BATCH_MAX_CHARS', 24_000)
 # A longer message is not cut: it is read in parts of this size over consecutive updates.
 TRACKER_MESSAGE_MAX_CHARS = _int_env('TRACKER_MESSAGE_MAX_CHARS', 12_000)
 TRACKER_STATE_MAX_CHARS = _int_env('TRACKER_STATE_MAX_CHARS', 12_000)
+# Work items shown to the update model with each batch: a plan of hundreds of rows is cut to the items the new
+# messages are about, so state + messages + answer stay within a 32k-token context.
+TRACKER_STATE_PROMPT_CHARS = _int_env('TRACKER_STATE_PROMPT_CHARS', 24_000)
 
 # Unprocessed messages injected verbatim when answering, so answers include the latest activity.
 TRACKER_TAIL_LIMIT = _int_env('TRACKER_TAIL_LIMIT', 50)

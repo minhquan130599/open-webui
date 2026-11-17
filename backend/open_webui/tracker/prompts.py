@@ -3,6 +3,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+from open_webui.tracker.config import TRACKER_STATE_PROMPT_CHARS
 from open_webui.tracker.schema import ProjectState, state_for_prompt
 
 _TRIVIAL_RE = re.compile(
@@ -122,7 +123,7 @@ def build_update_messages(
     lines = [
         format_message_line(ref_by_id[m.id], m, tz, ref_by_id.get(m.parent_id), message_max_chars) for m in messages
     ]
-    previous = state_for_prompt(state)
+    previous = state_for_prompt(state, '\n'.join(lines), TRACKER_STATE_PROMPT_CHARS)
     user_prompt = (
         f'Hôm nay: {format_time(now_ns, tz)[:10]}\n'
         f'Kênh (dự án): {channel_name}\n'

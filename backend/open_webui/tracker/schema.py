@@ -588,12 +588,49 @@ def load_state(data: Optional[dict]) -> ProjectState:
         return ProjectState()
 
 
-def state_for_prompt(state: ProjectState) -> str:
-    """The previous state as the LLM sees it: one compact line per item with its id, no sources or bookkeeping."""
+def _words(text: str) -> set[str]:
+    return {w for w in normalize_key(text).split() if len(w) >= 3 or w.isdigit()}
+
+
+def _items_for_prompt(items: list, focus: str, max_chars: Optional[int]) -> tuple[list, int]:
+    """The items to show and how many are left out. A long list (a plan of hundreds of rows) does not fit the
+    model's context with the new messages: the items those messages are about come first (shared words with them:
+    names, owners, details), then the most recently changed; the order of the list is kept."""
+    if not max_chars:
+        return items, 0
+    sizes = [len(item.ten) + sum(len(d) for d in item.chi_tiet[:3]) + 60 for item in items]
+    if sum(sizes) <= max_chars:
+        return items, 0
+    asked = _words(focus)
+
+    def score(index: int) -> tuple:
+        item = items[index]
+        text = ' '.join([item.ten, *item.phu_trach, *item.chi_tiet, item.vuong_mac or ''])
+        from_message = not any(n.startswith('table:') for n in item.nguon)
+        return (len(_words(text) & asked), from_message, item.cap_nhat_luc or '', -index)
+
+    chosen, used = set(), 0
+    for index in sorted(range(len(items)), key=score, reverse=True):
+        if used + sizes[index] > max_chars:
+            continue
+        chosen.add(index)
+        used += sizes[index]
+    return [item for index, item in enumerate(items) if index in chosen], len(items) - len(chosen)
+
+
+def state_for_prompt(state: ProjectState, focus: str = '', max_chars: Optional[int] = None) -> str:
+    """The previous state as the LLM sees it: one compact line per item with its id, no sources or bookkeeping.
+    With max_chars, a long list keeps the items the focus text (the new messages) is about."""
     lines = [f'tong_quan: {state.tong_quan}'] if state.tong_quan else []
     if state.hang_muc:
+        shown, hidden = _items_for_prompt(state.hang_muc, focus, max_chars)
         lines.append('hang_muc (id | ten | phu_trach | trang_thai | tien_do | han | vuong_mac):')
-        for item in state.hang_muc:
+        if hidden:
+            lines.append(
+                f'(chỉ liệt kê {len(shown)}/{len(state.hang_muc)} việc liên quan tới tin mới; {hidden} việc khác vẫn giữ '
+                'nguyên, không cần nhắc lại và không tạo lại)'
+            )
+        for item in shown:
             fields = [
                 f'#{item.id}',
                 item.ten + (f' ({"; ".join(item.chi_tiet)[:200]})' if item.chi_tiet else ''),
