@@ -1258,9 +1258,10 @@
       const rep = r.report || {};
       const sp = rep.split;
       if (sp && sp.rows) {
-        const parts = [`${n(sp.rows)} dòng → ${n(sp.tasks)} việc${sp.gaps ? ` + <b>${n(sp.gaps)} yêu cầu chưa giao</b>` : ''}`,
+        const parts = [`${n(sp.rows)} dòng → ${n(sp.tasks)} việc${sp.gaps ? ` + <b>${n(sp.gaps)} đề xuất từ yêu cầu</b>` : ''}`,
           `ý: ${n(sp.placed_by_model)}/${n(sp.ideas)} model xếp${sp.added_by_code ? `, <span class="pill warn">${n(sp.added_by_code)} code thêm vào chi tiết</span>` : ''}`];
         const bad = [sp.owners_rejected ? `${n(sp.owners_rejected)} người ngoài cột bị loại` : '', sp.due_rejected ? `${n(sp.due_rejected)} hạn không có trong câu bị loại` : '', sp.titles_replaced ? `${n(sp.titles_replaced)} tên thay bằng câu gốc` : ''].filter(Boolean);
+        if ((rep.stats || {}).shared_codes) bad.push(`${n(rep.stats.shared_codes)} mã dùng cho nhiều dòng (giữ riêng theo số dòng)`);
         if (sp.due_accepted) parts.push(`${n(sp.due_accepted)} hạn riêng đã kiểm`);
         if (sp.retried) parts.push(`hỏi lại ${n(sp.retried)} dòng`);
         return `<span class="muted" style="font-size:11.5px">${parts.join(' · ')}${bad.length ? `<br><span style="color:var(--amber, #b45309)">${bad.join(' · ')}</span>` : ''}</span>`;

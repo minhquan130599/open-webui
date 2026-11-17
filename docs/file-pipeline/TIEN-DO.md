@@ -234,3 +234,7 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   JSON hỏng hai lần thì nhóm tin được đọc lại thành hai nửa (đến từng tin), theo đúng thứ tự.
 - Monitor: nút "Tổng hợp lại tất cả kênh đang hoạt động" (kênh có tin nhắn trong 30 ngày), xác nhận kèm danh sách kênh,
   số tin, số việc; kênh đang tổng hợp được bỏ qua; worker xử lý lần lượt vài kênh một lúc. Cần phiên chỉnh sửa.
+- Nhập bảng mất dòng khi cột "mã" trùng giữa nhiều dòng (KPI_Presale 17 việc → 13 đầu việc, KPI_PM 13 → 11 trên
+  server): các dòng cùng mã có cùng khóa nên bị gộp còn một. Nay mã dùng cho nhiều dòng thì khóa thêm số dòng
+  ("Doanh số dòng 2"), thống kê "shared_codes" hiện trên monitor; nhãn "yêu cầu chưa giao" đổi thành "đề xuất từ yêu cầu".
+  Kênh đã nhập file kiểu này cần "Tổng hợp lại kênh" để lấy lại các dòng bị gộp.

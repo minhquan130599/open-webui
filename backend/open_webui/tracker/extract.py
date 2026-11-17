@@ -550,6 +550,14 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
     items, bad_rows = [], []
     named = date_filled = date_ok = status_filled = 0
     unmapped: dict[str, int] = {}
+    # A code shared by several rows (a group or KPI column chosen as the code) identifies none of them: those rows
+    # are keyed by code and row number, so they are not merged into one.
+    code_count: dict[str, int] = {}
+    for _, row in data:
+        value = cell(row, idx['ma'])
+        if value:
+            code_count[value] = code_count.get(value, 0) + 1
+    shared_codes = sum(1 for n in code_count.values() if n > 1)
     for number, row in data:
         title = ' – '.join(_unbullet(v) for v in (cell(row, i) for i in name_idx) if v)[:3000]
         if not title:
@@ -599,7 +607,7 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
                 'vuong_mac': cell(row, idx['vuong_mac'])[:300] or None,
                 'trich_dan': f'{sheet["name"]}!{column_letter(name_idx[0]) if name_idx else "A"}{number}',
                 'dong': number,
-                'khoa': f'table:{sheet["name"]}:{code or number}',
+                'khoa': f'table:{sheet["name"]}:{(f"{code} dòng {number}" if code_count.get(code, 0) > 1 else code) if code else number}',
                 'xac_minh': True,
                 'ngu_canh': '\n'.join(_unbullet(cell(row, i)) for i in context_idx if cell(row, i))[:1500],
                 'mo_ta': '\n'.join(_unbullet(cell(row, i)) for i in detail_idx if cell(row, i))[:1500],
@@ -625,7 +633,7 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
         )
     return {
         'items': items,
-        'stats': {'sheet': sheet['name'], 'rows': rows, 'named': named, 'dates': date_filled, 'dates_ok': date_ok},
+        'stats': {'sheet': sheet['name'], 'rows': rows, 'named': named, 'dates': date_filled, 'dates_ok': date_ok, 'shared_codes': shared_codes},
         'issues': issues,
         'bad_rows': bad_rows[:8],
         'columns': names,
