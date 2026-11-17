@@ -4794,5 +4794,20 @@
 	"Assign owner": "Gán người phụ trách",
 	"Given to a role or team": "Giao theo chức vụ / nhóm",
 	"Members & roles": "Thành viên & chức vụ",
-	"From now on, \"{{name}}\" in this channel means this person": "Từ nay \"{{name}}\" trong kênh này là người này"
+	"From now on, \"{{name}}\" in this channel means this person": "Từ nay \"{{name}}\" trong kênh này là người này",
+	"Guide": "Hướng dẫn",
+	"Project progress tracking is not enabled": "Chưa bật theo dõi tiến độ dự án",
+	"Managers (team leads)": "Người quản lý kênh (team lead)",
+	"Run the channel progress like the owner: assign, close and cancel work items, edit roles, see the team view, receive the daily summary and the Monday \"to assign\" reminder. The owner and admins name or remove managers.": "Quản lý tiến độ của kênh như chủ kênh: gán, đóng, hủy đầu việc, sửa chức vụ, xem chế độ Nhóm ở trang Công việc, nhận email tổng hợp hằng ngày và nhắc \"việc cần phân công\" sáng thứ Hai. Chủ kênh và admin đặt hoặc bỏ người quản lý.",
+	"Changing the owner": "Chuyển chủ kênh",
+	"The owner or an admin hands the channel to another member; the previous owner stays as a manager. Messages, files and work items are kept, so a lead leaving the company does not mean a new channel.": "Chủ kênh hoặc admin chuyển kênh cho thành viên khác; chủ cũ trở thành người quản lý. Tin nhắn, file và đầu việc giữ nguyên, nên trưởng nhóm nghỉ việc không phải tạo kênh mới.",
+	"When the owner account is disabled": "Khi tài khoản chủ kênh bị khóa (nghỉ việc)",
+	"Every morning the system picks a new owner, in this order: (1) the earliest named manager; (2) a system admin of the channel (group channel: a member; standard channel: someone who wrote in it); (3) whoever wrote the most in the channel over the last 90 days; (4) group channel: the earliest member, standard channel: the longest-standing system admin. Only active accounts count. The new owner is notified. Name a manager before a lead leaves so the choice is yours.": "Mỗi sáng hệ thống tự chọn chủ kênh mới theo thứ tự: (1) người quản lý kênh được bổ nhiệm sớm nhất; (2) admin hệ thống trong kênh (kênh nhóm: là thành viên; kênh thường: đã từng nhắn trong kênh); (3) người nhắn nhiều nhất trong kênh 90 ngày qua; (4) kênh nhóm: thành viên vào kênh sớm nhất, kênh thường: admin hệ thống lâu năm nhất. Chỉ xét tài khoản còn hoạt động. Chủ kênh mới nhận thông báo. Nên bổ nhiệm người quản lý trước khi trưởng nhóm nghỉ để chủ động chọn người.",
+	"Work given to everyone": "Giao việc chung",
+	"\"mọi người\", \"toàn team\", \"các nhân sự\" (no @): every member except system admins, the owner, managers, the sender and people marked \"Not given shared work\". \"@all\", \"@mọi người\": every member except the sender, admins and the owner included.": "\"mọi người\", \"toàn team\", \"các nhân sự\" (không có @): mọi thành viên trừ admin hệ thống, chủ kênh, người quản lý, người gửi tin và người được đánh dấu \"Không nhận việc chung\". \"@all\", \"@mọi người\": mọi thành viên trừ người gửi tin, có cả admin và chủ kênh.",
+	"\"các AM\", \"team SOC\": the people of that role. While the channel has not declared it, the item is owned by the team itself (\"AM\") and moves to its people once declared. Learned from messages such as \"AM: @A, @B\", or edited here (an edited role is kept as is).": "\"các AM\", \"team SOC\": giao cho những người giữ chức vụ / thuộc nhóm đó. Khi kênh chưa khai báo, người phụ trách là chính nhóm (\"AM\") và tự chuyển cho thành viên khi khai báo. Hệ thống tự học từ tin nhắn kiểu \"AM: @A, @B\", hoặc sửa tay tại đây (chức vụ đã sửa tay được giữ nguyên).",
+	"Same names": "Trùng tên",
+	"Tag people with @ to be certain: a tag carries the account. A name two members share, written without a tag, is not assigned; the owner chooses.": "Tag người bằng @ để chắc chắn: tag gắn đúng tài khoản. Tên hai thành viên trùng nhau mà viết không tag thì không gán, chủ kênh chọn người.",
+	"Aliases": "Bí danh",
+	"When you assign a name that matches no account (\"Duy\") by hand, you can remember it for this channel. Not offered for a name two members share.": "Khi gán tay một tên chưa khớp tài khoản nào (\"Duy\"), có thể ghi nhớ cho kênh này. Không áp dụng cho tên mà hai thành viên trùng nhau."
 }

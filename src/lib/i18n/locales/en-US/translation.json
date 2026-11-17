@@ -4704,5 +4704,20 @@
 	"Assign owner": "",
 	"Given to a role or team": "",
 	"Members & roles": "",
-	"From now on, \"{{name}}\" in this channel means this person": ""
+	"From now on, \"{{name}}\" in this channel means this person": "",
+	"Guide": "",
+	"Project progress tracking is not enabled": "",
+	"Managers (team leads)": "",
+	"Run the channel progress like the owner: assign, close and cancel work items, edit roles, see the team view, receive the daily summary and the Monday \"to assign\" reminder. The owner and admins name or remove managers.": "",
+	"Changing the owner": "",
+	"The owner or an admin hands the channel to another member; the previous owner stays as a manager. Messages, files and work items are kept, so a lead leaving the company does not mean a new channel.": "",
+	"When the owner account is disabled": "",
+	"Every morning the system picks a new owner, in this order: (1) the earliest named manager; (2) a system admin of the channel (group channel: a member; standard channel: someone who wrote in it); (3) whoever wrote the most in the channel over the last 90 days; (4) group channel: the earliest member, standard channel: the longest-standing system admin. Only active accounts count. The new owner is notified. Name a manager before a lead leaves so the choice is yours.": "",
+	"Work given to everyone": "",
+	"\"mọi người\", \"toàn team\", \"các nhân sự\" (no @): every member except system admins, the owner, managers, the sender and people marked \"Not given shared work\". \"@all\", \"@mọi người\": every member except the sender, admins and the owner included.": "",
+	"\"các AM\", \"team SOC\": the people of that role. While the channel has not declared it, the item is owned by the team itself (\"AM\") and moves to its people once declared. Learned from messages such as \"AM: @A, @B\", or edited here (an edited role is kept as is).": "",
+	"Same names": "",
+	"Tag people with @ to be certain: a tag carries the account. A name two members share, written without a tag, is not assigned; the owner chooses.": "",
+	"Aliases": "",
+	"When you assign a name that matches no account (\"Duy\") by hand, you can remember it for this channel. Not offered for a name two members share.": ""
 }

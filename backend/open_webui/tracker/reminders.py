@@ -211,9 +211,9 @@ async def handover_channels() -> list[dict]:
     moves = await team.handover_left_owners([c.id for c in channels])
     for move in moves:
         if move['to']:
-            log.info('Channel %s: owner %s left, now owned by manager %s', move['channel'], move['from'], move['to'])
+            log.info('Channel %s: owner %s left, now owned by %s (%s)', move['channel'], move['from'], move['to'], move['reason'])
         else:
-            log.warning('Channel %s: owner %s left and the channel has no manager; an admin must choose', move['channel'], move['from'])
+            log.warning('Channel %s: owner %s left and nobody can take over; an admin must choose', move['channel'], move['from'])
     return moves
 
 

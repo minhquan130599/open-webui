@@ -22,6 +22,7 @@
 	import Visibility from '$lib/components/workspace/common/Visibility.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import WebhooksModal from '$lib/components/channel/WebhooksModal.svelte';
+	import ChannelTeamModal from '$lib/components/channel/ChannelTeamModal.svelte';
 
 	export let show = false;
 	export let onSubmit: Function = () => {};
@@ -108,6 +109,7 @@
 
 	let showDeleteConfirmDialog = false;
 	let showWebhooksModal = false;
+	let showTeamModal = false;
 
 	const deleteHandler = async () => {
 		showDeleteConfirmDialog = false;
@@ -285,6 +287,22 @@
 						</div>
 					{/if}
 
+					{#if edit && type !== 'dm'}
+						<div class="flex w-full mt-2 items-center justify-between">
+							<div class="text-xs text-gray-500">{$i18n.t('Members & roles')}</div>
+
+							<button
+								class="text-xs bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-700 outline-hidden text-left"
+								type="button"
+								on:click={() => {
+									showTeamModal = true;
+								}}
+							>
+								{$i18n.t('Manage')}
+							</button>
+						</div>
+					{/if}
+
 					{#if edit}
 						<div class="flex w-full mt-2 items-center justify-between">
 							<div class="text-xs text-gray-500">{$i18n.t('Webhooks')}</div>
@@ -348,3 +366,4 @@
 />
 
 <WebhooksModal bind:show={showWebhooksModal} {channel} />
+<ChannelTeamModal bind:show={showTeamModal} {channel} />

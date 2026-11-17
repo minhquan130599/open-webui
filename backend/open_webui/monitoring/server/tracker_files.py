@@ -115,7 +115,10 @@ async def tracked_channels():
                (SELECT count(*) FROM jsonb_array_elements(coalesce(s.state::jsonb->'hang_muc', '[]'::jsonb)) i
                  WHERE jsonb_array_length(coalesce(i->'phu_trach_ids', '[]'::jsonb))
                      < jsonb_array_length(coalesce(i->'phu_trach', '[]'::jsonb))
-                       - jsonb_array_length(coalesce(i->'ben_ngoai', '[]'::jsonb))) AS unlinked_items,
+                       - jsonb_array_length(coalesce(i->'ben_ngoai', '[]'::jsonb))
+                       - jsonb_array_length(coalesce(i->'doi_nhom', '[]'::jsonb))) AS unlinked_items,
+               (SELECT count(*) FROM jsonb_array_elements(coalesce(s.state::jsonb->'hang_muc', '[]'::jsonb)) i
+                 WHERE jsonb_array_length(coalesce(i->'doi_nhom', '[]'::jsonb)) > 0) AS team_items,
                o.name AS owner_name, (o.role = 'pending' OR o.id IS NULL) AS owner_left,
                (SELECT string_agg(mu.name, ', ') FROM channel_member cm JOIN "user" mu ON mu.id = cm.user_id
                  WHERE cm.channel_id = s.channel_id AND cm.role = 'manager' AND cm.is_active) AS managers,

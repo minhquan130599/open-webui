@@ -169,3 +169,8 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   danh sách người; "thêm / cùng / hỗ trợ" và trường hợp model không đánh dấu thì giữ người cũ và thêm người mới. Đã test
   trên việc báo cáo AM của bd3_csc_proj_26: chuyển hết cho Hùng → Hùng; thêm Tuấn Anh → Hùng + Tuấn Anh; bỏ Hùng chỉ còn
   Tuấn Anh → Tuấn Anh; thêm Nghĩa không đánh dấu → Tuấn Anh + Nghĩa.
+- Nhóm 9 bổ sung: "Thành viên & chức vụ" chuyển vào Chỉnh sửa kênh (nút "Quản lý", có mục Hướng dẫn chi tiết); bảng tiến
+  độ ẩn nút "Nguồn", danh sách chính chỉ hiện việc đã có người phụ trách (người hoặc team), việc chưa gán ở tab "Chưa gán (N)".
+  Chủ kênh bị khóa tài khoản: chọn chủ mới theo thứ tự quản lý → admin hệ thống trong kênh (kênh nhóm: thành viên; kênh
+  thường: người từng nhắn) → người nhắn nhiều nhất 90 ngày → kênh nhóm: thành viên vào sớm nhất / kênh thường: admin hệ
+  thống lâu năm nhất; người được chọn nhận thông báo. Monitor: cột "chưa liên kết" không đếm team (SOC, TI…).

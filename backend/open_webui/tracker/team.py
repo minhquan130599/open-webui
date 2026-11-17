@@ -246,8 +246,11 @@ async def set_manager(channel_id: str, user_id: str, manager: bool) -> bool:
         return bool(result.rowcount)
 
 
-async def transfer_owner(channel_id: str, user_id: str, keep_previous_as_manager: bool = True) -> bool:
-    """Make another active member the channel owner; the previous owner stays as a manager (unless they left)."""
+async def transfer_owner(
+    channel_id: str, user_id: str, keep_previous_as_manager: bool = True, require_member: bool = True
+) -> bool:
+    """Make another active member the channel owner; the previous owner stays as a manager (unless they left).
+    A standard channel (access by groups, no member list) may also go to someone who wrote in it."""
     async with get_async_db_context() as db:
         channel = await db.get(Channel, channel_id)
         member = (
@@ -257,12 +260,14 @@ async def transfer_owner(channel_id: str, user_id: str, keep_previous_as_manager
                 )
             )
         ).scalars().first()
-        if not channel or not member:
+        group = bool(channel and channel.type in ('group', 'dm'))
+        if not channel or (not member and (require_member or group)):
             return False
         previous = channel.user_id
         channel.user_id = user_id
         channel.updated_at = time.time_ns()
-        member.role = None  # the owner needs no manager role
+        if member:
+            member.role = None  # the owner needs no manager role
         if previous and previous != user_id and keep_previous_as_manager:
             before = (
                 await db.execute(
@@ -277,9 +282,83 @@ async def transfer_owner(channel_id: str, user_id: str, keep_previous_as_manager
     return True
 
 
+SUCCESSION_DAYS = 90
+SUCCESSION_REASONS = {
+    'manager': 'người quản lý kênh được bổ nhiệm sớm nhất',
+    'admin': 'admin hệ thống trong kênh',
+    'active': f'người nhắn nhiều nhất trong kênh {SUCCESSION_DAYS} ngày qua',
+    'member': 'thành viên vào kênh sớm nhất',
+    'system_admin': 'admin hệ thống lâu năm nhất',
+}
+
+
+async def pick_successor(channel) -> tuple[Optional[str], Optional[str]]:
+    """Who takes over a channel whose owner left: (user id, reason) or (None, None).
+
+    1. its managers (team leads), the earliest named first;
+    2. a system admin among its members (group channel) or among the people who wrote in it (standard channel);
+    3. whoever wrote the most in it over the last 90 days;
+    4. group channel: the earliest member; standard channel: the longest-standing system admin.
+    Only active accounts count; in a group channel only active members."""
+    from open_webui.models.messages import Message
+
+    group = channel.type in ('group', 'dm')
+    async with get_async_db_context() as db:
+        members = (
+            await db.execute(
+                select(ChannelMember)
+                .where(ChannelMember.channel_id == channel.id, ChannelMember.user_id.is_not(None), ChannelMember.is_active.is_(True))
+                .order_by(ChannelMember.joined_at)
+            )
+        ).scalars().all()
+        since = time.time_ns() - SUCCESSION_DAYS * 86400 * 1_000_000_000
+        rows = (
+            await db.execute(
+                select(Message.user_id, Message.meta)
+                .where(Message.channel_id == channel.id, Message.created_at >= since, Message.user_id.is_not(None))
+                .limit(5000)
+            )
+        ).all()
+    posts: dict[str, int] = {}
+    for user_id, meta in rows:
+        if (meta or {}).get('model_id') or (meta or {}).get('automation_id'):
+            continue  # assistant replies and automations are not people
+        posts[user_id] = posts.get(user_id, 0) + 1
+    member_ids = [m.user_id for m in members if m.user_id != channel.user_id]
+    ids = list(dict.fromkeys([*member_ids, *posts]))
+    users = {u.id: u for u in await Users.get_users_by_user_ids(ids)} if ids else {}
+
+    def eligible(user_id: str) -> bool:
+        user = users.get(user_id)
+        if not user or user.role in LEFT_ROLES or user_id == channel.user_id:
+            return False
+        return not group or user_id in member_ids
+
+    managers = [m.user_id for m in members if m.role == 'manager' and eligible(m.user_id)]
+    if managers:
+        return managers[0], 'manager'
+    pool = member_ids if group else list(posts)
+    admins = [i for i in pool if eligible(i) and users[i].role == 'admin']
+    if admins:
+        return max(admins, key=lambda i: posts.get(i, 0)), 'admin'
+    writers = sorted((i for i in posts if eligible(i)), key=lambda i: -posts[i])
+    if writers:
+        return writers[0], 'active'
+    if group:
+        rest = [i for i in member_ids if eligible(i)]
+        return (rest[0], 'member') if rest else (None, None)
+    from open_webui.models.users import User
+
+    async with get_async_db_context() as db:
+        admin_ids = (
+            await db.execute(select(User.id).where(User.role == 'admin', User.id != channel.user_id).order_by(User.created_at))
+        ).scalars().all()
+    return (admin_ids[0], 'system_admin') if admin_ids else (None, None)
+
+
 async def handover_left_owners(channel_ids: list[str]) -> list[dict]:
-    """Channels whose owner's account is disabled or deleted pass to their longest-serving active manager.
-    Returns [{'channel_id', 'from', 'to'}] (to None when the channel has no manager: an admin must choose)."""
+    """Channels whose owner's account is disabled or deleted pass to a successor (pick_successor), who is told.
+    Returns [{'channel_id', 'channel', 'from', 'to', 'reason'}] (to None when nobody qualifies: an admin must choose)."""
     moves = []
     async with get_async_db_context() as db:
         channels = (await db.execute(select(Channel).where(Channel.id.in_(channel_ids)))).scalars().all() if channel_ids else []
@@ -289,22 +368,35 @@ async def handover_left_owners(channel_ids: list[str]) -> list[dict]:
         owner = users.get(channel.user_id)
         if owner and owner.role not in LEFT_ROLES:
             continue
-        async with get_async_db_context() as db:
-            managers = (
-                await db.execute(
-                    select(ChannelMember)
-                    .where(
-                        ChannelMember.channel_id == channel.id,
-                        ChannelMember.role == 'manager',
-                        ChannelMember.is_active.is_(True),
-                    )
-                    .order_by(ChannelMember.joined_at)
-                )
-            ).scalars().all()
-        candidates = [m.user_id for m in managers if m.user_id]
-        active = {u.id for u in await Users.get_users_by_user_ids(candidates) if u.role not in LEFT_ROLES} if candidates else set()
-        successor = next((c for c in candidates if c in active), None)
-        if successor:
-            await transfer_owner(channel.id, successor, keep_previous_as_manager=False)
-        moves.append({'channel_id': channel.id, 'channel': channel.name, 'from': channel.user_id, 'to': successor})
+        successor, reason = await pick_successor(channel)
+        if successor and await transfer_owner(channel.id, successor, keep_previous_as_manager=False, require_member=False):
+            await _tell_new_owner(channel, successor, reason)
+        else:
+            successor = None
+        moves.append({'channel_id': channel.id, 'channel': channel.name, 'from': channel.user_id, 'to': successor,
+                      'reason': SUCCESSION_REASONS.get(reason or '', '')})
     return moves
+
+
+async def _tell_new_owner(channel, user_id: str, reason: Optional[str]) -> None:
+    try:
+        from open_webui.internal.db import get_async_db
+        from open_webui.models.notifications import emit_changes, insert_notifications
+
+        async with get_async_db() as db:
+            await insert_notifications(
+                recipients={user_id: 'tracker.due'},
+                event_key=f'tracker.owner:{channel.id}:{user_id}',
+                resource_type='channel',
+                resource_id=channel.id,
+                object_type='channel',
+                object_id=channel.id,
+                data={'message': f'Bạn đã trở thành chủ kênh "{channel.name}" vì tài khoản chủ kênh cũ đã bị khóa '
+                                 f'({SUCCESSION_REASONS.get(reason or "", "")}). Có thể chuyển cho người khác trong Chỉnh sửa kênh.',
+                      'kind': 'owner_handover'},
+                db=db,
+            )
+            await db.commit()
+        await emit_changes({user_id})
+    except Exception:
+        log.exception('Could not tell %s about owning channel %s', user_id, channel.id)

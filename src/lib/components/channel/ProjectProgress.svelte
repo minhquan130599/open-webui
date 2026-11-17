@@ -22,7 +22,6 @@
 	} from '$lib/apis/tracker';
 
 	import ConfirmDialog from '../common/ConfirmDialog.svelte';
-	import ChannelTeam from './ChannelTeam.svelte';
 	import Spinner from '../common/Spinner.svelte';
 	import Tooltip from '../common/Tooltip.svelte';
 	import XMark from '../icons/XMark.svelte';
@@ -38,7 +37,7 @@
 
 	const POLL_MS = 20_000;
 
-	type Filter = 'all' | 'mine' | 'overdue' | 'blocked' | 'active' | 'done';
+	type Filter = 'all' | 'mine' | 'overdue' | 'blocked' | 'active' | 'done' | 'unassigned';
 
 	let tracker: TrackerState | null = null;
 	let items: TrackerItem[] = [];
@@ -292,7 +291,13 @@
 		.filter(needsAttention)
 		.sort((a, b) => (daysLeft(a) ?? 99) - (daysLeft(b) ?? 99));
 
+	// Items nobody owns (no person, no team) wait in their own tab, so the main list shows work someone is on.
+	const isUnassigned = (item: TrackerWorkItem) => !item.phu_trach?.length;
+	$: unassignedCount = all.filter((item) => isUnassigned(item) && !isDone(item)).length;
+
 	const matches = (item: TrackerWorkItem, current: Filter, hide: boolean) => {
+		if (current === 'unassigned') return isUnassigned(item) && !isDone(item);
+		if (isUnassigned(item)) return false;
 		if (current === 'mine') return isMine(item) && (!hide || !isDone(item));
 		if (current === 'overdue') return isOverdue(item);
 		if (current === 'blocked') return item.trang_thai === 'bi_chan';
@@ -664,6 +669,17 @@
 								on:click={() => (filter = value as Filter)}>{$i18n.t(label)}</button
 							>
 						{/each}
+						{#if unassignedCount}
+							<button
+								type="button"
+								class="rounded-full border px-2.5 py-0.5 text-xs transition {filter === 'unassigned'
+									? 'border-amber-600 bg-amber-600 text-white'
+									: 'border-amber-200 text-amber-700 hover:border-amber-400 dark:border-amber-900 dark:text-amber-300'}"
+								aria-pressed={filter === 'unassigned'}
+								on:click={() => (filter = 'unassigned')}
+								>{$i18n.t('Unassigned')} ({unassignedCount})</button
+							>
+						{/if}
 					</div>
 					<div
 						class="flex shrink-0 rounded-lg bg-gray-50 dark:bg-gray-850 p-0.5 text-[0.6875rem]"
@@ -879,16 +895,6 @@
 											class="whitespace-nowrap rounded-full bg-gray-100 px-1.5 py-0.5 font-mono text-[0.6875rem] dark:bg-gray-800"
 											title={`${ref.sheet} · ${ref.code}`}>{ref.code}</span
 										>
-									{/each}
-									{#each sourceIds(item.nguon) as id, i}
-										<button
-											type="button"
-											class="underline-offset-2 hover:underline"
-											on:click={() => onSource(id)}
-										>
-											{$i18n.t('Source')}
-											{i + 1}
-										</button>
 									{/each}
 								</div>
 								{#if item.chi_tiet?.length}
@@ -1207,32 +1213,6 @@
 					{/if}
 				</div>
 
-				{#if team}
-					<div>
-						<button
-							type="button"
-							class="flex w-full items-center gap-2 px-1 py-2.5 text-left text-[0.8125rem] font-medium text-gray-800 hover:text-gray-950 dark:text-gray-200 dark:hover:text-white"
-							aria-expanded={!!expanded.team}
-							on:click={() => toggle('team')}
-						>
-							<svg
-								class="size-3 text-gray-400 transition-transform {expanded.team ? 'rotate-90' : ''}"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2.4"
-								aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg
-							>
-							{$i18n.t('Members & roles')}
-							<span class="ml-auto text-xs font-normal text-gray-500">{team.members.length}</span>
-						</button>
-						{#if expanded.team}
-							<div transition:slide={{ duration: 150 }}>
-								<ChannelTeam channelId={channel.id} {team} onChanged={load} />
-							</div>
-						{/if}
-					</div>
-				{/if}
 			</div>
 		{/if}
 	</div>
