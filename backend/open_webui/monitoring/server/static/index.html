@@ -1066,7 +1066,94 @@
           { label: 'Lúc', render: (r) => when(r.ts) }, { label: 'Kết nối', key: 'endpoint' }, { label: 'HTTP', key: 'http_status' },
           { label: 'Chi tiết', render: (r) => `<span class="muted">${esc(r.error || '')}</span>` },
         ], d.errors, 'Không có lỗi.'))}
+      </div>
+      ${await trackerFilesHtml()}`;
+  }
+
+  // Work items the tracker read from files: what was extracted, what may be missing, conflicts, table descriptions.
+  const tx = { view: null, note: '', editing: '', draft: '' };
+  const TX_STATUS = { chua_bat_dau: 'Chưa bắt đầu', dang_lam: 'Đang làm', bi_chan: 'Bị chặn', tam_dung: 'Tạm dừng', hoan_thanh: 'Hoàn thành' };
+  const TX_FIELD = { han: 'Hạn', phu_trach: 'Phụ trách', trang_thai: 'Trạng thái' };
+  async function trackerFilesHtml() {
+    let d;
+    try { d = await api(`/api/tracker/extractions?range=${range === '24h' || range === '1h' ? '7d' : range}`); }
+    catch (err) { return card('Đầu việc trích từ file', `<div class="error-box">${esc(err.message)}</div>`); }
+    const kindLabel = (r) => { const rep = r.report || {}; if (r.kind === 'table') return rep.mode === 'spec' ? 'Bảng (theo bản mô tả)' : rep.mode === 'model' ? 'Bảng (model đọc theo lô)' : 'Bảng (không có việc)'; return 'Văn bản'; };
+    const items = table([
+      { label: 'Lúc', render: (r) => when(r.created_at) },
+      { label: 'File', render: (r) => `<b>${esc(r.name || (r.source_ids || [])[0] || '')}</b><div class="muted" style="font-size:11px">${esc(r.channel || '')}</div>` },
+      { label: 'Loại', render: (r) => esc(kindLabel(r)) },
+      { label: 'Đầu việc', num: true, render: (r) => n(r.items) },
+      { label: 'Chưa kiểm chứng', num: true, render: (r) => (r.unverified ? `<span class="pill warn">${n(r.unverified)}</span>` : '0') },
+      { label: 'Đọc lại phần nghi thiếu', render: (r) => { const rep = r.report || {}; if (r.kind === 'table') return `<span class="muted" style="font-size:11.5px">${esc((rep.issues || []).join('; ') || (rep.stats ? `${n(rep.stats.named)}/${n(rep.stats.rows)} dòng` : ''))}</span>`; return `${n(rep.rechecked || 0)} phần, thêm ${n(rep.added_by_recheck || 0)} việc${(rep.suspect || []).length ? ` · <span class="pill warn">${rep.suspect.length} phần vẫn nghi thiếu</span>` : ''}`; } },
+      { label: '', render: (r) => `<button class="btn" type="button" data-tx-open="${esc(r.id)}">Xem</button> <button class="btn" type="button" data-tx-reimport="${esc((r.source_ids || [])[0] || '')}" data-tx-name="${esc(r.name || '')}" title="Đọc lại file ở lần tổng hợp sau (cần phiên chỉnh sửa)">Đọc lại</button>` },
+    ], d.items, 'Chưa có file nào được trích đầu việc.');
+    const conflicts = d.conflicts.flatMap((r) => (r.entry.conflicts || []).map((c) => ({ ...c, at: r.at, channel: r.channel, file: r.entry.name })));
+    const conflictRows = table([
+      { label: 'Lúc', render: (r) => when(r.at) },
+      { label: 'Kênh / file', render: (r) => `${esc(r.channel || '')}<div class="muted" style="font-size:11px">${esc(r.file || '')}</div>` },
+      { label: 'Việc', render: (r) => `<b>${esc(r.ten)}</b>` },
+      { label: 'Thay đổi (cũ → mới, đang dùng giá trị mới)', render: (r) => Object.entries(r.thay_doi || {}).map(([k, v]) => `${esc(TX_FIELD[k] || k)}: <s class="muted">${esc(TX_STATUS[v.cu] || v.cu || '—')}</s> → <b>${esc(TX_STATUS[v.moi] || v.moi || '—')}</b>`).join('<br>') },
+      { label: 'Nguồn cũ / mới', render: (r) => `<span class="muted" style="font-size:11px">${esc((r.nguon_cu || []).join(', '))}<br>${esc((r.nguon_moi || []).join(', '))}</span>` },
+    ], conflicts, 'Không có mâu thuẫn.');
+    const specRows = table([
+      { label: 'File', render: (r) => `<b>${esc(r.data.file || '')}</b><div class="muted" style="font-size:11px">${esc(r.id.replace('tablespec:', ''))}</div>` },
+      { label: 'Sheet / tiêu đề', render: (r) => { const sp = r.data.spec || {}; return `${esc(sp.sheet || '—')} · dòng ${esc(sp.dong_tieu_de || '?')}`; } },
+      { label: 'Cột', render: (r) => { const c = (r.data.spec || {}).cot || {}; return `<span class="muted" style="font-size:11.5px">${Object.entries(c).filter(([, v]) => v && (!Array.isArray(v) || v.length)).map(([k, v]) => `${esc(k)}=${esc(Array.isArray(v) ? v.join('+') : v)}`).join(' · ')}</span>`; } },
+      { label: 'Nguồn', render: (r) => (r.data.edited ? '<span class="pill ok">đã sửa tay</span>' : '<span class="pill">model</span>') },
+      { label: '', render: (r) => `<button class="btn" type="button" data-tx-spec="${esc(r.id.replace('tablespec:', ''))}">Sửa</button>` },
+    ], d.specs, 'Chưa có bảng công việc nào được nhập.');
+    const editing = tx.editing ? d.specs.find((r) => r.id === `tablespec:${tx.editing}`) : null;
+    const editor_ = editing ? `<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+        <div class="muted" style="font-size:12.5px;margin-bottom:6px">Bản mô tả của <b>${esc(editing.data.file || '')}</b> (JSON). <code>cot</code>: cột theo chữ cái hoặc tên tiêu đề; <code>ten</code> là danh sách cột ghép thành tên việc; <code>trang_thai</code>: giá trị trong file → chua_bat_dau | dang_lam | bi_chan | tam_dung | hoan_thanh. Bản đã sửa tay không bị model thay; lưu xong bấm <b>Đọc lại</b> ở file để áp dụng.</div>
+        <textarea id="tx-spec" spellcheck="false" style="width:100%;min-height:260px;font-family:var(--mono, monospace);font-size:12px">${esc(tx.draft || JSON.stringify(editing.data.spec || {}, null, 2))}</textarea>
+        <div style="display:flex;gap:6px;margin-top:6px"><button class="btn primary" type="button" data-tx-spec-save="${esc(tx.editing)}">Lưu bản mô tả</button><button class="btn" type="button" data-tx-spec-close>Đóng</button></div></div>` : '';
+    return `${card('Đầu việc trích từ file', `
+        <p class="muted" style="font-size:12.5px;margin:-4px 0 10px">Tracker đọc hết mọi phần của file (văn bản sạch sau sửa OCR) và trích từng đầu việc kèm câu gốc, trang. Phần có nhiều dòng giống đầu việc mà trích được ít được đọc lại lần 2. Việc có câu gốc khớp văn bản được đưa thẳng vào trạng thái dự án; việc chưa khớp chỉ đưa cho model tổng hợp cân nhắc. Bảng Excel: model mô tả bảng một lần, code đọc mọi dòng theo bản mô tả.</p>
+        ${tx.note ? `<div class="notice info" style="margin-bottom:8px">${esc(tx.note)}</div>` : ''}
+        ${items}<div id="tx-view">${txViewHtml()}</div>`)}
+      <div class="cols">
+        ${card('Mâu thuẫn khi ghép việc trùng', `<p class="muted" style="font-size:12.5px;margin:-4px 0 10px">Một việc đã có trong dự án xuất hiện lại trong file mới với hạn, người phụ trách hoặc trạng thái khác. Giá trị mới hơn được dùng, cả hai nguồn được giữ để đối chiếu.</p>${conflictRows}`)}
+        ${card('Bản mô tả bảng công việc (nhập Excel)', `${specRows}${editor_}`)}
       </div>`;
+  }
+
+  function txViewHtml() {
+    const v = tx.view;
+    if (!v) return '';
+    if (v.loading) return '<div style="margin-top:10px"><span class="spin"></span> Đang tải…</div>';
+    if (v.error) return `<div class="error-box" style="margin-top:10px">${esc(v.error)}</div>`;
+    const data = v.data.data || {};
+    const rep = data.report || {};
+    const list = table([
+      { label: 'Đầu việc', render: (i) => `<b>${esc(i.ten)}</b>${i.vuong_mac ? `<div class="muted" style="font-size:11px">vướng: ${esc(i.vuong_mac)}</div>` : ''}` },
+      { label: 'Phụ trách', render: (i) => esc((i.phu_trach || []).join(', ') || '—') },
+      { label: 'Hạn', render: (i) => esc(i.han || '—') },
+      { label: 'Trạng thái', render: (i) => esc(TX_STATUS[i.trang_thai] || i.trang_thai || '') },
+      { label: 'Vị trí', render: (i) => esc(i.trang ? `tr.${i.trang}` : i.dong ? `dòng ${i.dong}` : '—') },
+      { label: 'Câu gốc', render: (i) => `${i.xac_minh ? '<span class="pill ok">khớp</span>' : '<span class="pill warn">chưa khớp</span>'} <span class="muted" style="font-size:11.5px">${esc(i.trich_dan || '')}</span>` },
+    ], data.items || [], 'Không trích được đầu việc nào.');
+    const suspect = (rep.suspect || []).map((p) => `phần ${p.part}${p.pages ? ` (${esc(p.pages)})` : ''}: ${p.signals} dòng giống đầu việc, trích được ${p.items}`).join('; ');
+    const tableInfo = data.kind === 'table' ? `<div class="muted" style="font-size:12px;margin-bottom:6px">${esc((rep.notes || []).join(' · '))}${rep.stats ? ` · sheet ${esc(rep.stats.sheet || '')}: ${n(rep.stats.named ?? 0)}/${n(rep.stats.rows ?? 0)} dòng có tên việc, ${n(rep.stats.dates_ok ?? 0)}/${n(rep.stats.dates ?? 0)} ô hạn đọc được` : ''}${(rep.issues || []).length ? ` · <span style="color:var(--red)">${esc(rep.issues.join('; '))}</span>` : ''}</div>` : '';
+    return `<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b>${esc(data.name || '')}</b> <button class="btn" type="button" data-tx-close>Đóng</button></div>
+      ${tableInfo}${suspect ? `<div class="notice info" style="margin-bottom:8px">Vẫn nghi thiếu sau khi đọc lại: ${suspect}. Mở file ở các trang này để kiểm tra.</div>` : ''}
+      ${list}</div>`;
+  }
+
+  function drawTxView() { const box = document.getElementById('tx-view'); if (box) box.innerHTML = txViewHtml(); }
+
+  async function openExtraction(id) {
+    if (!editor.token && !fp.key) {
+      const key = prompt('Đầu việc trích chứa nội dung tài liệu. Nhập khóa truy xuất (hoặc mở phiên Chỉnh sửa cấu hình):');
+      if (!key) return;
+      fp.key = key.trim();
+    }
+    tx.view = { loading: true }; drawTxView();
+    try { tx.view = { data: await api(`${fpBase()}/tracker/extractions/${encodeURIComponent(id)}`, { headers: fpHeaders() }) }; }
+    catch (err) { if (!editor.token) fp.key = ''; tx.view = { error: err.message }; }
+    drawTxView();
+    document.getElementById('tx-view')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   let probeResult = null;
@@ -1161,7 +1248,7 @@
 
   // ---------- file pipeline: OCR scores per page, vision repairs ----------
   const FP_STATUS = { queued: ['', 'Chờ xử lý'], running: ['warn', 'Đang xử lý'], done: ['ok', 'Xong'], failed: ['err', 'Lỗi'], skipped: ['', 'Bỏ qua'] };
-  const PAGE_STATUS = { ok: ['ok', 'Tốt'], low: ['warn', 'OCR kém'], repaired: ['ok', 'Đã sửa'], unverified: ['warn', 'Chưa chắc'], failed: ['err', 'Sửa lỗi'] };
+  const PAGE_STATUS = { ok: ['ok', 'Tốt'], low: ['warn', 'OCR kém'], repaired: ['ok', 'Đã sửa'], unverified: ['warn', 'Chưa chắc'], failed: ['err', 'Sửa lỗi'], checked: ['ok', 'Đã kiểm tra'] };
   const FP_STAGE = { pages: 'Chấm điểm trang', repair: 'Sửa OCR bằng vision', rebuild: 'Ghép văn bản', index: 'Lập chỉ mục', summary: 'Tóm tắt sẵn' };
   const FP_METHOD = { text_layer: 'Lớp chữ PDF', ocr: 'OCR', vision: 'Model vision' };
   const FP_ISSUE = { little_text: 'ít/không có chữ', garbled_chars: 'ký tự rác', unreadable_words: 'nhiều từ sai', merged_words: 'từ dính liền', foreign_script: 'chữ Trung/nước ngoài (OCR bịa)', missing_diacritics: 'mất dấu tiếng Việt' };
@@ -1269,7 +1356,36 @@
         <span style="display:flex;gap:6px"><span class="seg"><button type="button" data-fp-mode="raw" aria-pressed="${mode === 'raw'}">Chữ OCR gốc</button><button type="button" data-fp-mode="text" aria-pressed="${mode === 'text'}">Chữ đang dùng</button><button type="button" data-fp-mode="compare" aria-pressed="${mode === 'compare'}">So sánh gốc / sửa</button></span>
         <button class="btn" type="button" data-fp-page-prev ${t.page <= 1 ? 'disabled' : ''}>‹</button><button class="btn" type="button" data-fp-page-next>›</button><button class="btn" type="button" data-fp-page-close>Đóng</button></span>
       </div>
-      <div class="viewer"><div><div class="muted" style="font-size:12px;margin-bottom:4px">Ảnh trang gốc</div>${v.img ? `<img src="${v.img}" alt="Trang ${t.page}">` : `<div class="qbox">${esc(v.imgError || 'Không lấy được ảnh trang')}</div>`}</div><div>${right}</div></div></div>`;
+      <div class="viewer"><div><div class="muted" style="font-size:12px;margin-bottom:4px">Ảnh trang gốc</div>${v.img ? `<img src="${v.img}" alt="Trang ${t.page}">` : `<div class="qbox">${esc(v.imgError || 'Không lấy được ảnh trang')}</div>`}</div><div>${right}</div></div>
+      ${reviewHtml(t, v)}</div>`;
+  }
+
+  // Review of an unsure page: a person picks the right text after comparing it with the image.
+  function reviewHtml(t, v) {
+    const repair = t.repair || {};
+    const checked = t.status === 'checked' ? `<span class="muted" style="font-size:12px">Đã kiểm tra (${esc({ raw: 'dùng chữ OCR gốc', vision: 'dùng chữ vision', current: 'giữ chữ đang dùng', edited: 'sửa tay' }[repair.reviewed_use] || '')}${repair.reviewed_at ? `, ${when(repair.reviewed_at / 1e6)}` : ''}). </span>` : '';
+    if (!editor.token) return `<div class="muted" style="font-size:12px;margin-top:8px">${checked}Để chọn chữ đúng cho trang này cần phiên chỉnh sửa (Thành phần &amp; tài nguyên → Chỉnh sửa cấu hình).</div>`;
+    return `<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">${checked}
+        <span class="muted" style="font-size:12.5px">Sau khi so với ảnh, chọn chữ đúng (file được ghép lại và lập chỉ mục lại, trang được đánh dấu đã kiểm tra):</span>
+        <button class="btn" type="button" data-fp-review="raw">Dùng chữ OCR gốc</button>
+        <button class="btn" type="button" data-fp-review="vision" ${repair.text ? '' : 'disabled'}>Dùng chữ vision</button>
+        <button class="btn" type="button" data-fp-review="current">Chữ đang dùng là đúng</button>
+        <button class="btn" type="button" data-fp-review-edit>Sửa tay…</button></div>
+      ${v.editing ? `<textarea id="fp-edit" spellcheck="false" style="width:100%;min-height:240px;margin-top:6px">${esc(v.draft ?? t.text ?? '')}</textarea>
+        <div style="margin-top:6px"><button class="btn primary" type="button" data-fp-review="edited">Lưu chữ đã sửa</button></div>` : ''}
+      ${v.reviewNote ? `<div class="notice info" style="margin-top:6px">${esc(v.reviewNote)}</div>` : ''}`;
+  }
+
+  async function reviewPage(use) {
+    const v = fp.view;
+    const body = { use };
+    if (use === 'edited') { body.text = document.getElementById('fp-edit')?.value || ''; v.draft = body.text; }
+    try {
+      const r = await api(`/api/admin/files/${encodeURIComponent(fp.fileId)}/pages/${v.data.page}/review`, { method: 'POST', headers: editHeaders(), body: JSON.stringify(body) });
+      v.reviewNote = `Đã lưu trang ${v.data.page} (điểm ${Math.round(r.score)}); file đang được ghép lại và lập chỉ mục lại.`;
+      v.editing = false; v.data.status = 'checked'; fp.detail = null;
+    } catch (err) { v.reviewNote = `Không lưu được: ${err.message}`; }
+    drawFilePage();
   }
 
   function drawFilePage() { const box = document.getElementById('fp-page'); if (box) box.innerHTML = pageHtml(); }
@@ -1368,12 +1484,34 @@
     if (fpCheck) { const page = +fpCheck.dataset.fpSelect; if (fpCheck.checked) fp.selected.add(page); else fp.selected.delete(page); const btn = document.querySelector('[data-fp-repair-selected]'); if (btn) { btn.disabled = !fp.selected.size; btn.textContent = `Sửa lại ${fp.selected.size || ''} trang đã chọn`; } return; }
     const b = e.target.closest('button');
     if (!b) return;
+    if (b.dataset.txOpen) { await openExtraction(b.dataset.txOpen); return; }
+    if (b.dataset.txClose !== undefined) { tx.view = null; drawTxView(); return; }
+    if (b.dataset.txReimport !== undefined) {
+      if (!editor.token) { tx.note = 'Đọc lại cần phiên chỉnh sửa: vào tab Thành phần & tài nguyên → Chỉnh sửa cấu hình rồi bấm lại.'; load(); return; }
+      if (!b.dataset.txReimport || !confirm(`Đọc lại đầu việc của "${b.dataset.txName}" ở lần tổng hợp tới? Việc đã có được cập nhật theo khóa dòng, không tạo trùng.`)) return;
+      try { const r = await api(`/api/admin/tracker/files/${encodeURIComponent(b.dataset.txReimport)}/reimport`, { method: 'POST', headers: editHeaders(), body: '{}' }); tx.note = `Đã xếp lịch đọc lại (${r.messages} tin nhắn ở ${r.channels} kênh); kết quả hiện sau lần tổng hợp tới.`; }
+      catch (err) { tx.note = `Không đọc lại được: ${err.message}`; }
+      load(); return;
+    }
+    if (b.dataset.txSpec) { tx.editing = b.dataset.txSpec; tx.draft = ''; load(); return; }
+    if (b.dataset.txSpecClose !== undefined) { tx.editing = ''; tx.draft = ''; load(); return; }
+    if (b.dataset.txSpecSave) {
+      if (!editor.token) { tx.note = 'Lưu bản mô tả cần phiên chỉnh sửa: vào tab Thành phần & tài nguyên → Chỉnh sửa cấu hình rồi bấm lại.'; load(); return; }
+      const text = document.getElementById('tx-spec')?.value || '';
+      let spec;
+      try { spec = JSON.parse(text); } catch (err) { tx.draft = text; tx.note = `JSON không hợp lệ: ${err.message}`; load(); return; }
+      try { await api(`/api/admin/tracker/table-specs/${encodeURIComponent(b.dataset.txSpecSave)}`, { method: 'POST', headers: editHeaders(), body: JSON.stringify({ spec }) }); tx.note = 'Đã lưu. Bấm "Đọc lại" ở file tương ứng để áp dụng.'; tx.editing = ''; tx.draft = ''; }
+      catch (err) { tx.draft = text; tx.note = `Không lưu được: ${err.message}`; }
+      load(); return;
+    }
     if (b.dataset.fpDownload) { b.disabled = true; await downloadFile(b.dataset.fpDownload, b.dataset.fpName); b.disabled = false; return; }
     if (b.dataset.fpStatus !== undefined) { fp.status = b.dataset.fpStatus; load(); return; }
     if (b.dataset.fpBack !== undefined) { if (fp.view?.img) URL.revokeObjectURL(fp.view.img); fp.fileId = ''; fp.detail = null; fp.view = null; fp.note = ''; load(); return; }
     if (b.dataset.fpFilter !== undefined) { fp.filter = b.dataset.fpFilter; load(); return; }
     if (b.dataset.fpPage) { await openFilePage(+b.dataset.fpPage); return; }
     if (b.dataset.fpMode) { fp.view.mode = b.dataset.fpMode; drawFilePage(); return; }
+    if (b.dataset.fpReview) { b.disabled = true; await reviewPage(b.dataset.fpReview); return; }
+    if (b.dataset.fpReviewEdit !== undefined) { fp.view.editing = !fp.view.editing; drawFilePage(); return; }
     if (b.dataset.fpPagePrev !== undefined) { await openFilePage(fp.view.data.page - 1); return; }
     if (b.dataset.fpPageNext !== undefined) { await openFilePage(fp.view.data.page + 1); return; }
     if (b.dataset.fpPageClose !== undefined) { if (fp.view?.img) URL.revokeObjectURL(fp.view.img); fp.view = null; drawFilePage(); return; }

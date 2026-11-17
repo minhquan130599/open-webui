@@ -676,3 +676,72 @@ async def file_pipeline_backfill(form: BackfillForm, x_monitor_key: Optional[str
     for file_id in ids:
         await FileJobs.enqueue(file_id, {'force': True})
     return {'queued': len(ids)}
+
+
+class TableSpecForm(BaseModel):
+    spec: dict
+
+
+@router.post('/tracker/table-specs/{signature}')
+async def tracker_table_spec(signature: str, form: TableSpecForm, x_monitor_key: Optional[str] = Header(None)):
+    """Save an edited table description; the model never replaces an edited one."""
+    _check(x_monitor_key)
+    from open_webui.tracker.files_admin import save_table_spec
+
+    if not isinstance(form.spec.get('cot'), dict) or not form.spec.get('sheet'):
+        raise HTTPException(status_code=400, detail='Bản mô tả cần có "sheet" và "cot"')
+    return await save_table_spec(signature, form.spec)
+
+
+@router.post('/tracker/files/{file_id}/reimport')
+async def tracker_reimport(file_id: str, x_monitor_key: Optional[str] = Header(None)):
+    """Read a file's work items again on the next tracker run (after editing its table description)."""
+    _check(x_monitor_key)
+    from open_webui.tracker.files_admin import reimport_file
+
+    return await reimport_file(file_id)
+
+
+class PageReviewForm(BaseModel):
+    use: str  # raw | vision | current | edited
+    text: Optional[str] = None
+
+
+@router.post('/files/{file_id}/pages/{page}/review')
+async def file_page_review(file_id: str, page: int, form: PageReviewForm, x_monitor_key: Optional[str] = Header(None)):
+    """A person checked a page: keep the chosen text (first extraction, vision reading, the current one or their
+    own correction), mark it checked, and rebuild and re-index the file without repairing anything again."""
+    _check(x_monitor_key)
+    from open_webui.file_pipeline.models import FileJobs, FilePages
+    from open_webui.utils.file_structure import score_pages
+
+    row = next((r for r in await FilePages.list(file_id) if r.page == page), None)
+    if not row:
+        raise HTTPException(status_code=404, detail='Không có trang này')
+    repair = row.repair or {}
+    if form.use == 'raw':
+        text, method = row.raw_text or '', 'ocr' if row.method == 'vision' else row.method
+    elif form.use == 'vision':
+        if not repair.get('text'):
+            raise HTTPException(status_code=400, detail='Trang này chưa được model vision đọc lại')
+        text, method = repair['text'], 'vision'
+    elif form.use == 'edited':
+        if not (form.text or '').strip():
+            raise HTTPException(status_code=400, detail='Chưa có nội dung sửa')
+        text, method = form.text, 'manual'
+    elif form.use == 'current':
+        text, method = row.text or '', row.method
+    else:
+        raise HTTPException(status_code=400, detail='use phải là raw, vision, current hoặc edited')
+    score = score_pages([text])[0]
+    await FilePages.save(
+        file_id,
+        page,
+        text=text,
+        method=method,
+        status='checked',
+        score=score['score'],
+        repair={**repair, 'reviewed_at': time.time_ns(), 'reviewed_use': form.use},
+    )
+    await FileJobs.enqueue(file_id, {'rebuild': True})
+    return {'saved': True, 'score': score['score'], 'queued': True}

@@ -47,7 +47,7 @@ class FilePage(Base):
     file_id = Column(Text, primary_key=True)
     page = Column(Integer, primary_key=True)  # 1-based
     method = Column(Text, nullable=True)  # text_layer | ocr | vision
-    status = Column(Text, nullable=False)  # ok | low | repaired | unverified | failed
+    status = Column(Text, nullable=False)  # ok | low | repaired | unverified | failed | checked (by a person)
     score = Column(Float, nullable=True)  # score of the text in use
     raw_score = Column(Float, nullable=True)  # score of the first extraction
     issues = Column(JSON, nullable=True)

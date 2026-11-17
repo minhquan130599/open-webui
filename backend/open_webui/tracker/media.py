@@ -1,7 +1,8 @@
-"""Attachment summaries for the tracker: documents (map-reduce over extracted text) and images (vision).
+"""Attachments for the tracker: work items extracted from documents and spreadsheets (see extract.py), and
+image descriptions (vision).
 
-Summaries are cached in tracker_item by content hash, so an attachment posted to several channels is
-summarized once. A file is only read when it belongs to the message author or is linked to the channel,
+Extractions and descriptions are cached in tracker_item by content hash, so an attachment posted to several
+channels is read once. A file is only read when it belongs to the message author or is linked to the channel,
 so a message cannot pull someone else's file into a channel summary by referencing its id.
 """
 
@@ -71,6 +72,12 @@ REDUCE_GROUP_CHARS = 16_000
 class AttachmentResult:
     lines: list[str] = field(default_factory=list)  # "name: summary", one per attachment
     pending: bool = False  # a file is still being extracted by Open WebUI
+    # Structured extractions ({'file_id', 'name', 'cache_id', 'items', 'report'}), merged into the state by code.
+    extractions: list[dict] = field(default_factory=list)
+
+
+# Wait this long at most for the file pipeline (OCR repair) to finish before reading a file as it is.
+PIPELINE_WAIT_SECONDS = 30 * 60
 
 
 def _file_id(item: dict) -> Optional[str]:
@@ -228,29 +235,116 @@ async def _summarize_image(item_id: str, channel_id: str, file_id: str, path: st
     return await _cached(item_id, channel_id, 'image', file_id, compute)
 
 
-async def _summarize_document_file(channel_id: str, file, name: str, content_hash: str) -> tuple[Optional[str], bool]:
-    """Returns (summary or None, still_extracting)."""
+def _today() -> str:
+    import datetime as dt
+
+    from open_webui.tracker.config import TRACKER_TIMEZONE
+    from open_webui.tracker.prompts import get_tz
+
+    return dt.datetime.now(get_tz(TRACKER_TIMEZONE)).date().isoformat()
+
+
+async def _extract(file, name: str) -> dict:
+    from open_webui.file_pipeline.settings import file_settings
+    from open_webui.tracker import extract
+    from open_webui.tracker.models import Trackers
+    from open_webui.utils.file_structure import get_structure, is_spreadsheet
+
+    concurrency = (await file_settings())['files.summary.concurrency']
+    if file.path and is_spreadsheet(file.filename, (file.meta or {}).get('content_type')):
+        from open_webui.file_pipeline.tables import read_grid
+
+        local = await asyncio.to_thread(Storage.get_file, file.path)
+        sheets = await asyncio.to_thread(read_grid, local, file.filename)
+        signature = extract.table_signature(sheets)
+        stored = await Trackers.get_cached_item(f'tablespec:{signature}')
+        cached_spec = (stored.data or {}).get('spec') if stored else None
+        result = await extract.extract_table(name, sheets, _today(), cached_spec, concurrency)
+        if not stored and result['report'].get('spec'):
+            await Trackers.put_cached_item(
+                f'tablespec:{signature}',
+                '',
+                'table_spec',
+                [file.id],
+                name,
+                {'spec': result['report']['spec'], 'edited': False, 'file': name, 'file_id': file.id},
+            )
+        return result
+    content = (file.data or {}).get('content') or ''
+    return await extract.extract_document(name, content, get_structure(file), _today(), concurrency)
+
+
+def _extraction_line(name: str, result: dict) -> str:
+    """What the update LLM sees: verified items are already in the state; unverified ones, decisions and risks
+    are listed for it to judge."""
+    from open_webui.tracker.extract import item_line
+
+    items = result.get('items') or []
+    verified = [i for i in items if i.get('xac_minh')]
+    lines = [f'{len(verified)} đầu việc trích từ file đã được đưa vào hạng mục (nguồn: tin nhắn này).']
+    unverified = [i for i in items if not i.get('xac_minh')]
+    if unverified:
+        lines.append('Việc trích được nhưng chưa khớp câu gốc (chỉ thêm nếu tin nhắn xác nhận):')
+        lines += [item_line(i) for i in unverified[:20]]
+    if result.get('quyet_dinh'):
+        lines.append('Quyết định trong file:')
+        lines += [f'- {d["noi_dung"]}' + (f' ({d["ngay"]})' if d.get('ngay') else '') for d in result['quyet_dinh'][:15]]
+    if result.get('rui_ro'):
+        lines.append('Rủi ro trong file:')
+        lines += [f'- [{r.get("muc_do") or "trung_binh"}] {r["noi_dung"]}' for r in result['rui_ro'][:15]]
+    return _truncate('\n'.join(lines))
+
+
+async def _summarize_document_file(
+    channel_id: str, file, name: str, content_hash: str
+) -> tuple[Optional[str], bool, Optional[dict]]:
+    """Returns (line or None, still_extracting, extraction)."""
+    from open_webui.file_pipeline.status import processing_state
+    from open_webui.tracker import extract
+    from open_webui.tracker.models import Trackers
+
     data = file.data or {}
     content = data.get('content') or ''
     if data.get('status') in ('pending', 'processing') and not content:
-        return None, time.time() - (file.created_at or 0) < TRACKER_FILE_WAIT_SECONDS
+        return None, time.time() - (file.created_at or 0) < TRACKER_FILE_WAIT_SECONDS, None
+    # The pipeline may still be repairing OCR pages: wait for the final text rather than extract twice.
+    if await processing_state(file.id) and time.time() - (file.created_at or 0) < PIPELINE_WAIT_SECONDS:
+        return None, True, None
     if not content.strip():
-        return '(không trích được nội dung)', False
-    summary = await _cached(
-        f'file:{content_hash}', channel_id, 'file', file.id, lambda: summarize_document(name, content)
-    )
-    return summary, False
+        return '(không trích được nội dung)', False, None
+
+    cache_id = f'tasks:v{extract.EXTRACT_VERSION}:{content_hash}:{len(content)}'
+    cached = await Trackers.get_cached_item(cache_id)
+    if cached and (cached.data or {}).get('items') is not None:
+        result = cached.data
+    else:
+        try:
+            result = await _extract(file, name)
+        except llm.TrackerLLMError:
+            raise
+        except Exception as error:
+            # Never lose the file: fall back to the plain progress summary.
+            log.warning('Tracker: structured extraction of %s failed (%s), summarizing instead', file.id, error)
+            summary = await _cached(
+                f'file:{content_hash}', channel_id, 'file', file.id, lambda: summarize_document(name, content)
+            )
+            return summary, False, None
+        result = {**result, 'file_id': file.id, 'name': name}
+        await Trackers.put_cached_item(
+            cache_id, channel_id, 'file_tasks', [file.id], _extraction_line(name, result), result
+        )
+    return _extraction_line(name, result), False, {**result, 'cache_id': cache_id, 'file_id': file.id, 'name': name}
 
 
-async def _summarize_item(channel_id: str, message: Message, item: dict) -> tuple[Optional[str], bool]:
-    """Summary line for one attachment, or None to skip it. Second value: still being extracted."""
+async def _summarize_item(channel_id: str, message: Message, item: dict) -> tuple[Optional[str], bool, Optional[dict]]:
+    """Summary line for one attachment, or None to skip it; still being extracted; structured extraction."""
     file_id = _file_id(item)
     file = await Files.get_file_by_id(file_id) if file_id else None
     if not file:
-        return None, False
+        return None, False, None
     if file.user_id != message.user_id and not await _linked_to_channel(channel_id, file.id):
         log.warning('Tracker: skipping file %s not owned by author nor linked to channel %s', file.id, channel_id)
-        return None, False
+        return None, False, None
 
     name = str(item.get('name') or item.get('filename') or file.filename or 'tệp')
     meta = file.meta or {}
@@ -259,14 +353,14 @@ async def _summarize_item(channel_id: str, message: Message, item: dict) -> tupl
 
     if item.get('type') == 'image' or content_type.startswith('image/'):
         if not TRACKER_ENABLE_IMAGES or not file.path:
-            return None, False
+            return None, False, None
         summary = await _summarize_image(f'image:{content_hash}', channel_id, file.id, file.path)
-        return f'{name}: {summary}', False
+        return f'{name}: {summary}', False, None
 
     if not TRACKER_ENABLE_FILES:
-        return None, False
-    summary, waiting = await _summarize_document_file(channel_id, file, name, content_hash)
-    return (f'{name}: {summary}' if summary else None), waiting
+        return None, False, None
+    summary, waiting, extraction = await _summarize_document_file(channel_id, file, name, content_hash)
+    return (f'{name}: {summary}' if summary else None), waiting, extraction
 
 
 async def summarize_attachments(channel_id: str, message: Message) -> AttachmentResult:
@@ -274,7 +368,7 @@ async def summarize_attachments(channel_id: str, message: Message) -> Attachment
     items = [f for f in ((message.data or {}).get('files') or []) if isinstance(f, dict)]
     for item in items[:TRACKER_MAX_ATTACHMENTS_PER_MESSAGE]:
         try:
-            line, waiting = await _summarize_item(channel_id, message, item)
+            line, waiting, extraction = await _summarize_item(channel_id, message, item)
         except llm.TrackerLLMError:
             raise  # retry the whole batch later rather than lose the attachment
         except Exception as e:
@@ -283,4 +377,6 @@ async def summarize_attachments(channel_id: str, message: Message) -> Attachment
         result.pending = result.pending or waiting
         if line:
             result.lines.append(line)
+        if extraction:
+            result.extractions.append(extraction)
     return result

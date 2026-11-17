@@ -867,6 +867,10 @@ app.include_router(admin_router, dependencies=[Depends(require_login)])
 from open_webui.monitoring.server.files import router as files_router  # noqa: E402
 
 app.include_router(files_router, dependencies=[Depends(require_login)])
+# Tracker: work items extracted from files, conflicts, table descriptions (see tracker_files.py).
+from open_webui.monitoring.server.tracker_files import router as tracker_files_router  # noqa: E402
+
+app.include_router(tracker_files_router, dependencies=[Depends(require_login)])
 
 
 @app.get('/healthz')

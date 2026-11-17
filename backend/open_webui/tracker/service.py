@@ -106,7 +106,7 @@ def _select_batch(messages: list[Message]) -> tuple[list[Message], int]:
 
 
 async def _summarize_batch_attachments(
-    channel_id: str, batch: list[Message]
+    channel_id: str, batch: list[Message], extractions: dict[str, list[dict]]
 ) -> tuple[list[Message], dict[str, list[str]], Optional[Message], bool]:
     """Summarize attachments in message order.
 
@@ -127,7 +127,44 @@ async def _summarize_batch_attachments(
         if index and used > TRACKER_BATCH_MAX_CHARS * 1.4:
             return batch[:index], summaries, message, False
         summaries[message.id] = result.lines
+        if result.extractions:
+            extractions[message.id] = result.extractions
     return batch, summaries, None, False
+
+
+async def _merge_extractions(
+    state, extractions: dict[str, list[dict]], today: str, archived_keys: frozenset
+) -> tuple[object, list[dict]]:
+    """Fold the verified items extracted from files into the state before the update LLM runs, so no item
+    depends on the LLM copying it. Returns (state, one log entry per file for the batch record)."""
+    from open_webui.tracker import extract
+    from open_webui.tracker.schema import ensure_item_ids
+
+    if not extractions:
+        return state, []
+    state = state.model_copy(deep=True)
+    ensure_item_ids(state)
+    entries = []
+    for message_id, results in extractions.items():
+        for result in results:
+            items = [i for i in result.get('items') or [] if normalize_key(i['ten']) not in archived_keys]
+            matches = await extract.match_state(items, state.hang_muc)
+            outcome = extract.merge_into_state(state, items, f'msg:{message_id}', today, matches)
+            report = result.get('report') or {}
+            entries.append(
+                {
+                    'message_id': message_id,
+                    'file_id': result.get('file_id'),
+                    'name': result.get('name'),
+                    'cache_id': result.get('cache_id'),
+                    'kind': result.get('kind'),
+                    'items': len(items),
+                    'unverified': sum(1 for i in items if not i.get('xac_minh')),
+                    'suspect': len(report.get('suspect') or []),
+                    **outcome,
+                }
+            )
+    return state, entries
 
 
 def _split_long(messages: list[PromptMessage]) -> list[PromptMessage]:
@@ -197,7 +234,8 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         batch, watermark = _select_batch(new_messages)
         watermark = watermark if watermark is not None else row.watermark
 
-        batch, attachments, stop, waiting = await _summarize_batch_attachments(channel_id, batch)
+        extractions: dict[str, list[dict]] = {}
+        batch, attachments, stop, waiting = await _summarize_batch_attachments(channel_id, batch, extractions)
         if stop:
             watermark = _watermark_before(new_messages, stop, row.watermark)
         retry_after_ns = FILE_RETRY_NS if waiting else 0
@@ -212,7 +250,10 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         edit_watermark = max([row.edit_watermark] + [m.updated_at for m in edited])
         for message in edited:
             if _file_names(message):
-                attachments[message.id] = (await media.summarize_attachments(channel_id, message)).lines
+                result = await media.summarize_attachments(channel_id, message)
+                attachments[message.id] = result.lines
+                if result.extractions:
+                    extractions[message.id] = result.extractions
 
         deletions = list(row.pending_deletions or [])
         candidates = edited + batch
@@ -244,7 +285,8 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         archived_keys = frozenset(normalize_key(e.get('ten', '')) for e in row.archive or [])
         today = format_time(time.time_ns(), TZ)[:10]
         started = time.monotonic()
-        state, merged_away, summaries = old_state, set(), []
+        state, file_tasks = await _merge_extractions(old_state, extractions, today, archived_keys)
+        merged_away, summaries = set(), []
         people = await channel_people(channel)
         members = sorted({p.name for p in people if p.name})
         # Usually one call; a message longer than the per-message limit is read in parts over several calls.
@@ -272,6 +314,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                 'edited_ids': [m.id for m in edited],
                 'deleted_ids': [d.get('id') for d in deletions],
                 'attachments': [line for lines in attachments.values() for line in lines],
+                **({'file_tasks': file_tasks} if file_tasks else {}),
             },
         }
         await Trackers.complete(

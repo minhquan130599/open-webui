@@ -99,7 +99,9 @@ async def _page_rows(file, content: str, structure: dict, min_score: int, keep_e
         current = score_pages([row.text or '' for row in rows])
         for row, raw, now in zip(rows, raw_scores, current):
             good = now['score'] >= min_score
-            if row.status in ('repaired', 'unverified'):
+            if row.status == 'checked':
+                status = 'checked'  # confirmed by a person on the monitor: never judged again
+            elif row.status in ('repaired', 'unverified'):
                 status = 'repaired' if good else 'unverified'
             elif row.status == 'failed':
                 status = 'failed'
@@ -378,8 +380,13 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
         if pdf and structure.get('pages'):
             started = time.perf_counter()
             await job.stage('pages', len(structure['pages']), 'Chấm điểm OCR từng trang')
+            # A review from the monitor changed page texts: keep them, whatever the file text is now.
             rows = await _page_rows(
-                file, content, structure, settings['files.ocr.min_score'], keep_existing=rebuilt_hash == file.hash
+                file,
+                content,
+                structure,
+                settings['files.ocr.min_score'],
+                keep_existing=rebuilt_hash == file.hash or bool(options.get('rebuild')),
             )
             job.stats['pages'] = len(rows)
             job.stats['low_pages'] = sum(row.status == 'low' for row in rows)
@@ -387,7 +394,7 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
 
         # 2. repair
         changed = 0
-        if rows and settings['files.repair.enable']:
+        if rows and settings['files.repair.enable'] and not options.get('rebuild'):
             started = time.perf_counter()
             changed = await _repair_pages(
                 job, file, rows, settings, options.get('pages'), bool(options.get('force')), engine
@@ -397,7 +404,7 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
             rows = await FilePages.list(file_id)
 
         # 3. rebuild
-        if changed or options.get('pages'):
+        if changed or options.get('pages') or options.get('rebuild'):
             await job.stage('rebuild', 0, 'Ghép lại văn bản từ các trang đã sửa')
             content, structure = await _rebuild(file, rows, settings, engine)
             file = await Files.get_file_by_id(file_id)
@@ -421,7 +428,7 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
                 log.warning('File %s: no table profile (%s)', file_id, error)
 
         # 4. index
-        if changed or options.get('pages') or settings['files.chunk.by_structure']:
+        if changed or options.get('pages') or options.get('rebuild') or settings['files.chunk.by_structure']:
             started = time.perf_counter()
             await job.stage('index', 0, 'Lập chỉ mục theo Chương/Mục/Điều')
             job.stats['chunks'] = await _index(app, file, content, structure, settings)

@@ -188,3 +188,19 @@ async def file_pipeline_backfill(form: BackfillForm, token: str = Depends(requir
     if isinstance(result, dict) and result.get('error'):
         raise HTTPException(502, result['error'])
     return result
+
+
+class ReviewForm(BaseModel):
+    use: str
+    text: Optional[str] = None
+
+
+@router.post('/api/admin/files/{file_id}/pages/{page}/review')
+async def file_page_review(file_id: str, page: int, form: ReviewForm, token: str = Depends(require_session)):
+    """Keep the chosen text of a checked page, then rebuild and re-index the file."""
+    from open_webui.monitoring.server.app import webui
+
+    result = await webui(f'/files/{file_id}/pages/{page}/review', method='POST', json_body=form.model_dump())
+    if isinstance(result, dict) and result.get('error'):
+        raise HTTPException(502, result['error'])
+    return result
