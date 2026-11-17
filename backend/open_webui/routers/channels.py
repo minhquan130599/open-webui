@@ -1301,6 +1301,31 @@ def _attachment_label(file: dict, author: str, posted: datetime, content: str) -
     return label + (f', with the message: "{caption}"' if caption else '')
 
 
+CHANNEL_FILE_SCAN_LIMIT = 1000  # newest channel messages (threads included) searched for a file the user names
+
+
+def _file_stem(file: dict) -> str:
+    name = _file_name(file)
+    return name.rsplit('.', 1)[0] if '.' in name else name
+
+
+def _name_key(text: str) -> str:
+    from open_webui.tracker.schema import normalize_key
+
+    return normalize_key(text)
+
+
+async def _channel_file_messages(channel_id: str, limit: int, db=None) -> list:
+    """Messages of the channel carrying files, newest first, thread replies included."""
+    from open_webui.internal.db import get_async_db_context
+
+    async with get_async_db_context(db) as session:
+        result = await session.execute(
+            select(Message).where(Message.channel_id == channel_id).order_by(Message.created_at.desc()).limit(limit)
+        )
+        return [m for m in result.scalars().all() if _message_files(m)]
+
+
 async def get_channel_files_for_model(channel, message, db=None) -> list[tuple[dict, object]]:
     """Files a model mentioned in a channel should be able to read, newest first, as (file, source message).
 
@@ -1324,12 +1349,17 @@ async def get_channel_files_for_model(channel, message, db=None) -> list[tuple[d
         # Files already shared in this thread (newest first) count as pointed at too.
         explicit += await Messages.get_messages_by_parent_id(channel.id, message.parent_id, db=db)
 
-    candidates = explicit
-    if not any(_message_files(m) for m in explicit):
-        # "Review that file": fall back to files recently posted in this channel, newest first.
-        # This also covers a follow-up inside the AI's reply thread about a file posted in the channel.
-        recent = await Messages.get_messages_by_channel_id(channel.id, 0, max(CHANNEL_MODEL_HISTORY_LIMIT, 1), db=db)
-        candidates = [m for m in recent if m.id != message.id]
+    # Then files of the channel the message names ("tóm tắt Nghị định 331" -> "Nghị định 331.pdf", however old, in a
+    # thread or not), then the files recently posted in the channel, newest first. Files pointed at come first but
+    # no longer hide the others: a question asked in a thread with files can still be about another channel file.
+    posted = await _channel_file_messages(channel.id, CHANNEL_FILE_SCAN_LIMIT, db)
+    asked = f' {_name_key(getattr(message, "content", "") or "")} '
+    named = [
+        m for m in posted
+        if m.id != message.id and any(len(_name_key(_file_stem(f))) >= 4 and f' {_name_key(_file_stem(f))} ' in asked for f in _message_files(m))
+    ]
+    recent = await Messages.get_messages_by_channel_id(channel.id, 0, max(CHANNEL_MODEL_HISTORY_LIMIT, 1), db=db)
+    candidates = [*explicit, *named, *(m for m in recent if m.id != message.id)]
 
     selected, seen = [], set()
     for source in candidates:

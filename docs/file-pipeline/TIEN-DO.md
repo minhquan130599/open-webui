@@ -214,3 +214,8 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   chạy; nó cũng thêm lại việc vừa bị gỡ có chủ đích. Nay việc đang mở lúc lượt bắt đầu mà kết quả không còn được coi là
   đã gỡ có chủ đích (tin / file nguồn bị xóa, thay bởi lần đọc lại file, gộp, việc giao cho AI), không bị thêm lại; việc
   được mở lại trong lúc chạy vẫn được giữ. Lỗi này cũng làm phần "thay việc cũ khi đọc lại file" không có tác dụng.
+- Hỏi Knight trong kênh về file gửi hôm trước ("Nghị định 331.pdf" 16/11) mà Knight trả lời chỉ thấy 3 file CSV/MD:
+  trước đây khi tin hỏi (hoặc luồng / tin được trả lời) đã có file, chỉ các file đó được đưa cho model, file khác của
+  kênh bị bỏ; file nằm trong luồng trả lời hoặc cũ hơn 50 tin gần nhất cũng không bao giờ được tìm. Nay thứ tự là: file
+  được chỉ tới → file của kênh mà câu hỏi gọi tên (khớp tên file bỏ dấu, quét 1000 tin gần nhất kể cả trong luồng) →
+  file gửi gần đây; tối đa CHANNEL_MODEL_MAX_FILES (5).
