@@ -485,7 +485,7 @@ kỳ, dự án) áp dụng cho các dòng, và dòng nào là việc. Mỗi dòn
   phải làm trước, con số và tên quan trọng. Không tự nghĩ thêm bước, phạm vi, mục đích. Không đưa các ô chỉ để phân
   loại hay quản lý bảng (mã, giai đoạn, hạng mục, nhóm, segment, mức ưu tiên, ngày bắt đầu, ước tính, trạng thái, số
   ngày còn lại, cảnh báo tự tính).
-- "phu_trach": người hoặc team ĐƯỢC GIAO làm, CHÉP ĐÚNG chữ trong dòng hoặc thông tin đầu trang. Người góp ý, người
+- "phu_trach": người hoặc team ĐƯỢC GIAO làm, CHÉP ĐÚNG chữ trong dòng hoặc thông tin đầu trang hoặc tên file (kế hoạch cá nhân). Người góp ý, người
   yêu cầu, khách hàng, đầu mối phía khách, người duyệt không phải người phụ trách; câu mô tả cách làm ("PM phối hợp")
   không phải giao việc. Ô nhiều tên ("BA / FE Lead", "Hà, Nam") tách từng tên. "nhom": những tên trong "phu_trach" là
   team, phòng ban hoặc chức vụ (SOC, PM, BA, DevOps, BE Lead, Phòng KD). "Long (BE)" là người "Long".
@@ -767,7 +767,7 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
             sheet_name = sheet_of(raw.get('sheet'), part)
             if (sheet_name, int(raw['dong'])) not in row_text:
                 continue
-            task = _checked_task(raw, sheet_name, int(raw['dong']), row_text, part['heads'].get(sheet_name), report)
+            task = _checked_task(raw, sheet_name, int(raw['dong']), row_text, part['heads'].get(sheet_name), report, name)
             if task:
                 tasks.append(task)
         for raw in answer.get('de_xuat') or []:
@@ -857,12 +857,13 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
     return {'kind': 'table', 'items': items, 'quyet_dinh': [], 'rui_ro': [], 'report': report}
 
 
-def _checked_task(raw: dict, sheet_name: str, number: int, row_text: dict, head_rows, report: dict) -> Optional[dict]:
+def _checked_task(raw: dict, sheet_name: str, number: int, row_text: dict, head_rows, report: dict, file_name: str = '') -> Optional[dict]:
     """One task the model read, with its facts checked against its rows (and the sheet's head rows)."""
     rows = [number] + [int(n) for n in raw.get('cac_dong') or [] if str(n).isdigit() and (sheet_name, int(n)) in row_text]
     source = '\n'.join(row_text[(sheet_name, n)] for n in rows)
     head = '\n'.join('\n'.join(v for v in r if v) for _, r in head_rows or [])
-    folded = f' {normalize_key(source + chr(10) + head)} '
+    # The file's own name counts too: a personal plan names its owner there ("KHCV Tháng 11 Thục Anh.xlsx").
+    folded = f' {normalize_key(source + chr(10) + head + chr(10) + file_name)} '
     title = _title(str(raw.get('ten') or '').strip())
     if not title:
         return None
