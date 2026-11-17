@@ -246,3 +246,30 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   có người và hạn; cột kết quả toàn số không đưa vào chi tiết; mẩu ngắn ghép vào câu sau; cột hạn không có ô nào là
   ngày thì nội dung thành chi tiết kèm tên cột của file ("Thời gian hoàn thành: Hàng tháng"), không còn báo lỗi và gọi
   model sửa bản mô tả. EXTRACT_VERSION 15. Thử với file thật: đủ 6 chỉ tiêu, bỏ 6 dòng không phải việc.
+
+## Đọc bảng tính theo hướng agent (17/11, sau khi rà 63 bản trích trên production)
+
+Lỗi trên production gom về 3 gốc: dòng trùng mã bị gộp (BD2 Timeline 252 việc còn 9, các Masterplan mất một nửa),
+code tự cắt / lọc nội dung ô bằng quy tắc cứng (regex tách câu, nhận ngày, bỏ dòng có ":", cột kết quả là số…), ô gộp
+không được điền xuống. Thêm: file .xls đọc qua pandas biến ô trống thành chữ "nan" (873 ô ở Masterplan Quảng Ninh), và
+bộ lọc dòng cũ bỏ mọi dòng có cột đầu trống mà chưa điền nửa số ô.
+
+Làm lại:
+- Đọc file: ô gộp nhiều dòng được điền vào từng dòng nó phủ (xlsx, xls qua xlrd); ô trống của pandas không còn là "nan".
+- Code chỉ chép bảng: mọi dòng có chữ dưới dòng tiêu đề (bỏ dòng toàn số / cờ và dòng lặp lại tiêu đề), mọi ô kèm tên
+  cột thật của file, phần đầu trang phía trên tiêu đề; khóa dòng là mã nếu mã không trùng, không thì số dòng.
+- Model đọc cả dòng và quyết định: có phải việc không (tiêu đề nhóm, tổng, chữ ký…), tên, chi tiết, người phụ trách,
+  hạn (kể cả hạn ghi chữ), trạng thái, tiến độ, vướng mắc, tách việc khi khác người / khác hạn, đề xuất từ yêu cầu chưa
+  ai xử lý. Bản mô tả cột của model chỉ còn là gợi ý.
+- Code chỉ kiểm: người, chữ ghi hạn, chữ ghi tiến độ, ngày hoàn thành phải có nguyên văn trong dòng (không có thì loại và
+  đếm); ngày ghi dạng số rõ ràng (30/11/2026) thắng ngày model tự đổi; tên / chi tiết / vướng mắc phải lấy từ chữ của
+  dòng; ô có nội dung mà kết quả không phản ánh được chép nguyên văn vào chi tiết; dòng model không trả lời được hỏi lại
+  riêng, rồi giữ nguyên chữ. Dòng model bỏ (không phải việc) được liệt kê trong báo cáo để rà.
+- Văn bản / ảnh: hạn và tiến độ đi kèm chữ gốc, giữ khi chữ gốc có trong văn bản (bỏ nhận ngày bằng regex).
+- Bỏ: tách ý bằng regex, nhận ngày trong câu bằng regex, quy tắc dòng tiêu đề ":", cột kết quả toàn số, cột hạn ghi chữ,
+  ghép mẩu ngắn, tách hạn theo ý, gộp lại việc cùng người cùng hạn.
+- Monitor: cột Chất lượng theo các chỉ số mới. Lệnh đọc thử trên server với model thật:
+  `python -m open_webui.tracker.table_check <file…> [--json out.json]`. EXTRACT_VERSION 16.
+- Thử bằng model giả trên 29 file bảng của production: không mất dòng, không trùng khóa, không còn "nan"; 14/14 kiểm tra
+  (KPI_PM 6 chỉ tiêu, loại người / hạn / % không có trong dòng, ngày gốc thắng ngày model đổi sai, dòng không trả lời
+  được giữ, ô gộp được điền, văn bản giữ hạn có chữ gốc). Chất lượng đọc của model thật cần chạy table_check trên dev.

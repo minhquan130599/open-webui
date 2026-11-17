@@ -255,7 +255,7 @@ async def _extract(file, name: str) -> dict:
         from open_webui.file_pipeline.tables import read_grid
 
         local = await asyncio.to_thread(Storage.get_file, file.path)
-        sheets = await asyncio.to_thread(read_grid, local, file.filename)
+        sheets = await asyncio.to_thread(read_grid, local, file.filename, True)
         signature = extract.table_signature(sheets)
         stored = await Trackers.get_cached_item(f'tablespec:{signature}')
         stored_data = (stored.data or {}) if stored else {}

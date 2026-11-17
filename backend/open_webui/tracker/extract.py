@@ -5,10 +5,13 @@ read, in parallel, for structured items with the sentence they come from and its
 task-like lines (dates, owners, deadlines) but few items is read a second time for what was missed. Each quote is
 looked up in the text: verified items go into the state, unverified ones are only shown to the update LLM.
 
-Spreadsheets: a model describes the table once (which sheet holds the tasks, the header row, which columns hold
-the name, owner, deadline, status..., how status values map), code applies that description to every row and
-counts how many rows it could read; when too few, the model corrects its description from the failing rows.
-Tables that are not one row per task are read by the model in batches like a document. The description is kept
+Spreadsheets: a model describes the table once (which sheet holds the tasks, the header row, the code column, and
+which columns look like name, owner, deadline...). Code copies every row with text, all its cells under their own
+column names (cells merged over several rows repeated in each), and the model reads each row as a whole: whether it
+is a task, its tasks with owners, deadline, status, progress, details, and requests it leaves unanswered. Code
+reads no meaning into cells; it checks the answer against the row (owners, deadlines, percents must be written in
+it) and copies any cell the tasks do not reflect into the details. Tables that are not one row per task are read
+by the model in batches like a document. The description is kept
 by the table's signature (sheet names and headers), reused for later versions of the file and editable on the
 monitor; an edited description is never replaced by the model.
 
@@ -25,17 +28,13 @@ import re
 from typing import Optional
 
 from open_webui.tracker import llm
-from open_webui.tracker.schema import _STATUS_ALIASES, STATUSES, WorkItem, _clean_date, normalize_key
+from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize_key
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 15
+EXTRACT_VERSION = 16
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
-ROW_BATCH_CHARS = 10_000
-# Spec quality: share of data rows that must yield a name, and of filled date cells that must parse.
-MIN_NAMED_RATIO = 0.8
-MIN_DATE_RATIO = 0.8
 SIMILAR = 0.72  # trigram similarity above which two names are the same item
 # Below that, names this alike (trigrams) or sharing this share of the shorter name's words: the model decides.
 MAYBE_SIMILAR = 0.35
@@ -54,7 +53,9 @@ IMAGE_TEXT_PROMPT = (
 IMAGE_MIN_TEXT = 40
 
 ITEM_FORMAT = """{{"hang_muc": [{{"ten": "tên việc ngắn gọn, đủ nghĩa", "phu_trach": ["người hoặc đơn vị"], "han": "YYYY-MM-DD hoặc null",
+  "han_goc": "chép đúng chữ ghi hạn trong văn bản hoặc null",
   "trang_thai": "chua_bat_dau|dang_lam|bi_chan|tam_dung|hoan_thanh", "tien_do": số phần trăm hoặc null,
+  "tien_do_goc": "chép đúng chữ ghi tiến độ trong văn bản hoặc null",
   "vuong_mac": "khó khăn hoặc null", "chi_tiet": ["ý phụ ngắn, tối đa 3"],
   "trich_dan": "câu gốc chép nguyên văn (tối đa 200 ký tự)", "trang": số trang hoặc null}}],
  "quyet_dinh": [{{"noi_dung": "...", "ngay": "YYYY-MM-DD hoặc null", "trich_dan": "..."}}],
@@ -233,6 +234,8 @@ def _clean_item(raw: dict) -> Optional[dict]:
     item = WorkItem.model_validate({k: raw.get(k) for k in ('ten', 'phu_trach', 'trang_thai', 'tien_do', 'han', 'vuong_mac')})
     data = item.model_dump(include={'ten', 'phu_trach', 'trang_thai', 'tien_do', 'han', 'vuong_mac'})
     data['trich_dan'] = str(raw.get('trich_dan') or '').strip()[:QUOTE_CHARS]
+    data['han_goc'] = str(raw.get('han_goc') or '').strip()[:60] or None
+    data['tien_do_goc'] = str(raw.get('tien_do_goc') or '').strip()[:60] or None
     data['chi_tiet'] = [str(d).strip()[:300] for d in raw.get('chi_tiet') or [] if str(d).strip()][:3]
     page = raw.get('trang')
     data['trang'] = int(page) if str(page or '').strip().isdigit() else None
@@ -241,24 +244,27 @@ def _clean_item(raw: dict) -> Optional[dict]:
     return data
 
 
-def check_against_text(item: dict, text: str, year: int) -> dict[str, int]:
-    """Keep an owner, deadline or percent only when the text contains it; returns how many were removed."""
-    folded = ' '.join(_fold(text).split())
+def check_against_text(item: dict, text: str) -> dict[str, int]:
+    """Keep an owner, a deadline or a percent only when the words it was read from are in the text; returns how many
+    were removed. The model reads the meaning ("cuối tuần 13/11", "hết tháng 11"), code only checks it was written."""
+    folded = f' {normalize_key(text)} '
     removed = {'phu_trach': 0, 'han': 0, 'tien_do': 0}
     kept = []
     for owner in item.get('phu_trach') or []:
-        key = ' '.join(_fold(owner).split())
-        if key and key in folded:
+        if _written_in(owner, folded):
             kept.append(owner)
         else:
             removed['phu_trach'] += 1
     item['phu_trach'] = kept
-    if item.get('han') and item['han'] not in dates_in(text, year):
-        item['han'] = None
-        removed['han'] += 1
-    if item.get('tien_do') is not None and not re.search(rf'\b{item["tien_do"]}\s*%', text):
+    if item.get('han'):
+        due, rejected = _checked_date(item['han'], item.get('han_goc'), folded)
+        item['han'] = due
+        removed['han'] += int(rejected or not due)
+    if item.get('tien_do') is not None and not _written_in(item.get('tien_do_goc'), folded):
         item['tien_do'] = None
         removed['tien_do'] += 1
+    item.pop('han_goc', None)
+    item.pop('tien_do_goc', None)
     return removed
 
 
@@ -370,7 +376,7 @@ async def extract_document(name: str, content: str, structure: dict, today: str,
             data.setdefault('quyet_dinh', []).extend(more.get('quyet_dinh') or [])
             data.setdefault('rui_ro', []).extend(more.get('rui_ro') or [])
         for item in items:
-            checked = check_against_text(item, content[start:end], int(today[:4]))
+            checked = check_against_text(item, content[start:end])
             for key, value in checked.items():
                 rejected[key] = rejected.get(key, 0) + value
             offset = locate_quote(content[start:end], item['trich_dan']) if item['trich_dan'] else None
@@ -495,165 +501,113 @@ def _find_sheet(sheets: list[dict], name) -> Optional[dict]:
     return None
 
 
-def _unbullet(text: str) -> str:
-    return '\n'.join(line.strip().lstrip('•▪◦-*+').strip() for line in text.splitlines() if line.strip())
+def _is_text(value: str) -> bool:
+    """A cell that says something: not empty, not a number, a percent or a yes/no flag."""
+    from open_webui.file_pipeline.tables import parse_number
+
+    value = (value or '').strip()
+    return bool(value) and value.upper() not in ('TRUE', 'FALSE') and parse_number(value.rstrip('%')) is None
 
 
-def split_owners(text: str, separator: Optional[str] = None) -> list[str]:
-    """Owners in one cell, split only on the separator the table description gives; the row summary then lets the
-    model name each person (checked against the cell)."""
-    parts = (text or '').split(separator) if separator and separator.strip() else [text or '']
-    return list(dict.fromkeys(part.strip() for part in parts if part.strip()))
+def _header_names(row: list[str]) -> list[str]:
+    from open_webui.file_pipeline.tables import column_letter
+
+    names, seen = [], {}
+    for i, value in enumerate(row):
+        name = ' '.join((value or '').split()) or f'Cột {column_letter(i)}'
+        seen[name] = seen.get(name, 0) + 1
+        names.append(name if seen[name] == 1 else f'{name} ({seen[name]})')
+    return names
+
+
+def _data_rows(rows: list[list[str]], header: int) -> list[tuple[int, list[str]]]:
+    """(1-based sheet row number, cells) of every row under the header that has text. Rows of numbers or flags only
+    (templates pre-filled with formulas) say nothing to read, nor a row repeating the header (a header merged over
+    two rows)."""
+    titles = rows[header] if header < len(rows) else []
+
+    def repeats_header(row: list[str]) -> bool:
+        filled = [(i, v) for i, v in enumerate(row) if v]
+        return bool(filled) and all(i < len(titles) and titles[i] == v for i, v in filled)
+
+    return [
+        (header + 2 + offset, row)
+        for offset, row in enumerate(rows[header + 1 :])
+        if any(_is_text(v) for v in row) and not repeats_header(row)
+    ]
 
 
 def apply_spec(sheets: list[dict], spec: dict) -> dict:
-    """Items from every data row as the spec says, and how well it went: {'items', 'stats', 'issues', 'bad_rows'}."""
-    from open_webui.file_pipeline.tables import column_letter, parse_date, parse_number, table_rows
-
+    """The rows the description points at, every cell kept with its column name: {'rows', 'stats', 'issues',
+    'bad_rows', 'columns', 'intro', 'roles'}. Code only copies the table; the model reads each row."""
     sheet = _find_sheet(sheets, spec.get('sheet'))
     if not sheet:
-        return {'items': [], 'stats': {}, 'issues': [f'không có sheet "{spec.get("sheet")}"'], 'bad_rows': []}
+        return {'rows': [], 'stats': {}, 'issues': [f'không có sheet "{spec.get("sheet")}"'], 'bad_rows': []}
     try:
         header = max(int(spec.get('dong_tieu_de') or 1) - 1, 0)
     except (TypeError, ValueError):
         header = 0
-    names, data = table_rows(sheet['rows'], header)
+    raw = sheet['rows']
+    names = _header_names(raw[header] if header < len(raw) else [])
+    data = _data_rows(raw, header)
     columns = spec.get('cot') or {}
-    name_cols = columns.get('ten') or []
-    name_cols = [name_cols] if isinstance(name_cols, str) else name_cols
-    name_idx = [i for i in (_column(c, names) for c in name_cols) if i is not None]
-    context_cols = columns.get('ngu_canh') or []
-    context_cols = [context_cols] if isinstance(context_cols, str) else context_cols
-    context_idx = [i for i in (_column(c, names) for c in context_cols) if i is not None and i not in name_idx]
-    detail_cols = columns.get('mo_ta') or []
-    detail_cols = [detail_cols] if isinstance(detail_cols, str) else detail_cols
-    detail_idx = [
-        i for i in (_column(c, names) for c in detail_cols) if i is not None and i not in name_idx and i not in context_idx
-    ]
-    idx = {
-        key: _column(columns.get(key), names)
-        for key in ('ma', 'phu_trach', 'han', 'trang_thai', 'tien_do', 'vuong_mac', 'ngay_hoan_thanh', 'ket_qua')
-    }
-    status_map = {normalize_key(k): v for k, v in (spec.get('trang_thai') or {}).items() if v in STATUSES}
-    separator = spec.get('tach_phu_trach') or None
-    day_first = str(spec.get('ngay') or 'dmy').lower() != 'mdy'
 
-    def cell(row, index):
+    def index_of(value) -> Optional[int]:
+        return _column(value, names)
+
+    def indexes(value) -> list[int]:
+        values = value if isinstance(value, list) else [value] if value else []
+        return [i for i in (index_of(v) for v in values) if i is not None]
+
+    roles = {role: indexes(columns.get(role)) for role in ROLE_NAMES}
+    code_col = index_of(columns.get('ma'))
+
+    def cell(row, index) -> str:
         return row[index].strip() if index is not None and index < len(row) else ''
 
-    # Percent columns hold 0.6 (Excel percent cells) or 60: decided for the whole column, not cell by cell.
-    progress_cells = [cell(row, idx['tien_do']) for _, row in data if cell(row, idx['tien_do'])]
-    progress_values = [parse_number(v.rstrip('%')) for v in progress_cells]
-    fractions = bool(progress_values) and all(v is not None and 0 <= v <= 1 for v in progress_values) and not any(
-        '%' in v for v in progress_cells
-    )
-    items, bad_rows = [], []
-    named = date_filled = date_ok = status_filled = 0
-    unmapped: dict[str, int] = {}
-    # A code shared by several rows (a group or KPI column chosen as the code) identifies none of them: those rows
-    # are keyed by code and row number, so they are not merged into one.
+    # A code shared by several rows (a group or KPI number chosen as the code) identifies none of them: those rows
+    # are keyed by code and row number.
     code_count: dict[str, int] = {}
     for _, row in data:
-        value = cell(row, idx['ma'])
+        value = cell(row, code_col)
         if value:
             code_count[value] = code_count.get(value, 0) + 1
-    shared_codes = sum(1 for n in code_count.values() if n > 1)
+    rows = []
     for number, row in data:
-        title = ' – '.join(_unbullet(v) for v in (cell(row, i) for i in name_idx) if v)[:3000]
-        if not title:
-            bad_rows.append((number, row))
-            continue
-        named += 1
-        due_text = cell(row, idx['han'])
-        due = parse_date(due_text, day_first) if due_text else None
-        if due_text:
-            date_filled += 1
-            date_ok += bool(due)
-            if not due:
-                bad_rows.append((number, row))
-        status_text = cell(row, idx['trang_thai'])
-        status = None
-        if status_text:
-            status_filled += 1
-            status = status_map.get(normalize_key(status_text))
-            if not status:
-                code = normalize_key(status_text).replace(' ', '_')
-                status = code if code in STATUSES else _STATUS_ALIASES.get(code)
-            if not status:
-                unmapped[status_text] = unmapped.get(status_text, 0) + 1
-        owners_text = cell(row, idx['phu_trach'])
-        owners = split_owners(owners_text, separator)
-        progress = parse_number(cell(row, idx['tien_do']).rstrip('%')) if cell(row, idx['tien_do']) else None
-        if progress is not None and fractions:
-            progress = round(progress * 100)
-        code = cell(row, idx['ma'])
-        # A completion date written in the table means done on that day, whatever the status column says.
-        finished = parse_date(cell(row, idx['ngay_hoan_thanh']), day_first) if cell(row, idx['ngay_hoan_thanh']) else None
-        if finished:
-            status = 'hoan_thanh'
-        if not status and not status_text and progress is not None:
-            # No status written: the percent says it (0 not started, 100 done, else in progress).
-            status = 'hoan_thanh' if progress >= 100 else 'dang_lam' if progress > 0 else 'chua_bat_dau'
-        items.append(
+        cells = [(names[i] if i < len(names) else f'Cột {i + 1}', v.strip()) for i, v in enumerate(row) if v and v.strip()]
+        code = cell(row, code_col)
+        key = (f'{code} dòng {number}' if code_count.get(code, 0) > 1 else code) if code else str(number)
+        rows.append(
             {
-                'ten': title,
-                'phu_trach': owners,
-                'hoan_thanh_luc': finished if status == 'hoan_thanh' else None,
-                'phu_trach_o': owners_text,
-                'ket_qua': cell(row, idx['ket_qua'])[:600] or None,
-                'trang_thai': status or ('chua_bat_dau' if not status_text else 'dang_lam'),
-                'tien_do': int(progress) if progress is not None and 0 <= progress <= 100 else None,
-                'han': due,
-                'vuong_mac': cell(row, idx['vuong_mac'])[:300] or None,
-                'trich_dan': f'{sheet["name"]}!{column_letter(name_idx[0]) if name_idx else "A"}{number}',
-                'dong': number,
-                'khoa': f'table:{sheet["name"]}:{(f"{code} dòng {number}" if code_count.get(code, 0) > 1 else code) if code else number}',
-                'xac_minh': True,
-                'ngu_canh': '\n'.join(_unbullet(cell(row, i)) for i in context_idx if cell(row, i))[:1500],
-                'mo_ta': '\n'.join(_unbullet(cell(row, i)) for i in detail_idx if cell(row, i))[:1500],
-                'han_chu': due_text if due_text and not due else None,
+                'number': number,
+                'cells': cells,
+                'khoa': f'table:{sheet["name"]}:{key}',
+                # The cells the description names for these roles: shown to the model as hints, and used to keep
+                # a row the model calls "not a task" when it names someone or a deadline.
+                'roles': {role: [cell(row, i) for i in idx if cell(row, i)] for role, idx in roles.items()},
             }
         )
-    results = [i['ket_qua'] for i in items if i.get('ket_qua')]
-    if results and all(parse_number(str(r).rstrip('%')) is not None for r in results):
-        for i in items:
-            i['ket_qua'] = None
-    rows = len(data)
+    intro = [
+        ' | '.join(v.strip() for v in row if v and v.strip())
+        for row in raw[:header]
+        if any(v and v.strip() for v in row)
+    ][-8:]
     issues = []
-    if not name_idx:
-        issues.append('chưa chọn cột tên việc')
-    if rows and named / rows < MIN_NAMED_RATIO:
-        issues.append(f'chỉ {named}/{rows} dòng có tên việc')
-    due_as_text = bool(date_filled) and not date_ok
-    if due_as_text:
-        # The deadline column holds no date at all ("Hàng tháng", "Khi đóng dự án"): a recurrence or a condition,
-        # kept as a point of the task under the column's own header, not a column read wrongly.
-        header = names[idx['han']] if idx['han'] is not None and idx['han'] < len(names) else ''
-        for i in items:
-            if i.get('han_chu'):
-                line = f'{header}: {i["han_chu"]}' if header else i['han_chu']
-                i['mo_ta'] = f'{i["mo_ta"]}\n{line}'.strip()
-    elif date_filled and date_ok / date_filled < MIN_DATE_RATIO:
-        issues.append(f'chỉ đọc được {date_ok}/{date_filled} ô hạn thành ngày')
-    if unmapped:
-        issues.append('giá trị trạng thái chưa ánh xạ: ' + ', '.join(f'"{k}"' for k in list(unmapped)[:10]))
+    if sum(1 for v in (raw[header] if header < len(raw) else []) if _is_text(v)) < 2:
+        issues.append(f'dòng tiêu đề {header + 1} không có tên cột')
     if not rows:
         issues.append('sheet không có dòng dữ liệu dưới dòng tiêu đề')
-    average = sum(len(i['ten']) for i in items) / len(items) if items else 0
-    if len(name_idx) > 1 and average > LONG_NAME_CHARS:
-        issues.append(
-            f'tên việc ghép {len(name_idx)} cột, dài trung bình {int(average)} ký tự: chỉ để cột hành động trong "ten", '
-            'đưa cột mô tả vấn đề vào "ngu_canh"'
-        )
     return {
-        'items': items,
+        'rows': rows,
         'stats': {
-            'sheet': sheet['name'], 'rows': rows, 'named': named, 'dates': date_filled, 'dates_ok': date_ok,
-            'shared_codes': shared_codes, 'due_as_text': due_as_text,
+            'sheet': sheet['name'], 'rows': len(rows), 'skipped_rows': len(raw) - header - 1 - len(rows),
+            'shared_codes': sum(1 for n in code_count.values() if n > 1),
         },
         'issues': issues,
-        'bad_rows': bad_rows[:8],
+        'bad_rows': [(number, row) for number, row in data[:8]] if issues else [],
         'columns': names,
+        'intro': intro,
+        'roles': {role: [names[i] for i in idx if i < len(names)] for role, idx in roles.items() if idx},
     }
 
 
@@ -666,10 +620,8 @@ def _row_lines(rows: list[tuple[int, list[str]]], names: list[str]) -> list[str]
 
 async def _rows_by_model(name: str, sheet: dict, header: int, today: str, concurrency: int) -> list[dict]:
     """Free-form sheet: rows sent as text in batches and read like a document."""
-    from open_webui.file_pipeline.tables import table_rows
-
-    names, data = table_rows(sheet['rows'], header)
-    lines = _row_lines(data, names)
+    names = _header_names(sheet['rows'][header] if header < len(sheet['rows']) else [])
+    lines = _row_lines(_data_rows(sheet['rows'], header), names)
     batches, current = [], []
     for line in lines:
         if current and sum(len(l) for l in current) + len(line) > ROW_BATCH_CHARS:
@@ -690,106 +642,80 @@ async def _rows_by_model(name: str, sheet: dict, header: int, today: str, concur
             )
         items = [i for i in (_clean_item(r) for r in data.get('hang_muc') or []) if i]
         for item in items:
+            check_against_text(item, text)
             offset = locate_quote(text, item['trich_dan']) if item['trich_dan'] else None
             item['xac_minh'] = offset is not None
             item['trang'] = None
             if offset is not None:
-                rows_before = re.findall(r'^dòng (\d+):', text[: offset + 1], re.MULTILINE)
-                item['dong'] = int(rows_before[-1]) if rows_before else None
+                before = [line for line in text[: offset + 1].splitlines() if line.startswith('dòng ')]
+                number = before[-1].split(':', 1)[0].removeprefix('dòng ').strip() if before else ''
+                item['dong'] = int(number) if number.isdigit() else None
         return items
 
     results = await asyncio.gather(*(read(i + 1, b) for i, b in enumerate(batches)))
     return dedupe_items([item for batch in results for item in batch])
 
 
-ROW_BATCH_ROWS = 4
-ROW_BATCH_CHARS = 6000
+ROLE_NAMES = ('ten', 'mo_ta', 'ngu_canh', 'phu_trach', 'han', 'trang_thai', 'tien_do', 'vuong_mac', 'ngay_hoan_thanh', 'ket_qua')
+ROLE_LABELS = {
+    'ten': 'tên / việc cần làm', 'mo_ta': 'mô tả cách làm', 'ngu_canh': 'yêu cầu / vấn đề cần đáp ứng',
+    'phu_trach': 'người phụ trách', 'han': 'hạn', 'trang_thai': 'trạng thái', 'tien_do': 'tiến độ %',
+    'vuong_mac': 'vướng mắc', 'ngay_hoan_thanh': 'ngày hoàn thành', 'ket_qua': 'kết quả',
+}
+ROW_BATCH_ROWS = 6
+ROW_BATCH_CHARS = 9000
+ROW_CHARS = 4000
+CELL_CHARS = 1500
 TITLE_MAX = 160
 TITLE_WORDS = 15
-LONG_NAME_CHARS = 400
 MAX_GAP_TASKS = 3
-MAX_DETAILS = 6  # detail lines per task (the result column always kept)  # requests without a planned action, turned into tasks, per row
-MAX_IDEAS = 30
-MIN_IDEA_CHARS = 25
-MAX_CONTEXT_IDEAS = 20
-# Share of a summary's words that must come from the ideas it cites, else the first idea becomes its name.
-MIN_WORD_SUPPORT = 0.25
-DETAIL_SUPPORT = 0.5  # a description point counts as written when half its words are in the task's name or details
+MAX_DETAILS = 8
+# Share of a model sentence's words that must come from the row (else it is invented and dropped).
+MIN_WORD_SUPPORT = 0.2
+# A cell with this many words that the tasks of its row do not reflect (share of its words found in them) is copied
+# into the details as it is: nothing in the table is lost.
+COVER_MIN_WORDS = 4
+COVER_SUPPORT = 0.35
 
-ROW_PROMPT = """Bảng công việc "{name}". Hôm nay là {today}. Mỗi mục là một dòng: ô người phụ trách (nguyên văn), hạn của
-dòng, các ý của VIỆC CẦN LÀM đánh số [1], [2]... (có thể kèm MÔ TẢ CHI TIẾT CỦA VIỆC, đánh số tiếp), và có thể có
-YÊU CẦU / BỐI CẢNH đánh số [Y1], [Y2]...
+ROW_PROMPT = """Bảng "{name}". Hôm nay là {today}.
+{context}Mỗi mục [R..] là một dòng của bảng: mọi ô có dữ liệu, dạng "tên cột: giá trị".
 <tai_lieu>
 {rows}
 </tai_lieu>
 
-Với mỗi dòng, lập đầu việc để theo dõi tiến độ. Dòng chỉ là tiêu đề nhóm / mục ("A. TÀI CHÍNH", "II. QUY TRÌNH NỘI
-BỘ"), dòng tổng cộng, hoặc dòng chữ ký / người duyệt thì không phải việc: trả "loai": "khong_phai_viec" và bỏ qua
-các quy tắc dưới cho dòng đó.
-0. Tách ô người phụ trách, chép đúng chữ trong ô, không thêm ai ngoài ô: "nguoi" = từng NGƯỜI (ô "Long / Triển" là 2
-   người "Long", "Triển"); "nhom" = từng TEAM / phòng ban / chức vụ (ô "SOC, PM" là 2 nhóm "SOC", "PM"; "Phòng R & D"
-   là 1 nhóm). Chữ trong ngoặc sau tên người là phòng ban của người đó: ô "Long (BE)" là người "Long", không thêm
-   nhóm "BE". Tên viết tắt của team / phòng ban (SOC, TI, CX, PM) là nhóm, kể cả khi đứng cạnh tên khác.
-1. Mặc định cả dòng là MỘT việc. Chỉ tách thành nhiều việc khi các ý có người phụ trách khác nhau (chọn trong "nguoi")
-   hoặc có hạn riêng ghi rõ trong ý. Ý nào ghi hạn riêng của chính nó thì liệt kê trong "han_rieng".
-2. "ten": tóm tắt việc tối đa 15 từ, bắt đầu bằng động từ, giữ tên đơn vị, khách hàng, sản phẩm; không chép nguyên câu.
-   Tên, chi tiết, việc trong "chua_xu_ly" viết CÙNG NGÔN NGỮ với ô của dòng (ô tiếng Anh thì viết tiếng Anh).
-3. "chi_tiet": các ý phụ chưa có trong tên, mỗi ý một câu ngắn (tối đa 4). Ý của MÔ TẢ CHI TIẾT thuộc việc của dòng:
-   đưa vào "chi_tiet" (gộp ý gần nhau), không tạo việc riêng trừ khi ghi người hoặc hạn khác.
-   Ý phủ định hoặc kết luận KHÔNG làm ("không nên…", "không cần…") không phải việc: xếp vào "nhan_dinh", không đưa
-   vào tên việc. "vuong_mac" chỉ gồm khó khăn, hạn chế, phụ thuộc bên khác, thiếu nguồn lực; câu đánh giá hay kết luận
-   ("SOC đánh giá…") là "nhan_dinh".
-4. MỌI ý [n] phải được xếp vào đúng một chỗ: "y" của một việc, "vuong_mac" (hạn chế, khó khăn), hoặc "nhan_dinh" (chỉ là
-   nhận định, đánh giá, không phải việc).
-5. Nếu dòng có [Y..]: xét TỪNG yêu cầu, kể cả yêu cầu về thời gian ("phải nhắc mới có", "chậm") và sự chủ động.
-   Với các yêu cầu mà KHÔNG ý nào của VIỆC CẦN LÀM xử lý (kể cả gián tiếp), ghi vào "chua_xu_ly" VIỆC CẦN LÀM để đáp
-   ứng yêu cầu đó: "ten" bắt đầu bằng động từ, tối đa 15 từ, như một đầu việc bình thường (vd "Xây dựng dashboard ticket
-   management cho CEO", "Chủ động gửi báo cáo IR không chờ nhắc"). Gộp các yêu cầu cùng nội dung (nhiều người / đơn vị nêu cùng
-   một vấn đề) thành MỘT việc; tối đa 3 việc mỗi dòng, chọn yêu cầu quan trọng nhất. Không liệt kê yêu cầu đã được một
-   hành động xử lý, hoặc mà dòng đã quyết định không làm (một ý hay nhận định nói "không nên…", "không cần…" về nó).
+Đọc hiểu từng dòng như một người quản lý dự án và lập đầu việc để theo dõi tiến độ.
+- "loai": "khong_phai_viec" khi dòng không giao việc gì: tiêu đề nhóm / mục, dòng tổng cộng, dòng tiêu đề phụ, dòng chữ
+  ký / người duyệt, dòng chỉ là ghi chú chung. Các dòng còn lại "viec".
+- Mặc định mỗi dòng là MỘT việc. Chỉ tách nhiều việc khi dòng giao các phần cho người khác nhau hoặc ghi hạn khác nhau.
+- "ten": tóm tắt việc tối đa 15 từ, bắt đầu bằng động từ, giữ tên đơn vị, khách hàng, sản phẩm, viết cùng ngôn ngữ với dòng.
+- "chi_tiet": các thông tin còn lại của dòng giúp làm và theo dõi việc (phạm vi, các bước, tiêu chí / kết quả cần đạt,
+  công thức, tần suất, ghi chú), mỗi ý một câu ngắn, không lặp tên việc; giữ đủ con số, tên, mốc thời gian.
+- "phu_trach": người hoặc team phụ trách, CHÉP ĐÚNG chữ trong dòng (hoặc trong phần đầu trang); không suy ra từ câu mô tả
+  chung ("PM phối hợp", "QA khảo sát" chỉ là cách làm, không phải giao việc). "nhom": những tên trong "phu_trach" là
+  team / phòng ban / chức vụ (SOC, PM, Phòng KD), không phải một người. Chữ trong ngoặc sau tên người ("Long (BE)") là
+  phòng ban của người đó, không phải người phụ trách thêm.
+- "han_goc": chép đúng chữ ghi hạn của việc trong dòng; "han": ngày đó dạng YYYY-MM-DD. Hạn không phải một ngày ("Hàng
+  tháng", "Khi đóng dự án", "Q4") thì "han" null và ghi vào "chi_tiet". Ngày bắt đầu không phải hạn.
+- "trang_thai": chua_bat_dau | dang_lam | bi_chan | tam_dung | hoan_thanh, theo ô trạng thái / tiến độ của dòng; không ghi
+  gì thì null. "tien_do": số phần trăm 0-100 (ô 0.6 trong cột % là 60), "tien_do_goc": chép đúng ô đó.
+  "hoan_thanh_goc" / "hoan_thanh_luc": ngày hoàn thành thực tế nếu dòng ghi.
+- "vuong_mac": khó khăn, phụ thuộc, thiếu nguồn lực ghi trong dòng; không có thì null.
+- "de_xuat": chỉ khi dòng có yêu cầu / phản hồi / vấn đề của người khác (khách hàng, đơn vị) mà việc của dòng KHÔNG
+  đáp ứng, kể cả gián tiếp: mỗi mục là việc cần làm để đáp ứng ("ten" bắt đầu bằng động từ) kèm "yeu_cau" chép đúng câu
+  yêu cầu trong dòng. Gộp yêu cầu trùng ý, tối đa 3. Không đề xuất điều dòng đã quyết định không làm.
+- Không thêm thông tin không có trong dòng.
 Trả về đúng một JSON:
-{{"dong": [{{"ma": "R1", "loai": "viec | khong_phai_viec", "nguoi": ["..."], "nhom": ["..."],
-  "viec": [{{"ten": "...", "chi_tiet": ["..."], "y": [1, 2], "phu_trach": ["trong nguoi, chỉ khi ý ghi rõ ai làm"],
-            "han": "YYYY-MM-DD chỉ khi ý ghi hạn riêng, không thì null", "han_goc": "ngày đó chép đúng như trong ý, vd 13/11/2026"}}],
-  "han_rieng": [{{"y": 3, "han": "YYYY-MM-DD", "han_goc": "ngày chép đúng như trong ý", "ten": "tên việc của ý đó, tối đa 15 từ"}}],
-  "vuong_mac": {{"noi_dung": "tóm tắt hoặc null", "y": [3]}},
-  "nhan_dinh": [4],
-  "chua_xu_ly": [{{"ten": "việc cần làm, bắt đầu bằng động từ", "y": ["Y2", "Y5"]}}]}}]}}"""
-
-_IDEA_SPLIT_RE = re.compile(r'(?<=[.;!?])\s+(?=\S)')
-_DATE_IN_TEXT_RE = re.compile(r'\b(\d{4})-(\d{1,2})-(\d{1,2})\b|\b(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?\b')
-
-
-def segment_ideas(text: str, limit: int = MAX_IDEAS) -> list[str]:
-    """The separate points of a cell: its lines (bullets removed), cut at sentence ends so that a deadline or a
-    statement inside a line is a point of its own. Very short pieces stay with the previous one."""
-    ideas = []
-    for line in (text or '').splitlines():
-        line = line.strip().lstrip('•▪◦-*+').strip()
-        # A short line ending with ":" ("PHẢN ÁNH CHUNG:", "CHI TIẾT THEO KHÁCH HÀNG:") is a heading, not a point.
-        if not line or (line.endswith(':') and len(line.split()) <= 5):
-            continue
-        current = ''
-        for sentence in _IDEA_SPLIT_RE.split(line):
-            if current and len(current) >= MIN_IDEA_CHARS and (
-                len(current) + len(sentence) > 300 or len(sentence) >= MIN_IDEA_CHARS
-            ):
-                ideas.append(current)
-                current = ''
-            current = f'{current} {sentence}'.strip()
-        if current:
-            ideas.append(current)
-    if len(ideas) > limit:
-        ideas = ideas[: limit - 1] + [' '.join(ideas[limit - 1 :])]
-    return ideas
+{{"dong": [{{"ma": "R1", "loai": "viec | khong_phai_viec",
+  "viec": [{{"ten": "...", "chi_tiet": ["..."], "phu_trach": ["..."], "nhom": ["..."], "han_goc": "... hoặc null",
+            "han": "YYYY-MM-DD hoặc null", "trang_thai": "... hoặc null", "tien_do": số hoặc null, "tien_do_goc": "... hoặc null",
+            "hoan_thanh_goc": "... hoặc null", "hoan_thanh_luc": "YYYY-MM-DD hoặc null", "vuong_mac": "... hoặc null"}}],
+  "de_xuat": [{{"ten": "...", "yeu_cau": "..."}}]}}]}}"""
 
 
 def short_title(text: str, limit: int = 120) -> str:
-    """Last resort when no model summary: the first sentence of the first line, cut at a word."""
+    """Last resort when no model summary: the first line, cut at a word."""
     first = (text or '').strip().splitlines()[0] if (text or '').strip() else ''
-    first = first.strip().lstrip('•▪◦-*+').strip()
-    sentence = re.split(r'(?<=[.!?;])\s', first, maxsplit=1)[0].strip().rstrip('.;:')
-    first = sentence if len(sentence.split()) >= 3 else first.strip().rstrip('.;:')
+    first = first.strip().lstrip('•▪◦-*+').strip().rstrip('.;:')
     first = first[:1].upper() + first[1:]
     if len(first) <= limit:
         return first
@@ -814,47 +740,9 @@ def word_support(summary: str, source: str) -> float:
     return len(words & _content_words(source)) / len(words) if words else 0.0
 
 
-def dates_in(text: str, year: int) -> set[str]:
-    """Every date written in the text, as YYYY-MM-DD (day/month without a year takes the given year)."""
-    import datetime as dt
-
-    found = set()
-    for match in _DATE_IN_TEXT_RE.finditer(text or ''):
-        try:
-            if match.group(1):
-                found.add(dt.date(int(match.group(1)), int(match.group(2)), int(match.group(3))).isoformat())
-            else:
-                y = match.group(6)
-                y = int(y) + 2000 if y and len(y) == 2 else int(y) if y else year
-                found.add(dt.date(y, int(match.group(5)), int(match.group(4))).isoformat())
-        except ValueError:
-            continue
-    return found
-
-
 def _repeats(text: str, others: list[str]) -> bool:
     """Says the same as one of the others: close wording, or most of its words."""
     return any(similarity(text, o) >= 0.75 or word_overlap(text, o) >= 0.7 for o in others if o)
-
-
-def _unique_details(title: str, details: list[str], limit: int = 6) -> list[str]:
-    kept: list[str] = []
-    for detail in details:
-        if detail and not _repeats(detail, [title, *kept]):
-            kept.append(detail)
-    return kept[:limit]
-
-
-def _written_date(raw: dict, ideas: list[str], year: int) -> Optional[str]:
-    """The deadline the model gave: the date as written in the point ("13/11/2026", in "han_goc") when it is one of
-    the dates of these points, else its YYYY-MM-DD. A model that gets the format or the year wrong still lands on the
-    date the text holds."""
-    written = dates_in(str(raw.get('han_goc') or ''), year)
-    in_points = set().union(*(dates_in(i, year) for i in ideas)) if ideas else set()
-    for date in sorted(written):
-        if date in in_points:
-            return date
-    return _clean_date(raw.get('han'))
 
 
 def _title(text: str) -> str:
@@ -862,241 +750,176 @@ def _title(text: str) -> str:
     return ' '.join(words[: TITLE_WORDS + 5])[:TITLE_MAX]
 
 
-async def summarize_rows(name: str, items: list[dict], today: str, concurrency: int = 4) -> tuple[list[dict], dict]:
-    """Every row of a task table becomes short tasks (one per row unless owners or a written deadline differ),
-    with every point of its task cell placed: in a task's name or details, as a blocker, or as a mere statement.
-    Points the model leaves out are asked again, then added to the details by code. Requests in the context
-    columns that no action answers become unassigned items. Owners stay within the row's owners, a task's own
-    deadline must be written in its points, and a summary must share words with the points it cites."""
+def _written_in(value, folded: str) -> bool:
+    """The value is written in the text (accents, case and punctuation aside, whole words)."""
+    key = normalize_key(str(value or ''))
+    return bool(key) and f' {key} ' in folded
+
+
+def _checked_date(iso, written, folded: str) -> tuple[Optional[str], bool]:
+    """(date, rejected): a date the model read is kept only when the words it read it from are in the text; when
+    those words are a plain date (30/11/2026, 2026-11-30) that date wins over the model's conversion."""
+    from open_webui.file_pipeline.tables import parse_date
+
+    if not iso and not written:
+        return None, False
+    if not written or not _written_in(written, folded):
+        return None, True
+    plain = parse_date(str(written))
+    date = plain or _clean_date(iso)
+    return date, not date
+
+
+async def summarize_rows(
+    name: str, rows: list[dict], today: str, concurrency: int = 4, intro: Optional[list[str]] = None,
+    roles: Optional[dict] = None,
+) -> tuple[list[dict], dict]:
+    """Every row read by the model as a whole (all its cells with their column names): whether it is a task, its
+    tasks with name, details, owners, deadline, status, progress and blocker, and requests it leaves unanswered.
+
+    Code reads no meaning into the cells. It only checks the answer against the row: owners, deadlines, percents
+    and completion dates must be written in the row, names and details must come from its words; and it keeps
+    everything: a cell the tasks do not reflect is copied into the details, a row the model does not answer is asked
+    again alone, then kept with its own words."""
     report = {
-        'rows': len(items), 'tasks': 0, 'gaps': 0, 'ideas': 0, 'placed_by_model': 0, 'added_by_code': 0,
-        'retried': 0, 'owners_rejected': 0, 'due_accepted': 0, 'due_rejected': 0, 'titles_replaced': 0,
+        'rows': len(rows), 'tasks': 0, 'gaps': 0, 'not_tasks': 0, 'retried': 0, 'fallback': 0, 'owners_rejected': 0,
+        'due_rejected': 0, 'progress_rejected': 0, 'titles_replaced': 0, 'details_dropped': 0, 'added_by_code': 0,
     }
-    if not items:
-        return items, report
-    year = int(today[:4])
-    rows = []
-    for n, item in enumerate(items, 1):
-        ideas = segment_ideas(item['ten'])
-        described = segment_ideas(item.get('mo_ta') or '', MAX_IDEAS)[: max(MAX_IDEAS - len(ideas), 0)]
-        context = segment_ideas(item.get('ngu_canh') or '', MAX_CONTEXT_IDEAS)
-        rows.append({'label': f'R{n}', 'item': item, 'ideas': ideas + described, 'own': len(ideas), 'context': context})
-        report['ideas'] += len(ideas) + len(described)
-    by_label = {row['label']: row for row in rows}
-    by_code = {row['item']['khoa'].split(':', 2)[-1].upper(): row['label'] for row in rows}
+    if not rows:
+        return [], report
+    intro_text = '\n'.join(intro or [])
+    context = ''
+    if intro_text:
+        context += f'Phần đầu trang (áp dụng cho mọi dòng):\n<tai_lieu>\n{intro_text}\n</tai_lieu>\n'
+    if roles:
+        hints = '; '.join(f'{ROLE_LABELS.get(r, r)}: {", ".join(c)}' for r, c in roles.items() if c)
+        context += f'Gợi ý vai trò các cột (chỉ để tham khảo, đọc theo nội dung thật của dòng): {hints}\n'
+    labelled = [{**row, 'label': f'R{n}'} for n, row in enumerate(rows, 1)]
+    by_label = {row['label']: row for row in labelled}
     semaphore = asyncio.Semaphore(max(concurrency, 1))
 
-    def prompt_row(row: dict) -> str:
-        item = row['item']
-        cell = item.get('phu_trach_o') or ', '.join(item['phu_trach'])
-        lines = [f'[{row["label"]}] ô người phụ trách: "{cell or "-"}"; hạn của dòng: {item["han"] or "-"}']
-        lines.append('VIỆC CẦN LÀM:')
-        for i, idea in enumerate(row['ideas'], 1):
-            if i == row['own'] + 1:
-                lines.append('MÔ TẢ CHI TIẾT CỦA VIỆC:')
-            lines.append(f'  [{i}] {idea}')
-        if row['context']:
-            lines.append('YÊU CẦU / BỐI CẢNH:')
-            lines += [f'  [Y{i}] {idea}' for i, idea in enumerate(row['context'], 1)]
-        return '\n'.join(lines)
+    def render(row: dict) -> str:
+        lines = [f'[{row["label"]}] dòng {row["number"]}']
+        for column, value in row['cells']:
+            value = value[:CELL_CHARS]
+            parts = [p.strip() for p in value.splitlines() if p.strip()]
+            if len(parts) <= 1:
+                lines.append(f'  {column}: {value.strip()}')
+            else:
+                lines.append(f'  {column}:')
+                lines += [f'    {p}' for p in parts]
+        text = '\n'.join(lines)
+        return text if len(text) <= ROW_CHARS else text[:ROW_CHARS] + ' …'
 
     def batches_of(selected: list[dict], size: int) -> list[list[dict]]:
         batches, current, used = [], [], 0
         for row in selected:
-            text = prompt_row(row)
-            if current and (len(current) >= size or used + len(text) > ROW_BATCH_CHARS):
+            size_of = len(render(row))
+            if current and (len(current) >= size or used + size_of > ROW_BATCH_CHARS):
                 batches.append(current)
                 current, used = [], 0
             current.append(row)
-            used += len(text)
+            used += size_of
         return batches + ([current] if current else [])
 
     async def run(batch: list[dict]) -> dict:
-        text = '\n\n'.join(prompt_row(row) for row in batch)
+        text = '\n\n'.join(render(row) for row in batch)
         async with semaphore:
             try:
-                return await _ask_json(ROW_PROMPT.format(name=name, today=today, rows=text))
+                return await _ask_json(ROW_PROMPT.format(name=name, today=today, context=context, rows=text))
             except llm.TrackerLLMError:
                 raise
             except Exception as error:
-                log.warning('Tracker: row summary batch failed (%s)', error)
+                log.warning('Tracker: row batch failed (%s)', error)
                 return {}
 
-    def numbers(values, size: int, prefix: str = '') -> list[int]:
-        found = []
-        for value in values if isinstance(values, list) else [values]:
-            text = str(value).strip().upper().removeprefix(prefix.upper())
-            if text.isdigit() and 1 <= int(text) <= size and int(text) not in found:
-                found.append(int(text))
-        return found
-
     def build(row: dict, answer: dict) -> Optional[dict]:
-        """Validated tasks, blocker and unassigned requests of one row, or None when nothing usable came back."""
-        item, ideas, context = row['item'], row['ideas'], row['context']
-        if str(answer.get('loai') or '').strip() == 'khong_phai_viec' and not item['phu_trach'] and not item['han']:
-            return {'skip': True, 'placed': set(range(1, len(ideas) + 1))}
-        cell = f' {normalize_key(item.get("phu_trach_o") or " ".join(item["phu_trach"]))} '
-
-        def in_cell(name) -> bool:
-            # Whole words of the owner cell: "Long" is in "Long / Triển", "Presale" is not in "SOC, PM".
-            key = normalize_key(str(name))
-            return bool(key) and f' {key} ' in cell
-
-        # The row's people as the model split the cell, each checked against it; else the table's own split.
-        people, teams = [], []
-        for kind, names in (('nguoi', people), ('nhom', teams)):
-            for name in answer.get(kind) or []:
-                if in_cell(name) and str(name).strip() not in people + teams:
-                    names.append(str(name).strip())
-                elif not in_cell(name):
-                    report['owners_rejected'] += 1
-        people = people + teams or list(item['phu_trach'])
-        by_key = {normalize_key(p): p for p in people}
-        tasks, placed = [], set()
-        misplaced: list[tuple[int, str]] = []  # (point, deadline written in it) the model gave to another task
+        source = '\n'.join(v for _, v in row['cells'])
+        folded = f' {normalize_key(source + chr(10) + intro_text)} '
+        if str(answer.get('loai') or '').strip() == 'khong_phai_viec':
+            # The model's call; the rows it leaves out are listed in the report for review.
+            return {'skip': True}
+        tasks = []
         for raw in answer.get('viec') or []:
-            if not isinstance(raw, dict) or not str(raw.get('ten') or '').strip():
+            if not isinstance(raw, dict):
                 continue
-            cited = numbers(raw.get('y') or [], len(ideas))
-            if not cited:
-                continue
-            source = ' '.join(ideas[i - 1] for i in cited)
-            title = _title(str(raw['ten']).strip())
-            if word_support(title, source) < MIN_WORD_SUPPORT:
-                title = short_title(source)
+            title = _title(str(raw.get('ten') or '').strip())
+            if not title or word_support(title, source) < MIN_WORD_SUPPORT:
+                fallback = (row['roles'].get('ten') or [v for _, v in row['cells'] if _is_text(v)] or [''])[0]
+                if not fallback:
+                    continue
+                title = short_title(fallback, TITLE_MAX)
                 report['titles_replaced'] += 1
             details = []
             for detail in raw.get('chi_tiet') or []:
-                detail = str(detail).strip()[:300]
-                if not detail or word_support(detail, source) < MIN_WORD_SUPPORT:
+                detail = ' '.join(str(detail).split())[:300]
+                if not detail:
                     continue
-                if _repeats(detail, [title, *details]):
+                if word_support(detail, source + ' ' + intro_text) < MIN_WORD_SUPPORT:
+                    report['details_dropped'] += 1
                     continue
-                details.append(detail)
-            details = details[:4]
-            named = []
-            for owner in raw.get('phu_trach') or []:
-                key = normalize_key(str(owner))
-                match = by_key.get(key) or (str(owner).strip() if in_cell(owner) else None)
-                if match and match not in named:
-                    named.append(match)
-                elif not match:
+                if not _repeats(detail, [title, *details]):
+                    details.append(detail)
+            owners, teams = [], []
+            for value in raw.get('phu_trach') or []:
+                value = ' '.join(str(value).split())
+                if _written_in(value, folded):
+                    if value not in owners:
+                        owners.append(value)
+                elif value:
                     report['owners_rejected'] += 1
-            due = item['han']
-            if raw.get('han') or raw.get('han_goc'):
-                proposed = _written_date(raw, ideas, year)
-                holders = [j for j in cited if proposed and proposed in dates_in(ideas[j - 1], year)]
-                if proposed and holders and len(holders) < len(cited):
-                    # The date is written in only some of the task's points: it is their deadline, not the task's.
-                    misplaced += [(j, proposed) for j in holders]
-                elif proposed and proposed in dates_in(source, year):
-                    due = proposed
-                    report['due_accepted'] += proposed != item['han']
-                elif proposed and proposed != item['han']:
-                    holder = next((j for j in range(1, len(ideas) + 1) if proposed in dates_in(ideas[j - 1], year)), None)
-                    if holder:
-                        misplaced.append((holder, proposed))
-                    else:
-                        report['due_rejected'] += 1
+            for value in raw.get('nhom') or []:
+                value = ' '.join(str(value).split())
+                if value in owners and value not in teams:
+                    teams.append(value)
+            due, rejected = _checked_date(raw.get('han'), raw.get('han_goc'), folded)
+            report['due_rejected'] += rejected
+            done, _ = _checked_date(raw.get('hoan_thanh_luc'), raw.get('hoan_thanh_goc'), folded)
+            progress = None
+            if raw.get('tien_do') is not None:
+                try:
+                    value = int(round(float(raw['tien_do'])))
+                except (TypeError, ValueError):
+                    value = None
+                if value is not None and 0 <= value <= 100 and _written_in(raw.get('tien_do_goc'), folded):
+                    progress = value
+                else:
+                    report['progress_rejected'] += 1
+            status = str(raw.get('trang_thai') or '').strip()
+            status = status if status in STATUSES else None
+            if done:
+                status = 'hoan_thanh'
+            if not status:
+                status = (
+                    ('hoan_thanh' if progress >= 100 else 'dang_lam' if progress > 0 else 'chua_bat_dau')
+                    if progress is not None
+                    else 'chua_bat_dau'
+                )
+            blocker = ' '.join(str(raw.get('vuong_mac') or '').split())[:300] or None
+            if blocker and word_support(blocker, source) < MIN_WORD_SUPPORT:
+                blocker = None
             tasks.append(
                 {
-                    'ten': title, 'chi_tiet': details, 'y': cited, 'phu_trach': named or list(people),
-                    'han': due, 'trich_dan': source[:QUOTE_CHARS],
+                    'ten': title, 'chi_tiet': details, 'phu_trach': owners, 'doi_nhom': teams, 'han': due,
+                    'trang_thai': status, 'tien_do': progress, 'hoan_thanh_luc': done if status == 'hoan_thanh' else None,
+                    'vuong_mac': blocker,
                 }
             )
-            placed |= set(cited)
         if not tasks:
             return None
-        # One task per row unless owners or deadlines differ: same owners and deadline are merged back.
-        grouped: list[dict] = []
-        for task in tasks:
-            twin = next(
-                (g for g in grouped if set(map(normalize_key, g['phu_trach'])) == set(map(normalize_key, task['phu_trach'])) and g['han'] == task['han']),
-                None,
-            )
-            if twin:
-                twin['chi_tiet'] = _unique_details(twin['ten'], [*twin['chi_tiet'], task['ten'], *task['chi_tiet']])
-                twin['y'] = sorted(set(twin['y']) | set(task['y']))
-                twin['trich_dan'] = ' '.join(ideas[i - 1] for i in twin['y'])[:QUOTE_CHARS]
-            else:
-                grouped.append(task)
-        for point, due in misplaced:
-            if any(t['han'] == due and point in t['y'] for t in grouped):
-                continue
-            owner_task = next((t for t in grouped if point in t['y']), None)
-            if owner_task and len(owner_task['y']) > 1:
-                owner_task['y'].remove(point)
-                owner_task['trich_dan'] = ' '.join(ideas[i - 1] for i in owner_task['y'])[:QUOTE_CHARS]
-                owner_task['chi_tiet'] = [d for d in owner_task['chi_tiet'] if word_support(d, ideas[point - 1]) < 0.6]
-            elif owner_task:
-                owner_task['han'] = due
-                report['due_accepted'] += 1
-                continue
-            grouped.append(
-                {
-                    'ten': short_title(ideas[point - 1]), 'chi_tiet': [], 'y': [point],
-                    'phu_trach': list(owner_task['phu_trach'] if owner_task else people), 'han': due,
-                    'trich_dan': ideas[point - 1][:QUOTE_CHARS],
-                }
-            )
-            placed.add(point)
-            report['due_split'] = report.get('due_split', 0) + 1
-        # Points the model marked with their own deadline (checked: the date is written in the point) become a task
-        # of their own when they ended up inside a task with another deadline, or in no task.
-        for raw in answer.get('han_rieng') or []:
+        gaps = []
+        for raw in answer.get('de_xuat') or []:
             if not isinstance(raw, dict):
                 continue
-            point = (numbers([raw.get('y')], len(ideas)) or [0])[0]
-            due = _written_date(raw, [ideas[point - 1]] if point else ideas, year)
-            if not point or not due or due not in dates_in(ideas[point - 1], year):
-                report['due_rejected'] += bool(point and due)
+            request = ' '.join(str(raw.get('yeu_cau') or '').split())
+            if not request or word_support(request, source) < 0.5:
                 continue
-            owner_task = next((t for t in grouped if point in t['y']), None)
-            if owner_task and (owner_task['han'] == due or len(owner_task['y']) < 2):
-                if owner_task['han'] != due:
-                    owner_task['han'] = due
-                    report['due_accepted'] += 1
-                continue
-            title = _title(str(raw.get('ten') or '').strip())
-            if not title or word_support(title, ideas[point - 1]) < MIN_WORD_SUPPORT:
-                title = short_title(ideas[point - 1])
-            if owner_task:
-                owner_task['y'].remove(point)
-                owner_task['trich_dan'] = ' '.join(ideas[i - 1] for i in owner_task['y'])[:QUOTE_CHARS]
-            grouped.append(
-                {
-                    'ten': title, 'chi_tiet': [], 'y': [point],
-                    'phu_trach': list(owner_task['phu_trach'] if owner_task else people), 'han': due,
-                    'trich_dan': ideas[point - 1][:QUOTE_CHARS],
-                }
-            )
-            placed.add(point)
-            report['due_split'] = report.get('due_split', 0) + 1
-        blocker = None
-        raw_blocker = answer.get('vuong_mac') if isinstance(answer.get('vuong_mac'), dict) else {}
-        # A point the tasks already use is an action, not a blocker.
-        task_points = {i for task in grouped for i in task['y']}
-        blocker_ideas = [i for i in numbers(raw_blocker.get('y') or [], len(ideas)) if i not in task_points]
-        if blocker_ideas:
-            source = ' '.join(ideas[i - 1] for i in blocker_ideas)
-            text = str(raw_blocker.get('noi_dung') or '').strip()
-            blocker = text[:300] if text and word_support(text, source) >= MIN_WORD_SUPPORT else short_title(source, 300)
-            placed |= set(blocker_ideas)
-        placed |= set(numbers(answer.get('nhan_dinh') or [], len(ideas)))
-        gaps = []
-        for raw in answer.get('chua_xu_ly') or []:
-            if not isinstance(raw, dict) or not context:
-                continue
-            cited = numbers(raw.get('y') or [], len(context), 'Y')
-            if not cited:
-                continue
-            source = ' '.join(context[i - 1] for i in cited)
             title = _title(str(raw.get('ten') or '').strip())
             if not title or word_support(title, source) < MIN_WORD_SUPPORT:
-                title = short_title(source)
+                title = short_title(request, TITLE_MAX)
                 report['titles_replaced'] += 1
-            gaps.append({'ten': title, 'chi_tiet': [], 'trich_dan': source[:QUOTE_CHARS]})
-        return {'tasks': grouped, 'placed': placed, 'blocker': blocker, 'gaps': gaps, 'people': people, 'teams': teams}
+            gaps.append({'ten': title, 'yeu_cau': request})
+        return {'tasks': tasks, 'gaps': gaps[:MAX_GAP_TASKS]}
 
     results: dict[str, dict] = {}
 
@@ -1104,104 +927,86 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
         answers = await asyncio.gather(*(run(batch) for batch in batches_of(selected, size)))
         for answer in answers:
             for raw in answer.get('dong') or []:
-                if not isinstance(raw, dict) or not raw.get('ma'):
+                if not isinstance(raw, dict):
                     continue
-                code = str(raw['ma']).strip('[] ').upper()
-                label = code if code in by_label else by_code.get(code) or by_code.get(code.split(':')[-1])
-                if not label:
-                    continue
-                built = build(by_label[label], raw)
-                previous = results.get(label)
-                # Keep the answer that places more of the row's points.
-                if built and (not previous or len(built['placed']) > len(previous['placed'])):
-                    results[label] = built
+                label = str(raw.get('ma') or '').strip('[] ').upper()
+                if label in by_label and label not in results:
+                    built = build(by_label[label], raw)
+                    if built:
+                        results[label] = built
 
-    await ask(rows, ROW_BATCH_ROWS)
-    again = [row for row in rows if row['label'] not in results or len(results[row['label']]['placed']) < len(row['ideas'])]
+    await ask(labelled, ROW_BATCH_ROWS)
+    again = [row for row in labelled if row['label'] not in results]
     if again:
         report['retried'] = len(again)
         await ask(again, 1)
 
     output = []
-    for row in rows:
-        item, built = row['item'], results.get(row['label'])
+    for row in labelled:
+        built = results.get(row['label'])
         if built and built.get('skip'):
-            report['not_tasks'] = report.get('not_tasks', 0) + 1
+            report['not_tasks'] += 1
+            report.setdefault('not_task_rows', []).append(
+                {'dong': row['number'], 'noi_dung': clip(' | '.join(v for _, v in row['cells']), 120)}
+            )
             continue
         if not built:
-            built = {'people': list(item['phu_trach']),
-                     'tasks': [{'ten': short_title(item['ten']), 'chi_tiet': [], 'y': [1] if row['ideas'] else [],
-                                'phu_trach': list(item['phu_trach']), 'han': item['han'], 'trich_dan': item['ten'][:QUOTE_CHARS]}],
-                     'placed': {1} if row['ideas'] else set(), 'blocker': None, 'gaps': []}
-            report['titles_replaced'] += 1
-        report['placed_by_model'] += len(built['placed'])
-        # A description point the model cited but wrote nowhere (not in the name, not in the details) is added as it is.
-        for task in built['tasks']:
-            written = ' '.join([task['ten'], *task['chi_tiet']])
-            missing = [
-                row['ideas'][j - 1] for j in task.get('y') or []
-                if j > row.get('own', len(row['ideas'])) and word_support(row['ideas'][j - 1], written) < DETAIL_SUPPORT
-            ]
-            if missing:
-                task['chi_tiet'] = [*task['chi_tiet'], *(clip(idea, 200) for idea in missing)]
-                report['added_by_code'] += len(missing)
-        # Nothing is lost: points the model did not place go to the details of the row's first task.
-        unplaced = [row['ideas'][i - 1] for i in range(1, len(row['ideas']) + 1) if i not in built['placed']]
-        if unplaced:
+            # Never answered: the row is kept with its own words.
+            title = (row['roles'].get('ten') or [v for _, v in row['cells'] if _is_text(v)] or [''])[0]
+            if not title:
+                continue
+            built = {
+                'tasks': [{'ten': short_title(title, TITLE_MAX), 'chi_tiet': [], 'phu_trach': list(row['roles'].get('phu_trach') or []),
+                           'doi_nhom': [], 'han': None, 'trang_thai': 'chua_bat_dau', 'tien_do': None,
+                           'hoan_thanh_luc': None, 'vuong_mac': None}],
+                'gaps': [],
+            }
+            report['fallback'] += 1
+        # Nothing is lost: a cell with words that the row's tasks do not reflect goes into the details as it is.
+        written = ' '.join(
+            [t['ten'] for t in built['tasks']] + [d for t in built['tasks'] for d in t['chi_tiet']]
+            + [t['vuong_mac'] or '' for t in built['tasks']] + [g['yeu_cau'] for g in built['gaps']]
+        )
+        missing = [
+            f'{column}: {clip(value, 300)}' for column, value in row['cells']
+            if len(_content_words(value)) >= COVER_MIN_WORDS and word_support(value, written) < COVER_SUPPORT
+        ]
+        if missing:
             first = built['tasks'][0]
-            first['chi_tiet'] = [*first['chi_tiet'], *(clip(idea, 200) for idea in unplaced)]
-            report['added_by_code'] += len(unplaced)
-        extra = [clip(item['ket_qua'], 300)] if item.get('ket_qua') else []
+            first['chi_tiet'] = [*first['chi_tiet'], *missing]
+            report['added_by_code'] += len(missing)
+        quote = clip(' | '.join(v for _, v in row['cells']), QUOTE_CHARS)
         for index, task in enumerate(built['tasks'], 1):
             output.append(
                 {
-                    **item,
-                    'ten': task['ten'],
-                    'chi_tiet': task['chi_tiet'][: MAX_DETAILS - len(extra)] + extra if index == 1 else task['chi_tiet'][:MAX_DETAILS],
-                    'phu_trach': task['phu_trach'],
-                    'han': task['han'],
-                    'vuong_mac': built['blocker'] or item['vuong_mac'],
-                    'trich_dan': task['trich_dan'],
-                    'khoa': f'{item["khoa"]}#{index}',
-                    'doi_nhom': [t for t in built.get('teams') or [] if t in task['phu_trach']],
+                    **task,
+                    'chi_tiet': task['chi_tiet'][:MAX_DETAILS],
+                    'chua_giao': not task['phu_trach'],
+                    'trich_dan': quote,
+                    'dong': row['number'],
+                    'khoa': f'{row["khoa"]}#{index}',
                     'xac_minh': True,
                 }
             )
             report['tasks'] += 1
-        # Requests no planned action answers become ordinary tasks ("Xây dựng dashboard ticket management cho CEO"),
-        # given to whoever handles the row, with the customer's words as their detail. At most MAX_GAP_TASKS per row.
-        owners = list(built.get('people') or item['phu_trach'])
-        gaps = [g for g in built['gaps'] if g['ten']]
-        for index, gap in enumerate(gaps[:MAX_GAP_TASKS], 1):
+        # Requests no task of the row answers become tasks of their own, given to whoever handles the row.
+        owners = list(dict.fromkeys(o for t in built['tasks'] for o in t['phu_trach']))
+        teams = list(dict.fromkeys(o for t in built['tasks'] for o in t['doi_nhom']))
+        for index, gap in enumerate(built['gaps'], 1):
             output.append(
                 {
-                    **item,
-                    'ten': gap['ten'][:TITLE_MAX],
-                    'chi_tiet': [clip(gap['trich_dan'], 300)],
-                    'phu_trach': owners,
-                    'han': None,
-                    'trang_thai': 'chua_bat_dau',
-                    'tien_do': None,
-                    'hoan_thanh_luc': None,
-                    'vuong_mac': None,
-                    'chua_giao': not owners,
-                    'doi_nhom': [t for t in built.get('teams') or [] if t in owners],
-                    'trich_dan': gap['trich_dan'],
-                    'khoa': f'{item["khoa"]}#yc{index}',
-                    'xac_minh': True,
+                    'ten': gap['ten'], 'chi_tiet': [clip(gap['yeu_cau'], 300)], 'phu_trach': owners, 'doi_nhom': teams,
+                    'han': None, 'trang_thai': 'chua_bat_dau', 'tien_do': None, 'hoan_thanh_luc': None,
+                    'vuong_mac': None, 'chua_giao': not owners, 'trich_dan': clip(gap['yeu_cau'], QUOTE_CHARS),
+                    'dong': row['number'], 'khoa': f'{row["khoa"]}#yc{index}', 'xac_minh': True,
                 }
             )
             report['gaps'] += 1
-    teams_seen = {normalize_key(t) for built in results.values() for t in built.get('teams') or []}
+    # A name the table calls a team on one row is a team on every row.
+    teams_seen = {normalize_key(t) for entry in output for t in entry.get('doi_nhom') or []}
     for entry in output:
         teams = [o for o in entry.get('phu_trach') or [] if normalize_key(o) in teams_seen]
         entry['doi_nhom'] = list(dict.fromkeys([*(entry.get('doi_nhom') or []), *teams]))
-    for entry in output:
-        entry.pop('ngu_canh', None)
-        entry.pop('mo_ta', None)
-        entry.pop('han_chu', None)
-        entry.pop('ket_qua', None)
-        entry.pop('phu_trach_o', None)
     return output, report
 
 
@@ -1221,7 +1026,7 @@ def _normalize_spec(spec: dict) -> dict:
 
 
 async def _corrected(name: str, sheets: list[dict], spec: dict, described: str, notes: list[str]) -> dict:
-    """The spec, or the model's correction of it when it reads the rows poorly (once)."""
+    """The spec, or the model's correction of it when it points at no rows or at a row without column names."""
     if spec.get('loai') != 'bang_viec':
         return spec
     result = apply_spec(sheets, spec)
@@ -1241,7 +1046,9 @@ async def _corrected(name: str, sheets: list[dict], spec: dict, described: str, 
     )
     if fixed.get('sheet'):
         better = apply_spec(sheets, fixed)
-        if len(better['issues']) <= len(result['issues']) and len(better['items']) >= len(result['items']):
+        if len(better['issues']) < len(result['issues']) or (
+            len(better['issues']) == len(result['issues']) and len(better['rows']) > len(result['rows'])
+        ):
             notes.append('model tự sửa bản mô tả: ' + '; '.join(result['issues']))
             return fixed
     return spec
@@ -1253,8 +1060,7 @@ async def table_spec(
     """The table description to use and notes about how it was made.
 
     An edited description is used as it is. A description the model made earlier is reused (no model call) while
-    it reads the rows well; when a new version of the table no longer fits it, the model corrects it.
-    Without one, the model describes the table (and corrects itself once if the rows read poorly)."""
+    it still points at rows; when a new version of the table no longer fits it, the model corrects it."""
     notes = []
     if cached:
         cached = _normalize_spec(dict(cached))
@@ -1286,19 +1092,21 @@ async def extract_table(
         return {'kind': 'table', 'items': [], 'quyet_dinh': [], 'rui_ro': [], 'report': {**report, 'mode': 'none'}}
     if kind == 'bang_viec':
         result = apply_spec(sheets, spec)
-        if result['items'] and (not result['issues'] or len(result['items']) >= result['stats'].get('rows', 0) * 0.5):
-            items, split = await summarize_rows(name, result['items'], today, concurrency)
+        if result['rows']:
+            items, split = await summarize_rows(
+                name, result['rows'], today, concurrency, intro=result['intro'], roles=result['roles']
+            )
             return {
                 'kind': 'table',
-                'items': dedupe_items(items),
+                'items': items,
                 'quyet_dinh': [],
                 'rui_ro': [],
                 'report': {
                     **report, 'mode': 'spec', 'stats': result['stats'], 'issues': result['issues'], 'split': split,
-                    'tieu_de_cot': column_titles(spec, result.get('columns') or []),
+                    'tieu_de_cot': result['roles'],
                 },
             }
-        notes.append('bản mô tả đọc được quá ít dòng, chuyển sang đọc theo lô: ' + '; '.join(result['issues']))
+        notes.append('bản mô tả không chỉ tới dòng nào, chuyển sang đọc theo lô: ' + '; '.join(result['issues']))
     sheet = _find_sheet(sheets, spec.get('sheet')) or max(sheets, key=lambda s: len(s['rows']))
     from open_webui.file_pipeline.tables import detect_header
 

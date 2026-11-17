@@ -16,7 +16,8 @@ CELL_CHARS = 2000
 
 
 def _cell(value: Any) -> str:
-    if value is None:
+    # An empty cell read through pandas is NaN (a float that is not equal to itself), not the text "nan".
+    if value is None or (isinstance(value, float) and value != value):
         return ''
     if isinstance(value, dt.datetime):
         return value.date().isoformat() if value.time() == dt.time(0) else value.isoformat(sep=' ', timespec='minutes')
@@ -35,8 +36,22 @@ def _trim(rows: list[list[str]]) -> list[list[str]]:
     return [row[:width] + [''] * (width - len(row[:width])) for row in rows]
 
 
-def read_grid(path: str, filename: str) -> list[dict]:
-    """[{'name', 'rows': [[str]], 'merged': n}] for every sheet (csv: one sheet)."""
+def _fill_down(rows: list[list[str]], ranges: list[tuple[int, int, int, int]]) -> None:
+    """A cell merged over several rows (a date or a group written once for its rows) holds its value in every row it
+    covers. (top, left, bottom, right) are 0-based and inclusive; the value stays in the range's first column, so a
+    title merged across columns is not repeated along the row."""
+    for top, left, bottom, _right in ranges:
+        if bottom <= top or top >= len(rows) or left >= len(rows[top]):
+            continue
+        value = rows[top][left]
+        for r in range(top + 1, min(bottom, len(rows) - 1) + 1):
+            if left < len(rows[r]) and not rows[r][left]:
+                rows[r][left] = value
+
+
+def read_grid(path: str, filename: str, fill_merged: bool = False) -> list[dict]:
+    """[{'name', 'rows': [[str]], 'merged': n}] for every sheet (csv: one sheet). fill_merged: cells merged over
+    several rows repeat their value in each of those rows (Excel files)."""
     lower = (filename or path).lower()
     if lower.endswith(('.csv', '.tsv')):
         raw = open(path, 'rb').read()
@@ -62,8 +77,26 @@ def read_grid(path: str, filename: str) -> list[dict]:
                 [_cell(v) for v in row[:MAX_COLS]]
                 for _, row in zip(range(MAX_ROWS), ws.iter_rows(values_only=True))
             ]
+            if fill_merged:
+                _fill_down(rows, [(m.min_row - 1, m.min_col - 1, m.max_row - 1, m.max_col - 1) for m in ws.merged_cells.ranges])
             sheets.append({'name': ws.title, 'rows': _trim(rows), 'merged': len(ws.merged_cells.ranges)})
         return sheets
+    if lower.endswith('.xls') and fill_merged:
+        try:
+            import xlrd
+
+            book = xlrd.open_workbook(path, formatting_info=True)
+            sheets = []
+            for ws in book.sheets():
+                rows = [
+                    [_cell(_xls_value(book, ws.cell(r, c))) for c in range(min(ws.ncols, MAX_COLS))]
+                    for r in range(min(ws.nrows, MAX_ROWS))
+                ]
+                _fill_down(rows, [(r0, c0, r1 - 1, c1 - 1) for r0, r1, c0, c1 in ws.merged_cells])
+                sheets.append({'name': ws.name, 'rows': _trim(rows), 'merged': len(ws.merged_cells)})
+            return sheets
+        except Exception:
+            pass  # read below without the merge information
     import pandas as pd  # .xls / .ods when their engines are installed
 
     frames = pd.read_excel(path, sheet_name=None, header=None, dtype=object)
@@ -71,6 +104,19 @@ def read_grid(path: str, filename: str) -> list[dict]:
         {'name': str(name), 'rows': _trim([[_cell(v) for v in row[:MAX_COLS]] for row in frame.values.tolist()[:MAX_ROWS]]), 'merged': 0}
         for name, frame in frames.items()
     ]
+
+
+def _xls_value(book, cell) -> Any:
+    import xlrd
+
+    if cell.ctype == xlrd.XL_CELL_DATE:
+        try:
+            return xlrd.xldate.xldate_as_datetime(cell.value, book.datemode)
+        except Exception:
+            return cell.value
+    if cell.ctype == xlrd.XL_CELL_BOOLEAN:
+        return bool(cell.value)
+    return cell.value
 
 
 def column_letter(index: int) -> str:
