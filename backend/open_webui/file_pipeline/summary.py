@@ -51,7 +51,8 @@ def cache_key(content: str, file_hash: Optional[str], focus: Optional[str]) -> s
 def cached_summary(file, focus: Optional[str]) -> Optional[dict]:
     content = (file.data or {}).get('content') or ''
     cached = ((file.data or {}).get('summaries') or {}).get(cache_key(content, file.hash, focus))
-    return cached if isinstance(cached, dict) and cached.get('summary') else None
+    # Summaries stored before the three levels existed are made again, so every level can be asked for.
+    return cached if isinstance(cached, dict) and cached.get('summary') and cached.get('tiers') else None
 
 
 async def store_summary(file, focus: Optional[str], result: dict) -> None:
