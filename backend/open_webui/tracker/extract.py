@@ -29,7 +29,7 @@ from open_webui.tracker.schema import _STATUS_ALIASES, STATUSES, WorkItem, norma
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 1
+EXTRACT_VERSION = 2
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 ROW_BATCH_CHARS = 10_000
@@ -568,19 +568,31 @@ async def split_actions(name: str, items: list[dict], today: str, concurrency: i
     batches.append(current)
     semaphore = asyncio.Semaphore(max(concurrency, 1))
 
+    # Rows are labelled R1, R2... in the prompt: a model shortens long keys ("table:<sheet>:PH-000001" comes back
+    # as "PH-000001"), so the answer is matched by label, or failing that by the row code it ends with.
+    labels = {f'R{n}': item for n, item in enumerate(long, 1)}
+    label_of = {id(item): label for label, item in labels.items()}
+
     async def run(batch: list[dict]) -> dict:
         rows = '\n\n'.join(
-            f'[{i["khoa"]}] phụ trách: {", ".join(i["phu_trach"]) or "-"}; hạn: {i["han"] or "-"}\n{i["ten"]}' for i in batch
+            f'[{label_of[id(i)]}] phụ trách: {", ".join(i["phu_trach"]) or "-"}; hạn: {i["han"] or "-"}\n{i["ten"]}'
+            for i in batch
         )
         async with semaphore:
             return await _ask_json(SPLIT_PROMPT.format(name=name, today=today, rows=rows))
 
     answers = await asyncio.gather(*(run(b) for b in batches))
+    by_code = {item['khoa'].split(':', 2)[-1]: label for label, item in labels.items()}
     by_key = {}
     for answer in answers:
         for row in answer.get('dong') or []:
-            if isinstance(row, dict) and row.get('ma'):
-                by_key[str(row['ma']).strip('[] ')] = row
+            if not isinstance(row, dict) or not row.get('ma'):
+                continue
+            code = str(row['ma']).strip('[] ').upper()
+            label = code if code in labels else by_code.get(code) or by_code.get(code.split(':')[-1])
+            if label:
+                by_key[labels[label]['khoa']] = row
+    report['matched'] = len(by_key)
     def whole(item: dict, blocker=None) -> dict:
         # Not split: the whole cell on one line, nothing dropped.
         return {**item, 'ten': '; '.join(item['ten'].splitlines())[:600], 'vuong_mac': blocker or item['vuong_mac']}
@@ -635,41 +647,63 @@ def _normalize_spec(spec: dict) -> dict:
     return spec
 
 
-async def table_spec(name: str, sheets: list[dict], cached: Optional[dict] = None) -> tuple[dict, list[str]]:
-    """The table description to use: the cached one when given, else the model's (corrected once if poor).
-    Returns (spec, notes about how it was made)."""
+async def _corrected(name: str, sheets: list[dict], spec: dict, described: str, notes: list[str]) -> dict:
+    """The spec, or the model's correction of it when it reads the rows poorly (once)."""
+    if spec.get('loai') != 'bang_viec':
+        return spec
+    result = apply_spec(sheets, spec)
+    if not result['issues']:
+        return spec
+    fixed = _normalize_spec(
+        await _ask_json(
+            FIX_PROMPT.format(
+                name=name,
+                spec=json.dumps(spec, ensure_ascii=False),
+                issues='; '.join(result['issues']),
+                rows='\n'.join(_row_lines(result['bad_rows'], result.get('columns') or [])) or '(không có)',
+                sheets=described or describe_sheets(sheets),
+            ),
+            max_tokens=3000,
+        )
+    )
+    if fixed.get('sheet'):
+        better = apply_spec(sheets, fixed)
+        if len(better['issues']) <= len(result['issues']) and len(better['items']) >= len(result['items']):
+            notes.append('model tự sửa bản mô tả: ' + '; '.join(result['issues']))
+            return fixed
+    return spec
+
+
+async def table_spec(
+    name: str, sheets: list[dict], cached: Optional[dict] = None, edited: bool = False
+) -> tuple[dict, list[str]]:
+    """The table description to use and notes about how it was made.
+
+    An edited description is used as it is. A description the model made earlier is reused (no model call) while
+    it reads the rows well; when a new version of the table no longer fits it, the model corrects it.
+    Without one, the model describes the table (and corrects itself once if the rows read poorly)."""
     notes = []
     if cached:
-        return cached, ['dùng lại bản mô tả đã lưu']
+        cached = _normalize_spec(dict(cached))
+        if edited:
+            return cached, ['dùng bản mô tả đã sửa tay']
+        notes.append('dùng lại bản mô tả đã lưu')
+        return await _corrected(name, sheets, cached, '', notes), notes
     described = describe_sheets(sheets)
     spec = _normalize_spec(await _ask_json(SPEC_PROMPT.format(name=name, sheets=described), max_tokens=3000))
     notes.append('model mô tả bảng' if spec else 'model không trả được bản mô tả')
-    if spec.get('loai') == 'bang_viec':
-        result = apply_spec(sheets, spec)
-        if result['issues']:
-            fixed = await _ask_json(
-                FIX_PROMPT.format(
-                    name=name,
-                    spec=json.dumps(spec, ensure_ascii=False),
-                    issues='; '.join(result['issues']),
-                    rows='\n'.join(_row_lines(result['bad_rows'], result.get('columns') or [])) or '(không có)',
-                    sheets=described,
-                ),
-                max_tokens=3000,
-            )
-            fixed = _normalize_spec(fixed)
-            if fixed.get('sheet'):
-                better = apply_spec(sheets, fixed)
-                if len(better['issues']) <= len(result['issues']) and len(better['items']) >= len(result['items']):
-                    spec = fixed
-                    notes.append('model tự sửa bản mô tả: ' + '; '.join(result['issues']))
-    return spec, notes
+    return await _corrected(name, sheets, spec, described, notes), notes
 
 
 async def extract_table(
-    name: str, sheets: list[dict], today: str, cached_spec: Optional[dict] = None, concurrency: int = 4
+    name: str,
+    sheets: list[dict],
+    today: str,
+    cached_spec: Optional[dict] = None,
+    concurrency: int = 4,
+    edited: bool = False,
 ) -> dict:
-    spec, notes = await table_spec(name, sheets, cached_spec)
+    spec, notes = await table_spec(name, sheets, cached_spec, edited)
     spec = _normalize_spec(spec)
     kind = spec.get('loai')
     report = {'spec': spec, 'notes': notes, 'signature': table_signature(sheets)}

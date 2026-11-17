@@ -258,17 +258,16 @@ async def _extract(file, name: str) -> dict:
         sheets = await asyncio.to_thread(read_grid, local, file.filename)
         signature = extract.table_signature(sheets)
         stored = await Trackers.get_cached_item(f'tablespec:{signature}')
-        cached_spec = (stored.data or {}).get('spec') if stored else None
-        result = await extract.extract_table(name, sheets, _today(), cached_spec, concurrency)
-        if not stored and result['report'].get('spec'):
-            await Trackers.put_cached_item(
-                f'tablespec:{signature}',
-                '',
-                'table_spec',
-                [file.id],
-                name,
-                {'spec': result['report']['spec'], 'edited': False, 'file': name, 'file_id': file.id},
-            )
+        stored_data = (stored.data or {}) if stored else {}
+        result = await extract.extract_table(
+            name, sheets, _today(), stored_data.get('spec'), concurrency, bool(stored_data.get('edited'))
+        )
+        spec = result['report'].get('spec')
+        # Keep the model's description (new, or corrected for this version); never touch an edited one.
+        if spec and not stored_data.get('edited') and spec != stored_data.get('spec'):
+            from open_webui.tracker.files_admin import save_table_spec
+
+            await save_table_spec(signature, spec, edited=False, extra={'file': name, 'file_id': file.id})
         return result
     content = (file.data or {}).get('content') or ''
     return await extract.extract_document(name, content, get_structure(file), _today(), concurrency)

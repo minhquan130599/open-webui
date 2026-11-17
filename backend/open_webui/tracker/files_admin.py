@@ -6,6 +6,7 @@ edit: rows already there are updated by their table key, nothing is duplicated.
 """
 
 import time
+from typing import Optional
 
 from sqlalchemy import String, cast, delete, select, update
 
@@ -14,13 +15,15 @@ from open_webui.models.messages import Message
 from open_webui.tracker.models import TrackerItem, Trackers
 
 
-async def save_table_spec(signature: str, spec: dict) -> dict:
+async def save_table_spec(signature: str, spec: dict, edited: bool = True, extra: Optional[dict] = None) -> dict:
+    """Store a table description: edited on the monitor (kept as it is), or made by the model."""
     item_id = f'tablespec:{signature}'
     now = time.time_ns()
+    values = {**(extra or {}), 'spec': spec, 'edited': edited, **({'edited_at': now} if edited else {'updated_at': now})}
     async with get_async_db_context() as db:
         row = await db.get(TrackerItem, item_id)
         if row:
-            row.data = {**(row.data or {}), 'spec': spec, 'edited': True, 'edited_at': now}
+            row.data = {**(row.data or {}), **values}
         else:
             db.add(
                 TrackerItem(
@@ -31,7 +34,7 @@ async def save_table_spec(signature: str, spec: dict) -> dict:
                     period_start=now,
                     period_end=now,
                     summary='',
-                    data={'spec': spec, 'edited': True, 'edited_at': now},
+                    data=values,
                     created_at=now,
                 )
             )
