@@ -416,6 +416,10 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                     extractions[message.id] = result.extractions
 
         deletions = list(row.pending_deletions or [])
+        # Items open when this run started: any of them missing from the result was removed on purpose by this run
+        # (retracted, superseded by a new reading of its file, merged, an AI-owned task dropped), so the commit-time
+        # guard must not put it back.
+        started_ids = {e.get('id') for e in (row.state or {}).get('hang_muc') or [] if e.get('id')}
         # Sources whose message is gone without a recorded deletion (deleted while a run was reading it, a reply
         # removed with its thread): their items are retracted the same way.
         referenced = {
@@ -548,7 +552,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             item=item,
             deletions_done=len(deletions),
             retry_after_ns=retry_after_ns,
-            merged_away=merged_away,
+            merged_away=merged_away | (started_ids - {i.id for i in state.hang_muc}),
         )
         log.info(
             'Tracker updated channel %s with %s messages, %s deletions in %.1fs',

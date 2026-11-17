@@ -209,3 +209,8 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   được xác định thế nào (gắn chắc / team chưa khai báo / ngoài công ty / khớp tên / chưa khớp), kết quả đọc file và câu
   gốc, các tin nhắn nguồn (đánh dấu tin đã xóa), các lượt tổng hợp đã đọc tin nguồn. Cần khóa truy xuất hoặc phiên chỉnh
   sửa (nội dung kênh). Bản trích bảng lưu thêm tên tiêu đề của các cột đã dùng ("tieu_de_cot") để truy vết hiện tên cột.
+- Sửa lỗi gỡ việc không có tác dụng (av 17/11 20:09: lịch sử "Gỡ 19 đầu việc" nhưng giao diện vẫn còn 19): bước lưu
+  (reconcile) thêm lại mọi việc có trong trạng thái hiện tại mà kết quả mới thiếu, để giữ việc được mở lại trong lúc
+  chạy; nó cũng thêm lại việc vừa bị gỡ có chủ đích. Nay việc đang mở lúc lượt bắt đầu mà kết quả không còn được coi là
+  đã gỡ có chủ đích (tin / file nguồn bị xóa, thay bởi lần đọc lại file, gộp, việc giao cho AI), không bị thêm lại; việc
+  được mở lại trong lúc chạy vẫn được giữ. Lỗi này cũng làm phần "thay việc cũ khi đọc lại file" không có tác dụng.
