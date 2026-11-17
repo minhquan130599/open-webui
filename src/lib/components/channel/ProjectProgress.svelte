@@ -8,7 +8,10 @@
 	import { user } from '$lib/stores';
 	import {
 		archiveTrackerItems,
+		assignTrackerItem,
 		closeDoneTrackerItems,
+		getChannelTeam,
+		type ChannelTeam as ChannelTeamData,
 		getTrackerItems,
 		getTrackerState,
 		refreshTrackerState,
@@ -19,6 +22,7 @@
 	} from '$lib/apis/tracker';
 
 	import ConfirmDialog from '../common/ConfirmDialog.svelte';
+	import ChannelTeam from './ChannelTeam.svelte';
 	import Spinner from '../common/Spinner.svelte';
 	import Tooltip from '../common/Tooltip.svelte';
 	import XMark from '../icons/XMark.svelte';
@@ -68,6 +72,69 @@
 	// Pending confirmation: cancel one item, or close every completed item.
 	let confirm: { kind: 'cancel'; item: TrackerWorkItem } | { kind: 'close-done' } | null = null;
 	let showConfirm = false;
+	// Members, roles and aliases of the channel ("Members & roles" section, owner labels, quick assign).
+	let team: ChannelTeamData | null = null;
+	let assignFor: TrackerWorkItem | null = null;
+	let assignIds: string[] = [];
+	let assignRemember = true;
+
+	const key = (name: string) =>
+		(name || '')
+			.normalize('NFD')
+			.replace(/[\u0300-\u036f]/g, '')
+			.replace(/đ/gi, 'd')
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, ' ')
+			.trim();
+
+	// Why an owner name cannot be reminded: another company, not a channel member, or an account that left.
+	const ownerNote = (item: TrackerWorkItem, name: string): { text: string; className: string } | null => {
+		if (item.ben_ngoai?.includes(name))
+			return { text: $i18n.t('External'), className: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300' };
+		if (!team) return null;
+		const member = team.members.find((m) => key(m.name) === key(name));
+		if (member?.left)
+			return { text: $i18n.t('Left'), className: 'bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300' };
+		const aliased = team.aliases.some((a) => a.ten === key(name));
+		if (!member && !aliased && !(item.phu_trach_ids?.length === item.phu_trach.length))
+			return {
+				text: $i18n.t('Not in channel'),
+				className: 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
+			};
+		return null;
+	};
+
+	// The single owner name that matches no account ("Duy"): offered to remember as an alias when assigning.
+	const unlinkedName = (item: TrackerWorkItem | null): string | null => {
+		if (!item || !team) return null;
+		const names = item.phu_trach.filter(
+			(n) => !item.ben_ngoai?.includes(n) && !team?.members.some((m) => key(m.name) === key(n))
+		);
+		return names.length === 1 ? names[0] : null;
+	};
+
+	const openAssign = (item: TrackerWorkItem) => {
+		menuFor = null;
+		assignFor = item;
+		assignIds = [...(item.phu_trach_ids ?? [])];
+		assignRemember = true;
+	};
+
+	const saveAssign = async () => {
+		if (!assignFor?.id || !assignIds.length) return;
+		busy = true;
+		try {
+			const remember = assignRemember && assignIds.length === 1 ? unlinkedName(assignFor) : null;
+			await assignTrackerItem(localStorage.token, channel.id, assignFor.id, assignIds, remember);
+			toast.success($i18n.t('Assigned'));
+			assignFor = null;
+			await load();
+		} catch (error: any) {
+			toast.error(error?.detail ?? `${error}`);
+		} finally {
+			busy = false;
+		}
+	};
 
 	const toggle = (key: string) => {
 		expanded = { ...expanded, [key]: !expanded[key] };
@@ -302,6 +369,7 @@
 		if (!channel?.id) return;
 		try {
 			tracker = await getTrackerState(localStorage.token, channel.id);
+			if (tracker) team = await getChannelTeam(localStorage.token, channel.id).catch(() => team);
 			if (expanded.history) {
 				items = (await getTrackerItems(localStorage.token, channel.id)).reverse();
 			}
@@ -685,6 +753,13 @@
 														<button
 															type="button"
 															role="menuitem"
+															class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+															on:click|stopPropagation={() => openAssign(item)}
+															><span aria-hidden="true">👤</span>{$i18n.t('Assign owner')}</button
+														>
+														<button
+															type="button"
+															role="menuitem"
 															class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/40"
 															on:click|stopPropagation={() => closeItem(item)}
 															><span aria-hidden="true">✓</span>{$i18n.t(
@@ -750,6 +825,21 @@
 											</span>
 											<span class="truncate">{item.phu_trach.join(', ')}</span>
 										</span>
+										{#each item.phu_trach as name}
+											{@const note = ownerNote(item, name)}
+											{#if note}
+												<span
+													class="whitespace-nowrap rounded-full px-1.5 py-0.5 text-[0.6875rem] {note.className}"
+													title={name}>{note.text}: {name}</span
+												>
+											{/if}
+										{/each}
+									{/if}
+									{#if item.nhom && item.nhom !== 'Cả nhóm'}
+										<span
+											class="whitespace-nowrap rounded-full bg-blue-50 px-1.5 py-0.5 text-[0.6875rem] text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"
+											title={$i18n.t('Given to a role or team')}>{item.nhom}</span
+										>
 									{/if}
 									{#if tag}
 										<span
@@ -1091,10 +1181,89 @@
 						</ul>
 					{/if}
 				</div>
+
+				{#if team}
+					<div>
+						<button
+							type="button"
+							class="flex w-full items-center gap-2 px-1 py-2.5 text-left text-[0.8125rem] font-medium text-gray-800 hover:text-gray-950 dark:text-gray-200 dark:hover:text-white"
+							aria-expanded={!!expanded.team}
+							on:click={() => toggle('team')}
+						>
+							<svg
+								class="size-3 text-gray-400 transition-transform {expanded.team ? 'rotate-90' : ''}"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.4"
+								aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg
+							>
+							{$i18n.t('Members & roles')}
+							<span class="ml-auto text-xs font-normal text-gray-500">{team.members.length}</span>
+						</button>
+						{#if expanded.team}
+							<div transition:slide={{ duration: 150 }}>
+								<ChannelTeam channelId={channel.id} {team} onChanged={load} />
+							</div>
+						{/if}
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>
 </div>
+
+{#if assignFor && team}
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+		role="presentation"
+		on:click|self={() => (assignFor = null)}
+	>
+		<div
+			class="flex max-h-[80vh] w-full max-w-sm flex-col gap-3 rounded-2xl bg-white p-4 text-sm shadow-xl dark:bg-gray-900"
+			role="dialog"
+			aria-modal="true"
+			aria-label={$i18n.t('Assign owner')}
+		>
+			<div class="font-medium text-gray-900 dark:text-gray-100">{$i18n.t('Assign owner')}</div>
+			<div class="text-xs text-gray-500">{assignFor.ten}</div>
+			<div class="flex flex-col gap-1 overflow-y-auto">
+				{#each team.members.filter((m) => !m.left) as member (member.id)}
+					<label class="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-gray-50 dark:hover:bg-gray-800">
+						<input
+							type="checkbox"
+							checked={assignIds.includes(member.id)}
+							on:change={(e) =>
+								(assignIds = e.currentTarget.checked
+									? [...assignIds, member.id]
+									: assignIds.filter((i) => i !== member.id))}
+						/>
+						<span class="text-gray-800 dark:text-gray-200">{member.name}</span>
+					</label>
+				{/each}
+			</div>
+			{#if unlinkedName(assignFor) && assignIds.length === 1}
+				<label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+					<input type="checkbox" bind:checked={assignRemember} />
+					{$i18n.t('From now on, "{{name}}" in this channel means this person', {
+						name: unlinkedName(assignFor)
+					})}
+				</label>
+			{/if}
+			<div class="flex justify-end gap-2">
+				<button type="button" class="px-3 py-1.5 text-gray-500" on:click={() => (assignFor = null)}
+					>{$i18n.t('Cancel')}</button
+				>
+				<button
+					type="button"
+					class="rounded-lg bg-gray-900 px-3 py-1.5 text-white disabled:opacity-50 dark:bg-white dark:text-gray-900"
+					disabled={busy || !assignIds.length}
+					on:click={saveAssign}>{$i18n.t('Save')}</button
+				>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <ConfirmDialog
 	bind:show={showConfirm}

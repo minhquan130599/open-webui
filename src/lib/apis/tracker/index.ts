@@ -11,6 +11,8 @@ export type TrackerWorkItem = {
 	vuong_mac: string | null;
 	chi_tiet?: string[]; // short points that do not fit the name (from imported files)
 	chua_giao?: boolean; // asked for in a file but nobody has taken it on yet
+	nhom?: string | null; // role / team it was given to ("AM", "Cả nhóm")
+	ben_ngoai?: string[]; // owners outside the company (a customer, a partner)
 	nguon: string[];
 	tao_luc?: string | null; // YYYY-MM-DD
 	cap_nhat_luc?: string | null;
@@ -214,3 +216,64 @@ export type Board = {
 // "My work" page: items grouped by channel, for the viewer ('mine') or the channels they manage ('team').
 export const getBoard = async (token: string, mode: 'mine' | 'team'): Promise<Board> =>
 	request(token, `/board?mode=${mode}`);
+
+// Members of a project channel for the tracker: owner, managers (team leads), roles / teams, people left out of work
+// given to everyone, aliases of names that do not match an account.
+export type ChannelTeamMember = {
+	id: string;
+	name: string;
+	email: string;
+	is_owner: boolean;
+	is_manager: boolean;
+	is_admin: boolean;
+	left: boolean; // account disabled or deleted
+	left_out: boolean; // marked "not given work meant for everyone"
+	left_out_auto: boolean; // admins, the owner and managers always are
+};
+export type TeamRole = { key: string; ten: string; ids: string[]; nguoi: string[]; sua_tay: boolean };
+export type ChannelTeam = {
+	members: ChannelTeamMember[];
+	roles: TeamRole[];
+	aliases: { ten: string; user_id: string; user: string }[];
+	can_manage: boolean;
+	can_change_owner: boolean;
+};
+
+export const getChannelTeam = async (token: string, channelId: string): Promise<ChannelTeam> =>
+	request(token, `${channelPath(channelId)}/team`);
+
+export const setChannelRoles = async (
+	token: string,
+	channelId: string,
+	roles: { ten: string; ids: string[] }[]
+) => request(token, `${channelPath(channelId)}/roles`, 'POST', { roles });
+
+export const setChannelLeftOut = async (token: string, channelId: string, ids: string[]) =>
+	request(token, `${channelPath(channelId)}/left-out`, 'POST', { ids });
+
+export const setChannelManager = async (
+	token: string,
+	channelId: string,
+	userId: string,
+	manager: boolean
+) => request(token, `${channelPath(channelId)}/managers`, 'POST', { user_id: userId, manager });
+
+export const transferChannelOwner = async (token: string, channelId: string, userId: string) =>
+	request(token, `${channelPath(channelId)}/owner`, 'POST', { user_id: userId });
+
+export const assignTrackerItem = async (
+	token: string,
+	channelId: string,
+	itemId: string,
+	userIds: string[],
+	remember?: string | null
+) =>
+	request(
+		token,
+		`${channelPath(channelId)}/items/${encodeURIComponent(itemId)}/assign`,
+		'POST',
+		{ user_ids: userIds, remember: remember ?? null }
+	);
+
+export const deleteChannelAlias = async (token: string, channelId: string, name: string) =>
+	request(token, `${channelPath(channelId)}/aliases/${encodeURIComponent(name)}`, 'DELETE');

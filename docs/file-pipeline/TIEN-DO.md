@@ -57,14 +57,14 @@ Chốt: Q1 kế hoạch không nêu người → chưa giao; Q2 có danh sách "
 người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
 - ✅ T1. Prompt tổng hợp chat: `giao_cho`, tin @Knight vẫn giao việc, đính chính thay danh sách
 - ✅ T2. Code tính người phụ trách (tên/@tag, chức vụ, cả nhóm, tự nhận, không rõ), kiểm tên có trong tin, bắt buộc nguồn
-- 🔄 T3. Bảng chức vụ / nhóm / "không nhận việc chung" của kênh: lưu, tự học từ tin, API
-- ⬜ T4. Giao diện "Thành viên & chức vụ" trong bảng tiến độ kênh
-- 🔄 T5. Nhãn Ngoài kênh / Bên ngoài / Đã nghỉ; bí danh kênh; gán nhanh việc chưa có người
+- ✅ T3. Bảng chức vụ / nhóm / "không nhận việc chung" của kênh: lưu, tự học từ tin, API
+- ✅ T4. Giao diện "Thành viên & chức vụ" trong bảng tiến độ kênh
+- ✅ T5. Nhãn Ngoài kênh / Bên ngoài / Đã nghỉ; bí danh kênh; gán nhanh việc chưa có người
 - ✅ T6. Yêu cầu chưa giao: gom 1 việc / dòng, gán người phụ trách của dòng
 - ✅ T7. Lỗi nhỏ việc từ file: hạn đặt sai việc, chi tiết trùng, vướng mắc là nhận định, tên cắt ở ":"
 - ✅ T8. Nhắc thứ Hai cho chủ kênh / người quản lý (thông báo + email), cấu hình trên monitor
-- 🔄 T9. Người quản lý kênh (vai trò manager): gán / bỏ, quyền tiến độ như chủ kênh
-- 🔄 T10. Chuyển chủ kênh; tài khoản bị khóa (tự chuyển, việc "đã nghỉ")
+- ✅ T9. Người quản lý kênh (vai trò manager): gán / bỏ, quyền tiến độ như chủ kênh
+- ✅ T10. Chuyển chủ kênh; tài khoản bị khóa (tự chuyển, việc "đã nghỉ")
 - ⬜ T11. Monitor: % chưa gán / chưa liên kết theo kênh, đổi chủ kênh / người quản lý
 - ⬜ T12. Kiểm thử cũ + mới, cập nhật tài liệu, commit
 - ⬜ T13. Deploy, tổng hợp lại kênh bd3, poc soc, av (phía server)
@@ -144,3 +144,8 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   phân công" (chưa có người, nhóm chưa khai báo, ngoài kênh, đã nghỉ); bật/tắt trên monitor (mục Email). Email tổng hợp
   hằng ngày gửi cả người quản lý. Không gửi mail tới tài khoản đã khóa. Mỗi ngày, kênh có chủ kênh bị khóa tự chuyển cho
   người quản lý lâu nhất; không có người quản lý thì ghi log để admin chọn (monitor hiện ở T11).
+- Nhóm 9 / T4–T5, T9–T10 giao diện: bảng tiến độ kênh có mục "Thành viên & chức vụ" (`ChannelTeam.svelte`): chủ kênh / quản lý /
+  admin / đã nghỉ, đánh dấu "không nhận việc chung", đặt / bỏ người quản lý, chuyển chủ kênh (chủ cũ thành quản lý), sửa
+  chức vụ / nhóm (chức vụ học từ tin hiện "học từ tin nhắn"), xóa bí danh. Menu mỗi việc có "Gán người phụ trách" (chọn
+  thành viên; tên chưa liên kết như "Duy" có ô "từ nay Duy trong kênh này là người này"). Nhãn cạnh người phụ trách:
+  Bên ngoài / Ngoài kênh / Đã nghỉ, và nhãn nhóm ("AM"). svelte-check không lỗi mới; chưa thử trên trình duyệt.
