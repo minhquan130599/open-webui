@@ -219,3 +219,6 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   kênh bị bỏ; file nằm trong luồng trả lời hoặc cũ hơn 50 tin gần nhất cũng không bao giờ được tìm. Nay thứ tự là: file
   được chỉ tới → file của kênh mà câu hỏi gọi tên (khớp tên file bỏ dấu, quét 1000 tin gần nhất kể cả trong luồng) →
   file gửi gần đây; tối đa CHANNEL_MODEL_MAX_FILES (5).
+- Kênh: tin trả lời của AI đang chạy (giữa các lần gọi công cụ, lúc model đang viết) hiện dòng "Đang trả lời…" có
+  vòng quay dưới các bước công cụ, tắt khi xong (meta.done). Tin không bao giờ được đánh dấu xong (máy chủ dừng giữa
+  chừng) thôi hiện sau 10 phút không thay đổi.

@@ -14,7 +14,7 @@
 	dayjs.extend(isYesterday);
 	dayjs.extend(localizedFormat);
 
-	import { getContext, tick } from 'svelte';
+	import { getContext, onDestroy, onMount, tick } from 'svelte';
 	const i18n = getContext<Writable<i18nType>>('i18n');
 
 	import { toast } from 'svelte-sonner';
@@ -46,6 +46,7 @@
 	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
 	import Emoji from '$lib/components/common/Emoji.svelte';
 	import Skeleton from '$lib/components/chat/Messages/Skeleton.svelte';
+	import Spinner from '$lib/components/common/Spinner.svelte';
 	import ArrowUpLeftAlt from '$lib/components/icons/ArrowUpLeftAlt.svelte';
 	import PinSlash from '$lib/components/icons/PinSlash.svelte';
 	import Pin from '$lib/components/icons/Pin.svelte';
@@ -213,6 +214,23 @@
 
 	$: messageOutput = Array.isArray(message?.data?.output) ? message.data.output : [];
 	$: hasStructuredOutput = buildOutputDisplayItems(messageOutput).length > 0;
+
+	// A model reply still being written: between tool calls and while the answer streams nothing else moves, so a
+	// status line shows it is working. A reply never marked done (stopped server, older version) stops showing it
+	// once it has not changed for a while.
+	const ANSWERING_STALE_MS = 10 * 60 * 1000;
+	let now = Date.now();
+	let clock: ReturnType<typeof setInterval> | null = null;
+	onMount(() => {
+		clock = setInterval(() => (now = Date.now()), 30000);
+	});
+	onDestroy(() => {
+		if (clock) clearInterval(clock);
+	});
+	$: answering =
+		Boolean(message?.meta?.model_id) &&
+		!message?.meta?.done &&
+		now - Number(message?.updated_at ?? message?.created_at ?? 0) / 1e6 < ANSWERING_STALE_MS;
 </script>
 
 <ConfirmDialog
@@ -689,6 +707,15 @@
 										done={message?.meta?.done ?? false}
 										allowEmbeds={false}
 									/>
+									{#if answering}
+										<div
+											class="mt-1.5 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
+											aria-live="polite"
+										>
+											<Spinner className="size-3" />
+											<span class="shimmer">{$i18n.t('Answering…')}</span>
+										</div>
+									{/if}
 								{:else if (message?.content ?? '').trim() === '' && message?.meta?.model_id}
 									<Skeleton />
 								{:else}
