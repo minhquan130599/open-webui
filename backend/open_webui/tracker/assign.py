@@ -79,8 +79,9 @@ def _words(text: str) -> str:
     return f' {normalize_key(text)} '
 
 
-def verify_person(name: str, sources: list[Source], ctx: Context) -> Optional[str]:
-    """The display name of the person meant, when the source messages contain them; else None."""
+def verify_person(name: str, sources: list[Source], ctx: Context, current: Optional[list[str]] = None) -> Optional[str]:
+    """The display name of the person meant, when the source messages contain them (or, for an update, they already
+    own the item); else None."""
     text = ' '.join(s.text for s in sources)
     words = _words(text)
     tagged = set().union(*(s.tagged for s in sources)) if sources else set()
@@ -98,11 +99,22 @@ def verify_person(name: str, sources: list[Source], ctx: Context) -> Optional[st
         # "PM Việt Anh" for Nguyễn Việt Anh, "vietanh.nguyen" for his e-mail name.
         if (len(given) >= 2 and f' {" ".join(given[-2:])} ' in words) or (email and f' {email} ' in words):
             return display_name(person.name)
+        # "anh Nghĩa" for Vy Trung Nghĩa, when nobody else in the channel is called Nghĩa.
+        same_name = [p for p in ctx.people if normalize_key(display_name(p.name)).split()[-1:] == given[-1:]]
+        if given and len(same_name) == 1 and f' {given[-1]} ' in words:
+            return display_name(person.name)
+        if current and key in {normalize_key(c) for c in current}:
+            return display_name(person.name)
+    elif current and key in {normalize_key(c) for c in current}:
+        return name.strip()  # an owner the item already has (e.g. a team or someone outside the channel)
     return None
 
 
-def resolve(giao_cho: Optional[dict], names: list[str], sources: list[Source], ctx: Context) -> Resolved:
-    """Owners of one item from the model's `giao_cho` (or, without it, the names it wrote)."""
+def resolve(
+    giao_cho: Optional[dict], names: list[str], sources: list[Source], ctx: Context, current: Optional[list[str]] = None
+) -> Resolved:
+    """Owners of one item from the model's `giao_cho` (or, without it, the names it wrote). current: the owners the
+    item has now (an update may keep them without naming them again)."""
     result = Resolved()
     giao_cho = giao_cho if isinstance(giao_cho, dict) else {}
     kind = str(giao_cho.get('kieu') or ('ten' if names else 'khong_ro')).strip().lower()
@@ -113,8 +125,10 @@ def resolve(giao_cho: Optional[dict], names: list[str], sources: list[Source], c
             result.external.append(str(name).strip())
 
     if kind == 'ten':
+        # "các AM @A, @B": named people, and the role they were named as.
+        result.group = str(giao_cho.get('chuc_vu') or '').strip() or None
         for name in proposed:
-            person = verify_person(name, sources, ctx)
+            person = verify_person(name, sources, ctx, current)
             if person and person not in result.names:
                 result.names.append(person)
             elif not person and name not in result.external:

@@ -270,7 +270,7 @@ def _drop_ai_tasks(state, old_state, messages: list[Message], names: set[str]) -
         step.phu_trach = [o for o in step.phu_trach if normalize_key(o) not in names]
 
 
-def _assign_owners(delta, ref_sources: dict, ctx, counts: dict) -> dict:
+def _assign_owners(delta, ref_sources: dict, ctx, counts: dict, state=None) -> dict:
     """Owners of the delta's new items and owner changes, worked out by code from how the model says the work was
     given (assign.py). New items without a valid source message are dropped. Returns {item id: Resolved} for the
     changes, to set their group after the delta is applied."""
@@ -291,6 +291,7 @@ def _assign_owners(delta, ref_sources: dict, ctx, counts: dict) -> dict:
         kept.append(new)
     delta.hang_muc_moi = kept
     changes = {}
+    current_owners = {item.id: list(item.phu_trach) for item in (state.hang_muc if state else [])}
     for change in delta.cap_nhat:
         if change.giao_cho is None and change.phu_trach is None:
             continue
@@ -300,14 +301,15 @@ def _assign_owners(delta, ref_sources: dict, ctx, counts: dict) -> dict:
             change.phu_trach or [],
             [ref_sources[r] for r in refs],
             ctx,
+            current_owners.get(change.id),
         )
         counts['ten_bi_loai'] = counts.get('ten_bi_loai', 0) + resolved.rejected
-        replace = bool(change.giao_cho and (change.giao_cho.thay_the or change.giao_cho.kieu in ('chuc_vu', 'ca_nhom')))
-        if resolved.names or replace:
+        # Never replaced by nobody: when no name checks out, the item keeps its owners.
+        if resolved.names:
             change.phu_trach = resolved.names
             changes[change.id] = resolved
         else:
-            change.phu_trach = None  # nobody the messages name: keep the current owners
+            change.phu_trach = None
     return changes
 
 
@@ -434,7 +436,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             if roles_now:
                 ctx.config = await channel_config.update(channel_id, lambda c: channel_config.learn_roles(c, roles_now))
                 learned += roles_now
-            changed_groups = _assign_owners(delta, ref_sources, ctx, counts)
+            changed_groups = _assign_owners(delta, ref_sources, ctx, counts, state)
             state, merged = apply_delta(state, delta, ref_map, today, archived_keys)
             for item in state.hang_muc:
                 if item.id in changed_groups:
