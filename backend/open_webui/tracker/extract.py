@@ -32,7 +32,7 @@ from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 16
+EXTRACT_VERSION = 17
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 SIMILAR = 0.72  # trigram similarity above which two names are the same item
@@ -684,32 +684,38 @@ ROW_PROMPT = """Bảng "{name}". Hôm nay là {today}.
 </tai_lieu>
 
 Đọc hiểu từng dòng như một người quản lý dự án và lập đầu việc để theo dõi tiến độ.
-- "loai": "khong_phai_viec" khi dòng không giao việc gì: tiêu đề nhóm / mục, dòng tổng cộng, dòng tiêu đề phụ, dòng chữ
-  ký / người duyệt, dòng chỉ là ghi chú chung. Các dòng còn lại "viec".
+- "loai": "khong_phai_viec" khi dòng không giao hay yêu cầu việc gì: tiêu đề nhóm / mục, dòng tổng cộng, dòng tiêu đề
+  phụ, dòng chữ ký / người duyệt, ghi chú chung, phản hồi chỉ khen hoặc nhận xét mà không đòi hỏi gì. Còn lại "viec".
 - Mặc định mỗi dòng là MỘT việc. Chỉ tách nhiều việc khi dòng giao các phần cho người khác nhau hoặc ghi hạn khác nhau.
 - "ten": tóm tắt việc tối đa 15 từ, bắt đầu bằng động từ, giữ tên đơn vị, khách hàng, sản phẩm, viết cùng ngôn ngữ với dòng.
-- "chi_tiet": các thông tin còn lại của dòng giúp làm và theo dõi việc (phạm vi, các bước, tiêu chí / kết quả cần đạt,
-  công thức, tần suất, ghi chú), mỗi ý một câu ngắn, không lặp tên việc; giữ đủ con số, tên, mốc thời gian.
-- "phu_trach": người hoặc team phụ trách, CHÉP ĐÚNG chữ trong dòng (hoặc trong phần đầu trang); không suy ra từ câu mô tả
-  chung ("PM phối hợp", "QA khảo sát" chỉ là cách làm, không phải giao việc). "nhom": những tên trong "phu_trach" là
-  team / phòng ban / chức vụ (SOC, PM, Phòng KD), không phải một người. Chữ trong ngoặc sau tên người ("Long (BE)") là
-  phòng ban của người đó, không phải người phụ trách thêm.
+- "chi_tiet": tối đa 5 ý ngắn giúp người làm biết phải làm gì và khi nào xong: phạm vi, các bước, đầu ra / tiêu chí hoàn
+  thành, công thức, tần suất, việc phải làm trước (vd "Làm sau CV-01"), con số và tên quan trọng. KHÔNG đưa vào chi tiết
+  các ô chỉ để phân loại hay quản lý bảng: mã, giai đoạn, hạng mục, nhóm / loại / segment, mức ưu tiên, ngày bắt đầu,
+  ước tính, trạng thái, số ngày còn lại, cảnh báo tự tính, người cung cấp thông tin. Liệt kê tên các cột đó trong
+  "cot_phan_loai".
+- "phu_trach": người hoặc team ĐƯỢC GIAO làm việc, CHÉP ĐÚNG chữ trong dòng (cột phụ trách / thực hiện / owner, hoặc phần
+  đầu trang). Người góp ý, người yêu cầu, khách hàng, đầu mối phía khách, người duyệt KHÔNG phải người phụ trách; câu mô
+  tả cách làm ("PM phối hợp", "QA khảo sát") cũng không phải giao việc. Ô ghi nhiều tên ("BA / FE Lead", "Hà, Nam") thì
+  tách từng tên. "nhom": những tên trong "phu_trach" là team, phòng ban hoặc chức vụ (SOC, PM, BA, DevOps, BE Lead,
+  QA Lead, AI Engineer, Phòng KD), không phải tên một người. "Long (BE)" là người "Long" (BE là phòng ban của Long).
 - "han_goc": chép đúng chữ ghi hạn của việc trong dòng; "han": ngày đó dạng YYYY-MM-DD. Hạn không phải một ngày ("Hàng
   tháng", "Khi đóng dự án", "Q4") thì "han" null và ghi vào "chi_tiet". Ngày bắt đầu không phải hạn.
 - "trang_thai": chua_bat_dau | dang_lam | bi_chan | tam_dung | hoan_thanh, theo ô trạng thái / tiến độ của dòng; không ghi
   gì thì null. "tien_do": số phần trăm 0-100 (ô 0.6 trong cột % là 60), "tien_do_goc": chép đúng ô đó.
   "hoan_thanh_goc" / "hoan_thanh_luc": ngày hoàn thành thực tế nếu dòng ghi.
-- "vuong_mac": khó khăn, phụ thuộc, thiếu nguồn lực ghi trong dòng; không có thì null.
-- "de_xuat": chỉ khi dòng có yêu cầu / phản hồi / vấn đề của người khác (khách hàng, đơn vị) mà việc của dòng KHÔNG
-  đáp ứng, kể cả gián tiếp: mỗi mục là việc cần làm để đáp ứng ("ten" bắt đầu bằng động từ) kèm "yeu_cau" chép đúng câu
-  yêu cầu trong dòng. Gộp yêu cầu trùng ý, tối đa 3. Không đề xuất điều dòng đã quyết định không làm.
+- "vuong_mac": CHỈ khi dòng nêu một khó khăn đang cản trở việc (thiếu nguồn lực, chờ bên khác chưa làm, lỗi chưa có
+  cách xử lý). Việc phải làm trước theo kế hoạch ("Phụ thuộc: CV-01") KHÔNG phải vướng mắc. Không có thì null.
+- "de_xuat": chỉ khi dòng có yêu cầu / phản hồi / vấn đề của người khác (khách hàng, người dùng, đơn vị) mà việc của
+  dòng KHÔNG đáp ứng, kể cả gián tiếp: mỗi mục là việc cần làm để đáp ứng ("ten" bắt đầu bằng động từ) kèm "yeu_cau"
+  chép đúng câu yêu cầu trong dòng. Không lặp lại việc đã có trong "viec". Gộp yêu cầu trùng ý, tối đa 3. Không đề xuất
+  điều dòng đã quyết định không làm.
 - Không thêm thông tin không có trong dòng.
 Trả về đúng một JSON:
 {{"dong": [{{"ma": "R1", "loai": "viec | khong_phai_viec",
   "viec": [{{"ten": "...", "chi_tiet": ["..."], "phu_trach": ["..."], "nhom": ["..."], "han_goc": "... hoặc null",
             "han": "YYYY-MM-DD hoặc null", "trang_thai": "... hoặc null", "tien_do": số hoặc null, "tien_do_goc": "... hoặc null",
             "hoan_thanh_goc": "... hoặc null", "hoan_thanh_luc": "YYYY-MM-DD hoặc null", "vuong_mac": "... hoặc null"}}],
-  "de_xuat": [{{"ten": "...", "yeu_cau": "..."}}]}}]}}"""
+  "de_xuat": [{{"ten": "...", "yeu_cau": "..."}}], "cot_phan_loai": ["tên cột ..."]}}]}}"""
 
 
 def short_title(text: str, limit: int = 120) -> str:
@@ -918,8 +924,13 @@ async def summarize_rows(
             if not title or word_support(title, source) < MIN_WORD_SUPPORT:
                 title = short_title(request, TITLE_MAX)
                 report['titles_replaced'] += 1
+            if _repeats(title, [t['ten'] for t in tasks] + [g['ten'] for g in gaps]):
+                report['gaps_repeating'] = report.get('gaps_repeating', 0) + 1
+                continue
             gaps.append({'ten': title, 'yeu_cau': request})
-        return {'tasks': tasks, 'gaps': gaps[:MAX_GAP_TASKS]}
+        columns = {name for name, _ in row['cells']}
+        labels = [str(c).strip() for c in answer.get('cot_phan_loai') or [] if str(c).strip() in columns]
+        return {'tasks': tasks, 'gaps': gaps[:MAX_GAP_TASKS], 'labels': labels}
 
     results: dict[str, dict] = {}
 
@@ -967,9 +978,14 @@ async def summarize_rows(
             [t['ten'] for t in built['tasks']] + [d for t in built['tasks'] for d in t['chi_tiet']]
             + [t['vuong_mac'] or '' for t in built['tasks']] + [g['yeu_cau'] for g in built['gaps']]
         )
+        labels = set(built.get('labels') or [])
+        for column in labels:
+            report.setdefault('label_columns', {})
+            report['label_columns'][column] = report['label_columns'].get(column, 0) + 1
         missing = [
             f'{column}: {clip(value, 300)}' for column, value in row['cells']
-            if len(_content_words(value)) >= COVER_MIN_WORDS and word_support(value, written) < COVER_SUPPORT
+            if column not in labels
+            and len(_content_words(value)) >= COVER_MIN_WORDS and word_support(value, written) < COVER_SUPPORT
         ]
         if missing:
             first = built['tasks'][0]

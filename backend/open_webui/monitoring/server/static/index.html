@@ -1262,6 +1262,8 @@
         const parts = [`${n(sp.rows)} dòng → ${n(sp.tasks)} việc${sp.gaps ? ` + <b>${n(sp.gaps)} đề xuất từ yêu cầu</b>` : ''}`];
         if (sp.not_tasks) parts.push(`${n(sp.not_tasks)} dòng không phải việc (tiêu đề, tổng, chữ ký)`);
         if (sp.retried) parts.push(`hỏi lại ${n(sp.retried)} dòng`);
+        if (sp.label_columns) parts.push(`cột phân loại (không đưa vào chi tiết): ${esc(Object.keys(sp.label_columns).join(', '))}`);
+        if (sp.gaps_repeating) parts.push(`bỏ ${n(sp.gaps_repeating)} đề xuất trùng việc của dòng`);
         if ((rep.stats || {}).skipped_rows) parts.push(`${n(rep.stats.skipped_rows)} dòng trống / chỉ có số`);
         const bad = [
           sp.added_by_code ? `<span class="pill warn">${n(sp.added_by_code)} ô code chép thêm vào chi tiết</span>` : '',

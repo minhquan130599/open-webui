@@ -278,3 +278,13 @@ Làm lại:
   trong lời nhắc giới hạn TRACKER_STATE_PROMPT_CHARS (24.000 ký tự): ưu tiên việc mà tin mới nói tới (trùng chữ ở tên,
   người, chi tiết), rồi việc từ tin nhắn và việc mới cập nhật; ghi rõ "còn N việc khác vẫn giữ nguyên". Với 252 việc và
   một tin về OPP NAC: còn ~8k token, đủ 28 việc NAC. Bảng tiến độ và dữ liệu không đổi.
+- Đánh giá bản đọc bảng mới trên dev (17/11 22:5x, model thật): đủ dòng, đúng người / hạn / trạng thái, nhưng hướng dẫn
+  cho model còn sai ở 4 chỗ: (1) 49/50 việc của file kế hoạch có "vướng mắc" vì hướng dẫn ghi vướng mắc gồm "phụ thuộc",
+  model đưa cột "Phụ thuộc: CV-01" vào; (2) chi tiết đầy ô phân loại (Mã, Giai đoạn, Hạng mục, Mức ưu tiên, Còn lại N
+  ngày, Segment, Nhóm phản ánh…); (3) người góp ý (Alpha-X "Nhân viên Sales") thành người phụ trách, phản hồi khen thành
+  việc, đề xuất trùng việc của dòng; (4) "BA / FE Lead" không tách, BA / BE Lead / QA Lead không nhận là chức vụ.
+  Sửa hướng dẫn: vướng mắc chỉ là khó khăn đang cản trở (việc làm trước ghi vào chi tiết "Làm sau CV-01"); chi tiết tối
+  đa 5 ý về phạm vi / bước / đầu ra / tần suất, không ghi ô phân loại, model liệt kê các cột đó ("cot_phan_loai") và code
+  không chép ngược chúng vào chi tiết; người phụ trách là người được giao, không phải người góp ý / yêu cầu / duyệt; ô
+  nhiều tên được tách; chức vụ là "nhom"; phản hồi chỉ khen là không phải việc. Code bỏ đề xuất trùng tên việc của dòng.
+  Monitor ghi các cột phân loại và số đề xuất trùng bị bỏ. EXTRACT_VERSION 17.
