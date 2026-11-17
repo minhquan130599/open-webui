@@ -55,6 +55,11 @@
   .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
   .cols { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
   @media (max-width: 520px) { .cols { grid-template-columns: 1fr; } }
+  .otp-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; z-index: 1000; padding: 16px; }
+  .otp-box { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); width: min(420px, 100%); padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+  .otp-box h3 { margin: 0; font-size: 15px; }
+  .otp-box input { width: 100%; box-sizing: border-box; }
+  .otp-box .row { display: flex; gap: 8px; justify-content: flex-end; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; box-shadow: var(--shadow); min-width: 0; }
   .card h2 { font-size: 13.5px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
   .card h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
@@ -442,6 +447,53 @@
     drawEditor();
     watchReindex();
   }
+  // An action that needs an edit session asks for the key and the Google Authenticator code in a popup, then goes
+  // on; no need to open the settings editor first. Resolves true once a session is open, false when cancelled.
+  let otpPending = null;
+  function sessionValid() { return Boolean(editor.token) && editor.expires - Math.floor(Date.now() / 1000) > 5; }
+  function ensureSession(action) {
+    if (sessionValid()) return Promise.resolve(true);
+    if (otpPending) return otpPending;
+    otpPending = new Promise((resolve) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'otp-backdrop';
+      wrap.innerHTML = `<form class="otp-box" role="dialog" aria-modal="true" aria-labelledby="otp-title">
+          <h3 id="otp-title">Xác thực để ${esc(action || 'tiếp tục')}</h3>
+          <span class="muted" style="font-size:12.5px">Nhập khóa truy xuất (MONITOR_REVEAL_KEY) và mã 6 số trên Google Authenticator. Phiên chỉnh sửa kéo dài 15 phút cho mọi thao tác quản trị.</span>
+          <input class="btn" name="key" type="password" autocomplete="off" placeholder="Khóa truy xuất" required>
+          <input class="btn" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="Mã 6 số" style="letter-spacing:.2em" required>
+          <div class="error-box" data-otp-error style="display:none"></div>
+          <div class="row"><button class="btn" type="button" data-otp-cancel>Hủy</button><button class="btn primary" type="submit">Xác thực và tiếp tục</button></div>
+        </form>`;
+      const form = wrap.querySelector('form');
+      const error = wrap.querySelector('[data-otp-error]');
+      const finish = (ok) => { wrap.remove(); document.removeEventListener('keydown', onKey); otpPending = null; resolve(ok); };
+      const onKey = (e) => { if (e.key === 'Escape') finish(false); };
+      wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('[data-otp-cancel]')) finish(false); });
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const button = form.querySelector('button[type=submit]');
+        button.disabled = true;
+        try {
+          const res = await api('/api/admin/unlock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ admin_key: form.key.value, code: form.code.value }) });
+          editor.token = res.token; editor.expires = res.expires; editor.error = '';
+          if (editor.open) { await loadSettings(); drawEditor(); }
+          finish(true);
+        } catch (err) {
+          error.textContent = err.message;
+          error.style.display = '';
+          form.code.value = '';
+          form.code.focus();
+          button.disabled = false;
+        }
+      });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(wrap);
+      form.key.focus();
+    });
+    return otpPending;
+  }
   async function loadSettings() {
     try {
       editor.data = await api('/api/admin/settings', { headers: editHeaders() });
@@ -798,7 +850,7 @@
   }
   async function reprocessFile(name, id) {
     const P = filePanels[name];
-    if (!editor.token) { P.note = 'Xử lý lại cần phiên chỉnh sửa: vào tab Thành phần & tài nguyên → Chỉnh sửa cấu hình, xác thực bằng khóa và mã Google Authenticator, rồi bấm lại.'; drawFiles(name); return; }
+    if (!(await ensureSession('xử lý lại file'))) return;
     if (!confirm('Trích xuất và embedding lại file này bằng engine và model hiện tại?')) return;
     P.busy = id; drawFiles(name);
     try { const r = await api(`/api/admin/files/${encodeURIComponent(id)}/reprocess`, { method: 'POST', headers: editHeaders() }); P.note = `Đã xử lý lại: ${n(r.chars)} ký tự, ${n(r.knowledge_bases)} kho, ${ms(r.ms)}.`; }
@@ -1398,7 +1450,6 @@
   function reviewHtml(t, v) {
     const repair = t.repair || {};
     const checked = t.status === 'checked' ? `<span class="muted" style="font-size:12px">Đã kiểm tra (${esc({ raw: 'dùng chữ OCR gốc', vision: 'dùng chữ vision', current: 'giữ chữ đang dùng', edited: 'sửa tay' }[repair.reviewed_use] || '')}${repair.reviewed_at ? `, ${when(repair.reviewed_at / 1e6)}` : ''}). </span>` : '';
-    if (!editor.token) return `<div class="muted" style="font-size:12px;margin-top:8px">${checked}Để chọn chữ đúng cho trang này cần phiên chỉnh sửa (Thành phần &amp; tài nguyên → Chỉnh sửa cấu hình).</div>`;
     return `<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">${checked}
         <span class="muted" style="font-size:12.5px">Sau khi so với ảnh, chọn chữ đúng (file được ghép lại và lập chỉ mục lại, trang được đánh dấu đã kiểm tra):</span>
         <button class="btn" type="button" data-fp-review="raw">Dùng chữ OCR gốc</button>
@@ -1411,6 +1462,7 @@
   }
 
   async function reviewPage(use) {
+    if (!(await ensureSession('lưu chữ đã kiểm tra của trang'))) { drawFilePage(); return; }
     const v = fp.view;
     const body = { use };
     if (use === 'edited') { body.text = document.getElementById('fp-edit')?.value || ''; v.draft = body.text; }
@@ -1467,7 +1519,7 @@
   }
 
   async function runPipeline(pages) {
-    if (!editor.token) { fp.note = 'Chạy lại cần phiên chỉnh sửa: vào tab Thành phần & tài nguyên → Chỉnh sửa cấu hình, xác thực bằng khóa và mã Google Authenticator, rồi bấm lại.'; load(); return; }
+    if (!(await ensureSession('chạy lại xử lý file'))) return;
     const what = pages.length ? `đọc lại ${pages.length} trang đã chọn bằng model vision` : 'chạy lại toàn bộ xử lý (chấm điểm, sửa OCR, lập chỉ mục, tóm tắt)';
     if (!confirm(`Đưa file vào hàng đợi để ${what}?`)) return;
     try { await api(`/api/admin/files/${encodeURIComponent(fp.fileId)}/pipeline`, { method: 'POST', headers: editHeaders(), body: JSON.stringify({ pages }) }); fp.note = 'Đã đưa vào hàng đợi; trang tự cập nhật khi xử lý xong.'; fp.selected.clear(); }
@@ -1519,7 +1571,7 @@
     const b = e.target.closest('button');
     if (!b) return;
     if (b.dataset.txRebuild) {
-      if (!editor.token) { tx.rebuildNote = 'Tổng hợp lại kênh cần phiên chỉnh sửa: vào tab Thành phần & tài nguyên → Chỉnh sửa cấu hình rồi bấm lại.'; load(); return; }
+      if (!(await ensureSession('tổng hợp lại kênh'))) return;
       const id = b.dataset.txRebuild;
       let p;
       try { p = await api(`/api/admin/tracker/channels/${encodeURIComponent(id)}/rebuild`, { headers: editHeaders() }); }
@@ -1534,7 +1586,7 @@
     if (b.dataset.txOpen) { await openExtraction(b.dataset.txOpen); return; }
     if (b.dataset.txClose !== undefined) { tx.view = null; drawTxView(); return; }
     if (b.dataset.txReimport !== undefined) {
-      if (!editor.token) { tx.note = 'Đọc lại cần phiên chỉnh sửa: vào tab Thành phần & tài nguyên → Chỉnh sửa cấu hình rồi bấm lại.'; load(); return; }
+      if (!(await ensureSession('đọc lại đầu việc của file'))) return;
       if (!b.dataset.txReimport || !confirm(`Đọc lại đầu việc của "${b.dataset.txName}" ở lần tổng hợp tới? Việc đã có được cập nhật theo khóa dòng, không tạo trùng.`)) return;
       try { const r = await api(`/api/admin/tracker/files/${encodeURIComponent(b.dataset.txReimport)}/reimport`, { method: 'POST', headers: editHeaders(), body: '{}' }); tx.note = `Đã xếp lịch đọc lại (${r.messages} tin nhắn ở ${r.channels} kênh); kết quả hiện sau lần tổng hợp tới.`; }
       catch (err) { tx.note = `Không đọc lại được: ${err.message}`; }
@@ -1543,7 +1595,7 @@
     if (b.dataset.txSpec) { tx.editing = b.dataset.txSpec; tx.draft = ''; load(); return; }
     if (b.dataset.txSpecClose !== undefined) { tx.editing = ''; tx.draft = ''; load(); return; }
     if (b.dataset.txSpecSave) {
-      if (!editor.token) { tx.note = 'Lưu bản mô tả cần phiên chỉnh sửa: vào tab Thành phần & tài nguyên → Chỉnh sửa cấu hình rồi bấm lại.'; load(); return; }
+      if (!(await ensureSession('lưu bản mô tả bảng'))) return;
       const text = document.getElementById('tx-spec')?.value || '';
       let spec;
       try { spec = JSON.parse(text); } catch (err) { tx.draft = text; tx.note = `JSON không hợp lệ: ${err.message}`; load(); return; }
@@ -1565,7 +1617,7 @@
     if (b.dataset.fpRepairSelected !== undefined) { await runPipeline([...fp.selected].sort((x, y) => x - y)); return; }
     if (b.dataset.fpRerun !== undefined) { await runPipeline([]); return; }
     if (b.dataset.fpBackfill !== undefined) {
-      if (!editor.token) { fp.note = 'Cần phiên chỉnh sửa: vào tab Thành phần & tài nguyên → Chỉnh sửa cấu hình rồi bấm lại.'; load(); return; }
+      if (!(await ensureSession('xử lý các file cũ'))) return;
       if (!confirm('Đưa các file tải lên trong 30 ngày qua (chưa từng xử lý, tối đa 50 file) vào hàng đợi?')) return;
       try { const r = await api('/api/admin/files/pipeline/backfill', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ days: 30, limit: 50 }) }); fp.note = `Đã đưa ${r.queued} file vào hàng đợi.`; } catch (err) { fp.note = `Thất bại: ${err.message}`; }
       load(); return;
