@@ -165,3 +165,7 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   (`phu_trach_links`) khi biết chắc (tag, gán tay, chức vụ), không suy lại từ tên; tên trùng hiện kèm phòng ban; tin không
   tag mà tên trùng thì không gán (chủ kênh chọn); không tạo bí danh cho tên trùng. Đã test: tag My Sales / My SYS gắn đúng
   từng người, "chị Trà My" không tag → không gán, cập nhật và tổng hợp lại vẫn giữ đúng tài khoản.
+- Nhóm 9 bổ sung: giao lại việc qua tin nhắn: "chuyển cho / giao lại / thay / bỏ / chỉ còn" (model đánh `thay_the`) thay
+  danh sách người; "thêm / cùng / hỗ trợ" và trường hợp model không đánh dấu thì giữ người cũ và thêm người mới. Đã test
+  trên việc báo cáo AM của bd3_csc_proj_26: chuyển hết cho Hùng → Hùng; thêm Tuấn Anh → Hùng + Tuấn Anh; bỏ Hùng chỉ còn
+  Tuấn Anh → Tuấn Anh; thêm Nghĩa không đánh dấu → Tuấn Anh + Nghĩa.

@@ -28,7 +28,8 @@ Quy tắc:
    - "ca_nhom": giao chung ("mọi người", "toàn team", "các nhân sự", "anh em") -> không ghi tên ai; "goi_tat_ca": true khi tin gọi tất cả bằng chữ @ ("@all", "@mọi người", "@everyone", "@channel").
    - "tu_nhan": người gửi tự nhận hoặc tự báo cáo việc của mình ("em làm X", "mình sẽ gửi").
    - "khong_ro": không nêu ai làm (kế hoạch, mốc thời gian không ghi người).
-   "ben_ngoai": bên ngoài công ty được giao (khách hàng, đối tác như "PH04"). "thay_the": true khi tin đính chính danh sách người ("chỉ… các nhân sự sau", "thay bằng", "bỏ X ra").
+   "ben_ngoai": bên ngoài công ty được giao (khách hàng, đối tác như "PH04").
+   Đổi người của việc đã có (trong "cap_nhat"): "thay_the": true khi giao lại / chuyển cho người khác / thay / bỏ bớt / "chỉ… các nhân sự sau" (ghi đúng những người SAU khi đổi); "thay_the": false khi chỉ thêm người ("thêm @X hỗ trợ", "cùng @Y") (chỉ ghi người được thêm).
    THÀNH VIÊN KÊNH chỉ để nhận ra tên viết thường / không dấu ("giao triển làm X" là giao cho Triển làm X), KHÔNG dùng để điền người. Tên người không thuộc tên công việc. Dòng bắt đầu bằng "↳" là tóm tắt tệp hoặc ảnh đính kèm của tin nhắn ngay trên, dùng như bằng chứng của tin nhắn đó; đầu việc liệt kê trong tệp cũng phải được ghi nhận.
    Khi tin nhắn phân công chức vụ / nhóm ("AM: @A, @B", "PM dự án là @C", "team SOC gồm @D, @E"), ghi vào "vai_tro_moi" (thay_the: true nếu là danh sách mới thay danh sách cũ).
 8. nguon: mã tin nhắn MỚI (m1, m2, ...) là bằng chứng cho thay đổi đó.

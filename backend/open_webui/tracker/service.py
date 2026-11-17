@@ -306,11 +306,16 @@ def _assign_owners(delta, ref_sources: dict, ctx, counts: dict, state=None) -> d
         )
         counts['ten_bi_loai'] = counts.get('ten_bi_loai', 0) + resolved.rejected
         # Never replaced by nobody: when no name checks out, the item keeps its owners.
-        if resolved.names:
-            change.phu_trach = resolved.names
-            changes[change.id] = resolved
-        else:
+        if not resolved.names:
             change.phu_trach = None
+            continue
+        kind = change.giao_cho.kieu if change.giao_cho else 'ten'
+        replace = kind in ('chuc_vu', 'ca_nhom', 'tu_nhan') or bool(change.giao_cho and change.giao_cho.thay_the)
+        if not replace:
+            # Adding people ("thêm @X hỗ trợ"), or a change the model did not mark as a handover: nobody is dropped.
+            resolved.names = list(dict.fromkeys([*current_owners.get(change.id, []), *resolved.names]))
+        change.phu_trach = resolved.names
+        changes[change.id] = resolved
     return changes
 
 
