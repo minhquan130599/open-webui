@@ -65,8 +65,8 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
 - ✅ T8. Nhắc thứ Hai cho chủ kênh / người quản lý (thông báo + email), cấu hình trên monitor
 - ✅ T9. Người quản lý kênh (vai trò manager): gán / bỏ, quyền tiến độ như chủ kênh
 - ✅ T10. Chuyển chủ kênh; tài khoản bị khóa (tự chuyển, việc "đã nghỉ")
-- ⬜ T11. Monitor: % chưa gán / chưa liên kết theo kênh, đổi chủ kênh / người quản lý
-- ⬜ T12. Kiểm thử cũ + mới, cập nhật tài liệu, commit
+- ✅ T11. Monitor: % chưa gán / chưa liên kết theo kênh, đổi chủ kênh / người quản lý
+- ✅ T12. Kiểm thử cũ + mới, cập nhật tài liệu, commit
 - ⬜ T13. Deploy, tổng hợp lại kênh bd3, poc soc, av (phía server)
 
 ## Ghi chú kết quả từng phần
@@ -149,3 +149,10 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   chức vụ / nhóm (chức vụ học từ tin hiện "học từ tin nhắn"), xóa bí danh. Menu mỗi việc có "Gán người phụ trách" (chọn
   thành viên; tên chưa liên kết như "Duy" có ô "từ nay Duy trong kênh này là người này"). Nhãn cạnh người phụ trách:
   Bên ngoài / Ngoài kênh / Đã nghỉ, và nhãn nhóm ("AM"). svelte-check không lỗi mới; chưa thử trên trình duyệt.
+- Nhóm 9 / T11: monitor → Tracker → Kênh dự án có cột chủ kênh (báo "đã nghỉ") / người quản lý, số và % việc chưa gán /
+  chưa liên kết (≥ 30% tô vàng), nút "Chủ kênh & quản lý" để admin chuyển chủ kênh, đặt / bỏ người quản lý (popup OTP).
+  SQL mới chưa chạy trên Postgres thật.
+- Nhóm 9 / T12: chạy lại 8 bộ kiểm thử (file phản hồi, bảng kế hoạch, văn bản, ảnh mô phỏng, gán việc bd3 / poc soc,
+  yêu cầu chưa giao) đều qua; pyflakes không báo tên chưa định nghĩa; svelte-check không lỗi mới. Chưa chạy trên app thật.
+- Còn lại T13 (phía server): deploy (build lại frontend), Tổng hợp lại kênh bd3_csc_proj_26, bd3_monthly_kpi_26,
+  poc_cg1018526003_soc, av; chủ kênh kiểm "Thành viên & chức vụ", đánh dấu "không nhận việc chung", đặt người quản lý.

@@ -771,3 +771,46 @@ async def tracker_rebuild(channel_id: str, x_monitor_key: Optional[str] = Header
         raise HTTPException(status_code=404, detail='Kênh chưa được theo dõi tiến độ')
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.get('/tracker/channels/{channel_id}/team')
+async def tracker_channel_team(channel_id: str, x_monitor_key: Optional[str] = Header(None)):
+    """Members of a channel with owner / manager / left flags, for changing the owner from the monitor."""
+    _check(x_monitor_key)
+    from open_webui.models.channels import Channels
+    from open_webui.tracker import team
+
+    channel = await Channels.get_channel_by_id(channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail='Không tìm thấy kênh')
+    return {'channel': channel.name, **await team.team(channel)}
+
+
+class ChannelOwnerForm(BaseModel):
+    user_id: str
+
+
+class ChannelManagerForm(BaseModel):
+    user_id: str
+    manager: bool
+
+
+@router.post('/tracker/channels/{channel_id}/owner')
+async def tracker_channel_owner(channel_id: str, form: ChannelOwnerForm, x_monitor_key: Optional[str] = Header(None)):
+    """Hand a channel over to another member (e.g. its owner left the company)."""
+    _check(x_monitor_key)
+    from open_webui.tracker import team
+
+    if not await team.transfer_owner(channel_id, form.user_id):
+        raise HTTPException(status_code=404, detail='Người này không phải thành viên kênh')
+    return {'status': True}
+
+
+@router.post('/tracker/channels/{channel_id}/managers')
+async def tracker_channel_manager(channel_id: str, form: ChannelManagerForm, x_monitor_key: Optional[str] = Header(None)):
+    _check(x_monitor_key)
+    from open_webui.tracker import team
+
+    if not await team.set_manager(channel_id, form.user_id, form.manager):
+        raise HTTPException(status_code=404, detail='Người này không phải thành viên kênh')
+    return {'status': True}

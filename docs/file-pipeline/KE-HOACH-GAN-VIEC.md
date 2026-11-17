@@ -1,6 +1,6 @@
 # Kế hoạch điều chỉnh: gán việc đúng người, giảm việc chưa gán, quyền quản lý kênh
 
-Trạng thái: **chờ duyệt** (chưa sửa code). Dữ liệu dùng để lập kế hoạch: server thật (kênh bd3_csc_proj_26,
+Trạng thái: **đã triển khai T1–T12** (xem TIEN-DO.md nhóm 9); T13 deploy phía server. Q4 (rà lại yêu cầu chưa giao) chưa làm. Dữ liệu dùng để lập kế hoạch: server thật (kênh bd3_csc_proj_26,
 bd3_monthly_kpi_26, poc_cg1018526003_soc, poc_cg1016126079_si, test01) và máy dev 192.168.110.113 (kênh av,
 bản mới nhất).
 

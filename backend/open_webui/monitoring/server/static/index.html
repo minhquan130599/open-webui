@@ -1129,18 +1129,28 @@
     try { d = await api('/api/tracker/channels'); } catch (err) { return card('Kênh dự án', `<div class="error-box">${esc(err.message)}</div>`); }
     const rows = table([
       { label: 'Kênh', render: (r) => `<b>${esc(r.channel || r.channel_id)}</b>` },
+      { label: 'Chủ kênh / quản lý', render: (r) => `${r.owner_left ? `<span class="pill err">đã nghỉ</span> ` : ''}${esc(r.owner_name || '—')}${r.managers ? `<div class="muted" style="font-size:11px">QL: ${esc(r.managers)}</div>` : ''}` },
       { label: 'Việc đang mở', num: true, render: (r) => n(r.open_items) },
+      { label: 'Chưa gán / chưa liên kết', num: true, render: (r) => { const pctOf = (x) => (r.open_items ? Math.round((x || 0) * 100 / r.open_items) : 0); const warn = (x) => (pctOf(x) >= 30 ? 'pill warn' : ''); return `<span class="${warn(r.unassigned_items)}">${n(r.unassigned_items || 0)} (${pctOf(r.unassigned_items)}%)</span> / <span class="${warn(r.unlinked_items)}">${n(r.unlinked_items || 0)} (${pctOf(r.unlinked_items)}%)</span>`; } },
       { label: 'Đã đóng / hủy', num: true, render: (r) => n(r.archived_items) },
       { label: 'Tin nhắn', num: true, render: (r) => n(r.messages) },
       { label: 'Chờ tổng hợp', num: true, render: (r) => (r.pending_count ? `<span class="pill warn">${n(r.pending_count)}</span>` : '0') },
       { label: 'Tổng hợp gần nhất', render: (r) => `${r.running ? '<span class="spin"></span> đang chạy · ' : ''}${r.processed_at ? when(r.processed_at) : '—'}${r.fail_count ? `<div style="font-size:11px;color:var(--red)">${esc(r.last_error || '')}</div>` : ''}` },
-      { label: '', render: (r) => `<button class="btn" type="button" data-tx-rebuild="${esc(r.channel_id)}" ${r.running ? 'disabled title="Đang tổng hợp"' : ''}>Tổng hợp lại kênh</button>` },
+      { label: '', render: (r) => `<button class="btn" type="button" data-tx-team="${esc(r.channel_id)}">Chủ kênh &amp; quản lý</button> <button class="btn" type="button" data-tx-rebuild="${esc(r.channel_id)}" ${r.running ? 'disabled title="Đang tổng hợp"' : ''}>Tổng hợp lại kênh</button>` },
     ], d.items, 'Chưa có kênh nào được theo dõi tiến độ.');
-    return card('Kênh dự án', `<p class="muted" style="font-size:12.5px;margin:-4px 0 10px"><b>Tổng hợp lại kênh</b> đọc lại toàn bộ tin nhắn và file của kênh bằng phiên bản hiện tại, thay danh sách việc đang mở bằng kết quả mới (không trùng, không còn việc rác từ các lần đọc cũ). Việc đã đóng hoặc hủy được giữ và không bị tạo lại; lịch sử cập nhật được ghi lại từ đầu. Các chỉnh tay trên việc đang mở sẽ mất. Cần phiên chỉnh sửa.</p>${tx.rebuildNote ? `<div class="notice info" style="margin-bottom:8px">${esc(tx.rebuildNote)}</div>` : ''}${rows}`);
+    const teamBox = tx.team ? `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center"><b>Kênh ${esc(tx.team.channel || '')}: chủ kênh &amp; người quản lý</b><button class="btn" type="button" data-tx-team-close>Đóng</button></div>
+        <p class="muted" style="font-size:12px;margin:4px 0 8px">Người quản lý (team lead) quản lý tiến độ như chủ kênh. Chủ kênh nghỉ việc: chuyển cho thành viên khác, tin nhắn, file, đầu việc giữ nguyên; chủ cũ (nếu còn làm) thành người quản lý.</p>
+        ${table([
+          { label: 'Thành viên', render: (m) => `${esc(m.name)}<div class="muted" style="font-size:11px">${esc(m.email || '')}</div>` },
+          { label: 'Vai trò', render: (m) => [m.is_owner ? '<span class="pill ok">chủ kênh</span>' : '', m.is_manager ? '<span class="pill">quản lý</span>' : '', m.is_admin ? '<span class="pill">admin</span>' : '', m.left ? '<span class="pill err">đã nghỉ</span>' : ''].join(' ') },
+          { label: '', render: (m) => (m.is_owner || m.left ? '' : `<button class="btn" type="button" data-tx-owner="${esc(m.id)}" data-tx-name="${esc(m.name)}">Chuyển chủ kênh</button> <button class="btn" type="button" data-tx-manager="${esc(m.id)}" data-tx-on="${m.is_manager ? '0' : '1'}">${m.is_manager ? 'Bỏ quản lý' : 'Đặt làm quản lý'}</button>`) },
+        ], tx.team.members || [], 'Kênh chưa có thành viên.')}</div>` : '';
+    return card('Kênh dự án', `<p class="muted" style="font-size:12.5px;margin:-4px 0 10px"><b>Tổng hợp lại kênh</b> đọc lại toàn bộ tin nhắn và file của kênh bằng phiên bản hiện tại, thay danh sách việc đang mở bằng kết quả mới (không trùng, không còn việc rác từ các lần đọc cũ). Việc đã đóng hoặc hủy được giữ và không bị tạo lại; lịch sử cập nhật được ghi lại từ đầu. Các chỉnh tay trên việc đang mở sẽ mất. Cần phiên chỉnh sửa.</p>${tx.rebuildNote ? `<div class="notice info" style="margin-bottom:8px">${esc(tx.rebuildNote)}</div>` : ''}${rows}${teamBox}`);
   }
 
   // Work items the tracker read from files: what was extracted, what may be missing, conflicts, table descriptions.
-  const tx = { view: null, note: '', editing: '', draft: '', rebuildNote: '' };
+  const tx = { view: null, note: '', editing: '', draft: '', rebuildNote: '', team: null };
   const TX_STATUS = { chua_bat_dau: 'Chưa bắt đầu', dang_lam: 'Đang làm', bi_chan: 'Bị chặn', tam_dung: 'Tạm dừng', hoan_thanh: 'Hoàn thành' };
   const TX_FIELD = { han: 'Hạn', phu_trach: 'Phụ trách', trang_thai: 'Trạng thái', trong_file: 'Dòng trong file' };
   async function trackerFilesHtml() {
@@ -1571,6 +1581,28 @@
     if (fpCheck) { const page = +fpCheck.dataset.fpSelect; if (fpCheck.checked) fp.selected.add(page); else fp.selected.delete(page); const btn = document.querySelector('[data-fp-repair-selected]'); if (btn) { btn.disabled = !fp.selected.size; btn.textContent = `Sửa lại ${fp.selected.size || ''} trang đã chọn`; } return; }
     const b = e.target.closest('button');
     if (!b) return;
+    if (b.dataset.txTeam) {
+      if (!(await ensureSession('quản lý chủ kênh / người quản lý'))) return;
+      try { tx.team = { ...(await api(`/api/admin/tracker/channels/${encodeURIComponent(b.dataset.txTeam)}/team`, { headers: editHeaders() })), id: b.dataset.txTeam }; }
+      catch (err) { tx.rebuildNote = `Không đọc được thành viên kênh: ${err.message}`; }
+      load(); return;
+    }
+    if (b.dataset.txTeamClose !== undefined) { tx.team = null; load(); return; }
+    if (b.dataset.txOwner || b.dataset.txManager) {
+      if (!tx.team || !(await ensureSession('đổi chủ kênh / người quản lý'))) return;
+      const id = tx.team.id;
+      try {
+        if (b.dataset.txOwner) {
+          if (!confirm(`Chuyển chủ kênh "${tx.team.channel}" cho ${b.dataset.txName}?`)) return;
+          await api(`/api/admin/tracker/channels/${encodeURIComponent(id)}/owner`, { method: 'POST', headers: editHeaders(), body: JSON.stringify({ user_id: b.dataset.txOwner }) });
+          tx.rebuildNote = `Đã chuyển chủ kênh "${tx.team.channel}" cho ${b.dataset.txName}.`;
+        } else {
+          await api(`/api/admin/tracker/channels/${encodeURIComponent(id)}/managers`, { method: 'POST', headers: editHeaders(), body: JSON.stringify({ user_id: b.dataset.txManager, manager: b.dataset.txOn === '1' }) });
+        }
+        tx.team = { ...(await api(`/api/admin/tracker/channels/${encodeURIComponent(id)}/team`, { headers: editHeaders() })), id };
+      } catch (err) { tx.rebuildNote = `Không thực hiện được: ${err.message}`; }
+      load(); return;
+    }
     if (b.dataset.txRebuild) {
       if (!(await ensureSession('tổng hợp lại kênh'))) return;
       const id = b.dataset.txRebuild;

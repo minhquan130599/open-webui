@@ -110,9 +110,18 @@ async def tracked_channels():
         """SELECT s.channel_id, c.name AS channel, s.pending_count, s.processed_at / 1000000 AS processed_at,
                s.fail_count, s.last_error, (s.lease_until > :now) AS running, s.force,
                jsonb_array_length(coalesce(s.state::jsonb->'hang_muc', '[]'::jsonb)) AS open_items,
+               (SELECT count(*) FROM jsonb_array_elements(coalesce(s.state::jsonb->'hang_muc', '[]'::jsonb)) i
+                 WHERE jsonb_array_length(coalesce(i->'phu_trach', '[]'::jsonb)) = 0) AS unassigned_items,
+               (SELECT count(*) FROM jsonb_array_elements(coalesce(s.state::jsonb->'hang_muc', '[]'::jsonb)) i
+                 WHERE jsonb_array_length(coalesce(i->'phu_trach_ids', '[]'::jsonb))
+                     < jsonb_array_length(coalesce(i->'phu_trach', '[]'::jsonb))
+                       - jsonb_array_length(coalesce(i->'ben_ngoai', '[]'::jsonb))) AS unlinked_items,
+               o.name AS owner_name, (o.role = 'pending' OR o.id IS NULL) AS owner_left,
+               (SELECT string_agg(mu.name, ', ') FROM channel_member cm JOIN "user" mu ON mu.id = cm.user_id
+                 WHERE cm.channel_id = s.channel_id AND cm.role = 'manager' AND cm.is_active) AS managers,
                jsonb_array_length(coalesce(s.archive::jsonb, '[]'::jsonb)) AS archived_items,
                (SELECT count(*) FROM message m WHERE m.channel_id = s.channel_id) AS messages
-           FROM tracker_state s LEFT JOIN channel c ON c.id = s.channel_id
+           FROM tracker_state s LEFT JOIN channel c ON c.id = s.channel_id LEFT JOIN "user" o ON o.id = c.user_id
            ORDER BY s.processed_at DESC NULLS LAST LIMIT 200""",
         now=time.time_ns(),
     )
@@ -134,6 +143,45 @@ async def rebuild(channel_id: str, token: str = Depends(require_session)):
     from open_webui.monitoring.server.app import webui
 
     result = await webui(f'/tracker/channels/{channel_id}/rebuild', method='POST', json_body={})
+    if isinstance(result, dict) and result.get('error'):
+        raise HTTPException(502, result['error'])
+    return result
+
+
+@router.get('/api/admin/tracker/channels/{channel_id}/team')
+async def channel_team(channel_id: str, token: str = Depends(require_session)):
+    from open_webui.monitoring.server.app import webui
+
+    result = await webui(f'/tracker/channels/{channel_id}/team')
+    if isinstance(result, dict) and result.get('error'):
+        raise HTTPException(502, result['error'])
+    return result
+
+
+class OwnerForm(BaseModel):
+    user_id: str
+
+
+class ManagerForm(BaseModel):
+    user_id: str
+    manager: bool
+
+
+@router.post('/api/admin/tracker/channels/{channel_id}/owner')
+async def channel_owner(channel_id: str, form: OwnerForm, token: str = Depends(require_session)):
+    from open_webui.monitoring.server.app import webui
+
+    result = await webui(f'/tracker/channels/{channel_id}/owner', method='POST', json_body=form.model_dump())
+    if isinstance(result, dict) and result.get('error'):
+        raise HTTPException(502, result['error'])
+    return result
+
+
+@router.post('/api/admin/tracker/channels/{channel_id}/managers')
+async def channel_manager(channel_id: str, form: ManagerForm, token: str = Depends(require_session)):
+    from open_webui.monitoring.server.app import webui
+
+    result = await webui(f'/tracker/channels/{channel_id}/managers', method='POST', json_body=form.model_dump())
     if isinstance(result, dict) and result.get('error'):
         raise HTTPException(502, result['error'])
     return result
