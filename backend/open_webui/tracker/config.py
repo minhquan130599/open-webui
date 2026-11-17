@@ -39,8 +39,9 @@ TRACKER_DISABLE_THINKING = _bool_env('TRACKER_DISABLE_THINKING', True)
 # Cluster-wide cap on concurrent tracker LLM calls (counted via active leases).
 TRACKER_MAX_CONCURRENCY = _int_env('TRACKER_MAX_CONCURRENCY', 2)
 TRACKER_POLL_INTERVAL = _int_env('TRACKER_POLL_INTERVAL', 5)
-# Long enough for a batch with several file summaries (each file may take a few LLM calls).
-TRACKER_LEASE_SECONDS = _int_env('TRACKER_LEASE_SECONDS', 900)
+# A running channel renews its lease every minute (worker.py), so the lease only needs to outlast a few missed
+# renewals: after a restart, a channel the stopped process was working on is picked up again within this time.
+TRACKER_LEASE_SECONDS = _int_env('TRACKER_LEASE_SECONDS', 180)
 
 # A channel is processed once it has this many pending messages, or after it has been idle this long.
 TRACKER_BATCH_SIZE = _int_env('TRACKER_BATCH_SIZE', 30)

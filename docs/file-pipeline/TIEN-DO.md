@@ -293,3 +293,6 @@ Làm lại:
   khi đó lượt khác nhận lại kênh và làm lại từ đầu, kết quả lượt đầu bị bỏ; chỉ 2 kênh chạy cùng lúc nên các kênh khác
   chờ. Nay lượt đang chạy tự gia hạn mỗi 60 giây (dừng gia hạn khi xong hoặc khi không còn giữ kênh). Monitor tab Tracker
   hiện cả lượt gọi model để đọc file (cột "Việc": tổng hợp tin nhắn / đọc file), trước đây không thấy nên trông như treo.
+- Khởi động lại server giữa lúc một kênh đang tổng hợp: kênh bị giữ "đang chạy" tới hết hạn 15 phút mà không ai làm
+  (file chỉ vài chục KB). Vì lượt đang chạy đã tự gia hạn mỗi phút, hạn giữ kênh mặc định giảm còn 3 phút
+  (TRACKER_LEASE_SECONDS=180): sau khi khởi động lại, kênh được nhận lại trong vòng 3 phút.
