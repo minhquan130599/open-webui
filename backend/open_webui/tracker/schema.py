@@ -97,6 +97,10 @@ class WorkItem(_Entry):
     tien_do: Optional[int] = None
     han: Optional[str] = None
     vuong_mac: Optional[str] = None
+    # Short points that do not fit the name (from imported files); the name stays short, nothing is lost.
+    chi_tiet: list[str] = Field(default_factory=list)
+    # Asked for (by a customer, in a file) but nobody has taken it on yet: no owner, no due date until assigned.
+    chua_giao: bool = False
     # YYYY-MM-DD in the tracker timezone: first seen, last changed, and when it reached hoan_thanh.
     tao_luc: Optional[str] = None
     cap_nhat_luc: Optional[str] = None
@@ -106,6 +110,16 @@ class WorkItem(_Entry):
     @classmethod
     def _owner_ids(cls, value):
         return _clean_list(value)
+
+    @field_validator('chi_tiet', mode='before')
+    @classmethod
+    def _details(cls, value):
+        return [text[:300] for text in _clean_list(value)][:6]
+
+    @field_validator('chua_giao', mode='before')
+    @classmethod
+    def _unassigned(cls, value):
+        return bool(value)
 
     @field_validator('tao_luc', 'cap_nhat_luc', 'hoan_thanh_luc', mode='before')
     @classmethod
@@ -387,6 +401,7 @@ def apply_delta(
             by_key[normalize_key(item.ten)] = item
         if change.phu_trach is not None:
             item.phu_trach = change.phu_trach
+            item.chua_giao = item.chua_giao and not change.phu_trach
         _set_status(item, change.trang_thai, today)
         if change.tien_do is not None:
             item.tien_do = change.tien_do
@@ -419,6 +434,7 @@ def apply_delta(
         if existing:
             if new.phu_trach:
                 existing.phu_trach = new.phu_trach
+                existing.chua_giao = False
             _set_status(existing, new.trang_thai, today)
             if new.tien_do is not None:
                 existing.tien_do = new.tien_do
@@ -494,8 +510,8 @@ def state_for_prompt(state: ProjectState) -> str:
         for item in state.hang_muc:
             fields = [
                 f'#{item.id}',
-                item.ten,
-                ', '.join(item.phu_trach) or '-',
+                item.ten + (f' ({"; ".join(item.chi_tiet)[:200]})' if item.chi_tiet else ''),
+                ', '.join(item.phu_trach) or ('CHƯA GIAO' if item.chua_giao else '-'),
                 item.trang_thai,
                 f'{item.tien_do}%' if item.tien_do is not None else '-',
                 item.han or '-',
@@ -527,11 +543,14 @@ def _format_work_item(item: WorkItem) -> str:
         parts.append(f'{item.tien_do}%')
     if item.phu_trach:
         parts.append('phụ trách: ' + ', '.join(item.phu_trach))
+    elif item.chua_giao:
+        parts.append('chưa giao cho ai')
     if item.han:
         parts.append(f'hạn: {item.han}')
     line = f'- {item.ten} ({"; ".join(parts)})'
     if item.vuong_mac:
         line += f' — vướng mắc: {item.vuong_mac}'
+    line += ''.join(f'\n    · {point}' for point in item.chi_tiet)
     return line
 
 

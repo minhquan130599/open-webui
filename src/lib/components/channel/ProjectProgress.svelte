@@ -730,6 +730,12 @@
 								<div
 									class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-gray-400"
 								>
+									{#if !item.phu_trach?.length && item.chua_giao}
+										<span
+											class="whitespace-nowrap rounded-full bg-amber-50 px-1.5 py-0.5 text-[0.6875rem] text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+											>{$i18n.t('Unassigned')}</span
+										>
+									{/if}
 									{#if item.phu_trach?.length}
 										<span class="flex min-w-0 items-center gap-1.5">
 											<span class="flex shrink-0">
@@ -770,6 +776,18 @@
 										</button>
 									{/each}
 								</div>
+								{#if item.chi_tiet?.length}
+									<details class="mt-1.5 text-xs text-gray-600 dark:text-gray-300">
+										<summary class="cursor-pointer select-none text-gray-500 dark:text-gray-400"
+											>{$i18n.t('Details')} ({item.chi_tiet.length})</summary
+										>
+										<ul class="mt-1 list-disc space-y-0.5 pl-4 leading-snug">
+											{#each item.chi_tiet as point}
+												<li>{point}</li>
+											{/each}
+										</ul>
+									</details>
+								{/if}
 								{#if item.vuong_mac}
 									<div
 										class="mt-2 rounded-lg bg-red-50 px-2 py-1 text-xs leading-snug text-red-700 dark:bg-red-950/50 dark:text-red-300"

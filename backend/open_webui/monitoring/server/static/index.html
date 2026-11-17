@@ -1073,19 +1073,36 @@
   // Work items the tracker read from files: what was extracted, what may be missing, conflicts, table descriptions.
   const tx = { view: null, note: '', editing: '', draft: '' };
   const TX_STATUS = { chua_bat_dau: 'Chưa bắt đầu', dang_lam: 'Đang làm', bi_chan: 'Bị chặn', tam_dung: 'Tạm dừng', hoan_thanh: 'Hoàn thành' };
-  const TX_FIELD = { han: 'Hạn', phu_trach: 'Phụ trách', trang_thai: 'Trạng thái' };
+  const TX_FIELD = { han: 'Hạn', phu_trach: 'Phụ trách', trang_thai: 'Trạng thái', trong_file: 'Dòng trong file' };
   async function trackerFilesHtml() {
     let d;
     try { d = await api(`/api/tracker/extractions?range=${range === '24h' || range === '1h' ? '7d' : range}`); }
     catch (err) { return card('Đầu việc trích từ file', `<div class="error-box">${esc(err.message)}</div>`); }
-    const kindLabel = (r) => { const rep = r.report || {}; if (r.kind === 'table') return rep.mode === 'spec' ? 'Bảng (theo bản mô tả)' : rep.mode === 'model' ? 'Bảng (model đọc theo lô)' : 'Bảng (không có việc)'; return 'Văn bản'; };
+    const kindLabel = (r) => { const rep = r.report || {}; if (r.kind === 'table') return rep.mode === 'spec' ? 'Bảng (theo bản mô tả)' : rep.mode === 'model' ? 'Bảng (model đọc theo lô)' : 'Bảng (không có việc)'; return r.kind === 'image' ? 'Ảnh (chép chữ bằng vision)' : 'Văn bản'; };
+    // Quality of one extraction: every point placed, nothing invented in owners or deadlines.
+    const quality = (r) => {
+      const rep = r.report || {};
+      const sp = rep.split;
+      if (sp && sp.rows) {
+        const parts = [`${n(sp.rows)} dòng → ${n(sp.tasks)} việc${sp.gaps ? ` + <b>${n(sp.gaps)} yêu cầu chưa giao</b>` : ''}`,
+          `ý: ${n(sp.placed_by_model)}/${n(sp.ideas)} model xếp${sp.added_by_code ? `, <span class="pill warn">${n(sp.added_by_code)} code thêm vào chi tiết</span>` : ''}`];
+        const bad = [sp.owners_rejected ? `${n(sp.owners_rejected)} người ngoài cột bị loại` : '', sp.due_rejected ? `${n(sp.due_rejected)} hạn không có trong câu bị loại` : '', sp.titles_replaced ? `${n(sp.titles_replaced)} tên thay bằng câu gốc` : ''].filter(Boolean);
+        if (sp.due_accepted) parts.push(`${n(sp.due_accepted)} hạn riêng đã kiểm`);
+        if (sp.retried) parts.push(`hỏi lại ${n(sp.retried)} dòng`);
+        return `<span class="muted" style="font-size:11.5px">${parts.join(' · ')}${bad.length ? `<br><span style="color:var(--amber, #b45309)">${bad.join(' · ')}</span>` : ''}</span>`;
+      }
+      if (r.kind === 'table') return `<span class="muted" style="font-size:11.5px">${esc((rep.issues || []).join('; ') || (rep.notes || []).slice(-1).join(''))}</span>`;
+      const rej = rep.rejected || {};
+      const removed = [rej.phu_trach ? `${n(rej.phu_trach)} người` : '', rej.han ? `${n(rej.han)} hạn` : '', rej.tien_do ? `${n(rej.tien_do)} %` : ''].filter(Boolean);
+      return `${n(rep.rechecked || 0)} phần đọc lại, thêm ${n(rep.added_by_recheck || 0)} việc${(rep.suspect || []).length ? ` · <span class="pill warn">${rep.suspect.length} phần vẫn nghi thiếu</span>` : ''}${removed.length ? `<div class="muted" style="font-size:11px">loại vì không có trong văn bản: ${removed.join(', ')}</div>` : ''}`;
+    };
     const items = table([
       { label: 'Lúc', render: (r) => when(r.created_at) },
       { label: 'File', render: (r) => `<b>${esc(r.name || (r.source_ids || [])[0] || '')}</b><div class="muted" style="font-size:11px">${esc(r.channel || '')}</div>` },
       { label: 'Loại', render: (r) => esc(kindLabel(r)) },
       { label: 'Đầu việc', num: true, render: (r) => n(r.items) },
       { label: 'Chưa kiểm chứng', num: true, render: (r) => (r.unverified ? `<span class="pill warn">${n(r.unverified)}</span>` : '0') },
-      { label: 'Đọc lại phần nghi thiếu', render: (r) => { const rep = r.report || {}; if (r.kind === 'table') return `<span class="muted" style="font-size:11.5px">${esc((rep.issues || []).join('; ') || (rep.stats && rep.stats.rows !== undefined ? `${n(rep.stats.named)}/${n(rep.stats.rows)} dòng${rep.split && rep.split.rows ? `, tóm tắt ${n(rep.split.rows)} dòng thành ${n(rep.split.tasks)} việc${rep.split.unsummarized ? ` (${n(rep.split.unsummarized)} dòng model chưa tóm tắt được, giữ câu đầu)` : ''}` : ''}` : (rep.notes || []).slice(-1).join('')))}</span>`; return `${n(rep.rechecked || 0)} phần, thêm ${n(rep.added_by_recheck || 0)} việc${(rep.suspect || []).length ? ` · <span class="pill warn">${rep.suspect.length} phần vẫn nghi thiếu</span>` : ''}`; } },
+      { label: 'Chất lượng', render: (r) => quality(r) },
       { label: '', render: (r) => `<button class="btn" type="button" data-tx-open="${esc(r.id)}">Xem</button> <button class="btn" type="button" data-tx-reimport="${esc((r.source_ids || [])[0] || '')}" data-tx-name="${esc(r.name || '')}" title="Đọc lại file ở lần tổng hợp sau (cần phiên chỉnh sửa)">Đọc lại</button>` },
     ], d.items, 'Chưa có file nào được trích đầu việc.');
     const conflicts = d.conflicts.flatMap((r) => (r.entry.conflicts || []).map((c) => ({ ...c, at: r.at, channel: r.channel, file: r.entry.name })));
@@ -1126,11 +1143,11 @@
     const data = v.data.data || {};
     const rep = data.report || {};
     const list = table([
-      { label: 'Đầu việc', render: (i) => `<b>${esc(i.ten)}</b>${i.vuong_mac ? `<div class="muted" style="font-size:11px">vướng: ${esc(i.vuong_mac)}</div>` : ''}` },
-      { label: 'Phụ trách', render: (i) => esc((i.phu_trach || []).join(', ') || '—') },
+      { label: 'Đầu việc', render: (i) => `<b>${esc(i.ten)}</b>${(i.chi_tiet || []).length ? `<ul style="margin:2px 0 0 16px;padding:0;font-size:11.5px" class="muted">${i.chi_tiet.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}${i.vuong_mac ? `<div class="muted" style="font-size:11px">vướng: ${esc(i.vuong_mac)}</div>` : ''}` },
+      { label: 'Phụ trách', render: (i) => (i.chua_giao ? '<span class="pill warn">chưa giao</span>' : esc((i.phu_trach || []).join(', ') || '—')) },
       { label: 'Hạn', render: (i) => esc(i.han || '—') },
       { label: 'Trạng thái', render: (i) => esc(TX_STATUS[i.trang_thai] || i.trang_thai || '') },
-      { label: 'Vị trí', render: (i) => esc(i.trang ? `tr.${i.trang}` : i.dong ? `dòng ${i.dong}` : '—') },
+      { label: 'Vị trí', render: (i) => esc([i.trang ? `tr.${i.trang}` : i.dong ? `dòng ${i.dong}` : '', i.khoa ? i.khoa.split(':').slice(2).join(':') : ''].filter(Boolean).join(' · ') || '—') },
       { label: 'Câu gốc', render: (i) => `${i.xac_minh ? '<span class="pill ok">khớp</span>' : '<span class="pill warn">chưa khớp</span>'} <span class="muted" style="font-size:11.5px">${esc(i.trich_dan || '')}</span>` },
     ], data.items || [], 'Không trích được đầu việc nào.');
     const suspect = (rep.suspect || []).map((p) => `phần ${p.part}${p.pages ? ` (${esc(p.pages)})` : ''}: ${p.signals} dòng giống đầu việc, trích được ${p.items}`).join('; ');

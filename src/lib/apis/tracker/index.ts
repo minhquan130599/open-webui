@@ -9,6 +9,8 @@ export type TrackerWorkItem = {
 	tien_do: number | null;
 	han: string | null;
 	vuong_mac: string | null;
+	chi_tiet?: string[]; // short points that do not fit the name (from imported files)
+	chua_giao?: boolean; // asked for in a file but nobody has taken it on yet
 	nguon: string[];
 	tao_luc?: string | null; // YYYY-MM-DD
 	cap_nhat_luc?: string | null;

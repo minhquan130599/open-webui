@@ -294,6 +294,51 @@ def _extraction_line(name: str, result: dict) -> str:
     return _truncate('\n'.join(lines))
 
 
+async def _image_extraction(channel_id: str, file, name: str, content_hash: str) -> Optional[dict]:
+    """Work items in an image (a task list, a table, a whiteboard): the vision model copies its text, which is
+    then read like a document, every item checked against that text."""
+    from open_webui.file_pipeline.settings import file_settings
+    from open_webui.tracker import extract
+    from open_webui.tracker.models import Trackers
+
+    cache_id = f'imgtasks:v{extract.EXTRACT_VERSION}:{content_hash}'
+    cached = await Trackers.get_cached_item(cache_id)
+    if cached and (cached.data or {}).get('items') is not None:
+        result = cached.data
+    else:
+        try:
+            data = await asyncio.to_thread(_read_file_bytes, file.path)
+            image = await asyncio.to_thread(downscale_image, data, max(TRACKER_IMAGE_MAX_SIDE, 1600))
+            text = await llm.generate_text(
+                [
+                    {
+                        'role': 'user',
+                        'content': [
+                            {'type': 'text', 'text': extract.IMAGE_TEXT_PROMPT},
+                            {'type': 'image_url', 'image_url': {'url': image}},
+                        ],
+                    }
+                ],
+                max_tokens=3000,
+                purpose='tracker_extract',
+            )
+        except llm.TrackerLLMError:
+            raise
+        except Exception as error:
+            log.warning('Tracker: no text read from image %s (%s)', file.id, error)
+            return None
+        text = (text or '').strip()
+        if len(text) < extract.IMAGE_MIN_TEXT or '(không có chữ)' in text[:30]:
+            result = {'kind': 'image', 'items': [], 'quyet_dinh': [], 'rui_ro': [], 'report': {'text_chars': len(text)}}
+        else:
+            concurrency = (await file_settings())['files.summary.concurrency']
+            result = await extract.extract_document(name, text, {}, _today(), concurrency)
+            result = {**result, 'kind': 'image', 'report': {**result['report'], 'text_chars': len(text)}}
+        result = {**result, 'file_id': file.id, 'name': name}
+        await Trackers.put_cached_item(cache_id, channel_id, 'file_tasks', [file.id], _extraction_line(name, result), result)
+    return {**result, 'cache_id': cache_id, 'file_id': file.id, 'name': name}
+
+
 async def _summarize_document_file(
     channel_id: str, file, name: str, content_hash: str
 ) -> tuple[Optional[str], bool, Optional[dict]]:
@@ -354,6 +399,9 @@ async def _summarize_item(channel_id: str, message: Message, item: dict) -> tupl
         if not TRACKER_ENABLE_IMAGES or not file.path:
             return None, False, None
         summary = await _summarize_image(f'image:{content_hash}', channel_id, file.id, file.path)
+        extraction = await _image_extraction(channel_id, file, name, content_hash) if TRACKER_ENABLE_FILES else None
+        if extraction and extraction.get('items'):
+            return f'{name}: {summary}\n{_extraction_line(name, extraction)}', False, extraction
         return f'{name}: {summary}', False, None
 
     if not TRACKER_ENABLE_FILES:

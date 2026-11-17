@@ -41,6 +41,8 @@ class ReportItem:
     cap_nhat_luc: Optional[str]
     hoan_thanh_luc: Optional[str]
     archived: Optional[str] = None  # 'dong' | 'huy' when taken from the archive
+    chi_tiet: list[str] = field(default_factory=list)
+    chua_giao: bool = False
 
     def overdue(self, today: str) -> bool:
         return bool(self.han and self.han < today and self.trang_thai != 'hoan_thanh' and not self.archived)
@@ -155,6 +157,8 @@ async def _project_data(
             cap_nhat_luc=source.get('cap_nhat_luc'),
             hoan_thanh_luc=source.get('hoan_thanh_luc'),
             archived=archived,
+            chi_tiet=list(source.get('chi_tiet') or []),
+            chua_giao=bool(source.get('chua_giao')),
         )
 
     sources = [(item.model_dump(), None) for item in state.hang_muc]
@@ -286,8 +290,8 @@ def _item_line(item: ReportItem, today: str) -> str:
         status = ('Đã hủy' if item.archived == 'huy' else 'Hoàn thành (đã đóng)') + f' ({status})'
     fields = [
         item.ref,
-        item.ten,
-        ', '.join(item.phu_trach) or '-',
+        item.ten + (f' (chi tiết: {"; ".join(item.chi_tiet)})' if item.chi_tiet else ''),
+        ', '.join(item.phu_trach) or ('CHƯA GIAO' if item.chua_giao else '-'),
         status,
         f'{item.tien_do}%' if item.tien_do is not None else '-',
         (item.han or '-') + (' QUÁ HẠN' if item.overdue(today) else ''),
