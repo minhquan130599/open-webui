@@ -1190,6 +1190,7 @@
       { label: 'Điểm TB (gốc → dùng)', num: true, render: (r) => (r.total ? `${score(r.avg_raw)} → ${score(r.avg_score)}` : '—') },
       { label: 'Trạng thái', render: (r) => `${fpStatusPill(r)}${r.status === 'running' && r.stage ? `<div class="muted" style="font-size:11px">${esc(FP_STAGE[r.stage] || r.stage)}${r.progress && r.progress.total ? ` ${n(r.progress.done)}/${n(r.progress.total)}` : ''}</div>` : ''}${r.last_error ? `<div style="font-size:11px;color:var(--red);max-width:280px">${esc(r.last_error)}</div>` : ''}` },
       { label: 'Thời gian', num: true, render: (r) => ms((r.stats || {}).total_ms) },
+      { label: '', render: (r) => `<button class="btn" type="button" data-fp-download="${esc(r.file_id)}" data-fp-name="${esc(r.filename || r.file_id)}" title="Tải file gốc (cần khóa truy xuất hoặc phiên chỉnh sửa)">Tải về</button>` },
     ], d.items, 'Chưa có file nào được xử lý trong khoảng này.', (r) => `data-fp-open="${esc(r.file_id)}" style="cursor:pointer"`);
     return `${card('Xử lý file sau khi tải lên', `
       <p class="muted" style="font-size:12.5px;margin:-4px 0 10px">Mỗi file tải lên được chấm điểm OCR từng trang (0–100: tỉ lệ từ đọc được, trừ ký tự rác). Trang dưới ngưỡng được model vision đọc lại từ ảnh; bấm một dòng để xem từng trang, so ảnh gốc với chữ OCR và chữ đã sửa. Ngưỡng và các tham số chỉnh trong <b>Thành phần &amp; tài nguyên → Chỉnh sửa cấu hình → Xử lý file</b> hoặc Cài đặt → Tài liệu.</p>
@@ -1233,7 +1234,7 @@
       kpi('Đoạn tìm kiếm', n(st.chunks), ms(st.index_ms)),
       kpi('Tóm tắt sẵn', st.summary_error ? '<span style="color:var(--red)">lỗi</span>' : st.summary_ms ? ms(st.summary_ms) : '—', st.summary_error ? esc(st.summary_error) : ''),
     ].join('');
-    return `${card(`<button class="btn" type="button" data-fp-back>← Danh sách</button> ${esc(d.file.filename)}`, `
+    return `${card(`<button class="btn" type="button" data-fp-back>← Danh sách</button> ${esc(d.file.filename)} <button class="btn" type="button" data-fp-download="${esc(d.file.id)}" data-fp-name="${esc(d.file.filename)}">Tải file gốc</button>`, `
       <div class="muted" style="font-size:12.5px;margin-bottom:8px">${esc(d.file.user_name || '')} · ${bytes(d.file.size ? +d.file.size : null)} · trạng thái ${fpStatusPill(job)}${job.status === 'running' && job.stage ? ` · ${esc(FP_STAGE[job.stage] || job.stage)}${job.progress && job.progress.total ? ` ${n(job.progress.done)}/${n(job.progress.total)}` : ''}` : ''}${job.last_error ? ` · <span style="color:var(--red)">lỗi ở bước ${esc(FP_STAGE[job.stage] || job.stage || '?')}: ${esc(job.last_error)}</span>` : ''}</div>
       <div class="grid kpis" style="margin-bottom:12px">${kpis}</div>
       ${fp.note ? `<div class="notice info" style="margin-bottom:8px">${esc(fp.note)}</div>` : ''}
@@ -1293,6 +1294,28 @@
     document.getElementById('fp-page')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  // The original upload, saved under its own name. Document content: reveal key or edit session.
+  async function downloadFile(id, name) {
+    if (!editor.token && !fp.key) {
+      const key = prompt('Nhập khóa truy xuất để tải file (hoặc mở phiên Chỉnh sửa cấu hình):');
+      if (!key) return;
+      fp.key = key.trim();
+    }
+    try {
+      const res = await fetch(`${fpBase()}/files/${encodeURIComponent(id)}/original`, { headers: fpHeaders(), credentials: 'same-origin' });
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`;
+        if (!editor.token && [401, 403, 429].includes(res.status)) fp.key = '';
+        throw new Error(detail);
+      }
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url; a.download = name || id;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) { fp.note = `Không tải được ${name}: ${err.message}`; load(); }
+  }
+
   async function runPipeline(pages) {
     if (!editor.token) { fp.note = 'Chạy lại cần phiên chỉnh sửa: vào tab Thành phần & tài nguyên → Chỉnh sửa cấu hình, xác thực bằng khóa và mã Google Authenticator, rồi bấm lại.'; load(); return; }
     const what = pages.length ? `đọc lại ${pages.length} trang đã chọn bằng model vision` : 'chạy lại toàn bộ xử lý (chấm điểm, sửa OCR, lập chỉ mục, tóm tắt)';
@@ -1345,6 +1368,7 @@
     if (fpCheck) { const page = +fpCheck.dataset.fpSelect; if (fpCheck.checked) fp.selected.add(page); else fp.selected.delete(page); const btn = document.querySelector('[data-fp-repair-selected]'); if (btn) { btn.disabled = !fp.selected.size; btn.textContent = `Sửa lại ${fp.selected.size || ''} trang đã chọn`; } return; }
     const b = e.target.closest('button');
     if (!b) return;
+    if (b.dataset.fpDownload) { b.disabled = true; await downloadFile(b.dataset.fpDownload, b.dataset.fpName); b.disabled = false; return; }
     if (b.dataset.fpStatus !== undefined) { fp.status = b.dataset.fpStatus; load(); return; }
     if (b.dataset.fpBack !== undefined) { if (fp.view?.img) URL.revokeObjectURL(fp.view.img); fp.fileId = ''; fp.detail = null; fp.view = null; fp.note = ''; load(); return; }
     if (b.dataset.fpFilter !== undefined) { fp.filter = b.dataset.fpFilter; load(); return; }
