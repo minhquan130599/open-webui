@@ -359,7 +359,8 @@ def _file_summary(file_tasks: list[dict], retracted: list[str]) -> list[str]:
     describing it): "Thêm 12, cập nhật 3 đầu việc từ file X."."""
     lines = []
     for entry in file_tasks or []:
-        parts = [f'thêm {entry["added"]}' if entry.get('added') else '', f'cập nhật {entry["updated"]}' if entry.get('updated') else '']
+        parts = [f'thêm {entry["added"]}' if entry.get('added') else '', f'cập nhật {entry["updated"]}' if entry.get('updated') else '',
+                 f'thay {len(entry["superseded"])}' if entry.get('superseded') else '']
         parts = [p for p in parts if p]
         if parts:
             lines.append(f'{", ".join(parts).capitalize()} đầu việc từ file {entry.get("name") or "đính kèm"}.')

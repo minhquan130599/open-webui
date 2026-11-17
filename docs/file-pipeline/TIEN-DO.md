@@ -182,3 +182,8 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   ("han_goc") được ưu tiên, hạn chỉ viết ở một ý thì tách ý đó thành việc riêng (PH-000006 hạn 13/11); bỏ chi tiết trùng
   (kể cả sau khi gộp việc); tên mà bảng gọi là team ở dòng khác (TI) là team ở mọi dòng; tên trùng chức vụ đã khai báo
   tự gán thành viên.
+- Nhóm 9 bổ sung (kênh av, đầu việc dạng việc cần làm): yêu cầu của khách mà cột Next step/Action chưa có hành động nào
+  đáp ứng không còn gom thành "Yêu cầu chưa có hành động: … (+N)". Model ghi mỗi yêu cầu thành một việc bình thường bắt
+  đầu bằng động từ ("Xây dựng dashboard ticket management cho CEO"), chi tiết "Khách yêu cầu: …", giao cho người / team phụ
+  trách dòng; gộp yêu cầu trùng, tối đa 3 việc mỗi dòng. Đọc lại file: việc cũ của cùng dòng mà lần đọc mới không còn
+  (việc gộp kiểu cũ) được thay, không để song song; lịch sử ghi "thay N". EXTRACT_VERSION 11.

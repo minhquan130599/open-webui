@@ -29,7 +29,7 @@ from open_webui.tracker.schema import _STATUS_ALIASES, STATUSES, WorkItem, _clea
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 10
+EXTRACT_VERSION = 11
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 ROW_BATCH_CHARS = 10_000
@@ -663,6 +663,7 @@ ROW_BATCH_CHARS = 6000
 TITLE_MAX = 160
 TITLE_WORDS = 15
 LONG_NAME_CHARS = 400
+MAX_GAP_TASKS = 3  # requests without a planned action, turned into tasks, per row
 MAX_IDEAS = 30
 MIN_IDEA_CHARS = 25
 MAX_CONTEXT_IDEAS = 20
@@ -689,8 +690,11 @@ Với mỗi dòng, lập đầu việc để theo dõi tiến độ:
 4. MỌI ý [n] phải được xếp vào đúng một chỗ: "y" của một việc, "vuong_mac" (hạn chế, khó khăn), hoặc "nhan_dinh" (chỉ là
    nhận định, đánh giá, không phải việc).
 5. Nếu dòng có [Y..]: xét TỪNG yêu cầu, kể cả yêu cầu về thời gian ("phải nhắc mới có", "chậm") và sự chủ động.
-   Liệt kê trong "chua_xu_ly" các yêu cầu mà KHÔNG ý nào của VIỆC CẦN LÀM xử lý, kể cả gián tiếp; đáp ứng một phần thì
-   ghi phần còn thiếu vào "con_thieu". Yêu cầu đã được một hành động xử lý thì không liệt kê. Không tạo việc đã giao từ [Y..].
+   Với các yêu cầu mà KHÔNG ý nào của VIỆC CẦN LÀM xử lý (kể cả gián tiếp), ghi vào "chua_xu_ly" VIỆC CẦN LÀM để đáp
+   ứng yêu cầu đó: "ten" bắt đầu bằng động từ, tối đa 15 từ, như một đầu việc bình thường (vd "Xây dựng dashboard ticket
+   management cho CEO", "Chủ động gửi báo cáo IR không chờ khách nhắc"). Gộp các yêu cầu cùng nội dung (nhiều khách cùng
+   một vấn đề) thành MỘT việc; tối đa 3 việc mỗi dòng, chọn yêu cầu quan trọng nhất. Yêu cầu đã được một hành động xử lý
+   thì không liệt kê.
 Trả về đúng một JSON:
 {{"dong": [{{"ma": "R1", "nguoi": ["..."], "nhom": ["..."],
   "viec": [{{"ten": "...", "chi_tiet": ["..."], "y": [1, 2], "phu_trach": ["trong nguoi, chỉ khi ý ghi rõ ai làm"],
@@ -698,7 +702,7 @@ Trả về đúng một JSON:
   "han_rieng": [{{"y": 3, "han": "YYYY-MM-DD", "han_goc": "ngày chép đúng như trong ý", "ten": "tên việc của ý đó, tối đa 15 từ"}}],
   "vuong_mac": {{"noi_dung": "tóm tắt hoặc null", "y": [3]}},
   "nhan_dinh": [4],
-  "chua_xu_ly": [{{"ten": "tóm tắt yêu cầu tối đa 15 từ", "y": ["Y2"], "con_thieu": "phần chưa đáp ứng hoặc null"}}]}}]}}"""
+  "chua_xu_ly": [{{"ten": "việc cần làm, bắt đầu bằng động từ", "y": ["Y2", "Y5"]}}]}}]}}"""
 
 _IDEA_SPLIT_RE = re.compile(r'(?<=[.;!?])\s+(?=\S)')
 _DATE_IN_TEXT_RE = re.compile(r'\b(\d{4})-(\d{1,2})-(\d{1,2})\b|\b(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?\b')
@@ -1023,8 +1027,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
             if not title or word_support(title, source) < MIN_WORD_SUPPORT:
                 title = short_title(source)
                 report['titles_replaced'] += 1
-            missing = str(raw.get('con_thieu') or '').strip()[:300]
-            gaps.append({'ten': title, 'chi_tiet': [missing] if missing else [], 'trich_dan': source[:QUOTE_CHARS]})
+            gaps.append({'ten': title, 'chi_tiet': [], 'trich_dan': source[:QUOTE_CHARS]})
         return {'tasks': grouped, 'placed': placed, 'blocker': blocker, 'gaps': gaps, 'people': people, 'teams': teams}
 
     results: dict[str, dict] = {}
@@ -1084,21 +1087,16 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                 }
             )
             report['tasks'] += 1
-        if built['gaps']:
-            # One task per row for the requests no action answers, given to whoever handles the row: they add the
-            # missing actions (or close it). The requests are its details.
-            gaps = built['gaps']
-            owners = list(built.get('people') or item['phu_trach'])
-            points = _unique_details('', [g['ten'] for g in gaps], 12)
-            first = points[0].rstrip('.') if points else ''
-            title = f'Yêu cầu chưa có hành động: {first[:1].lower() + first[1:]}' + (
-                f' (+{len(points) - 1})' if len(points) > 1 else ''
-            )
+        # Requests no planned action answers become ordinary tasks ("Xây dựng dashboard ticket management cho CEO"),
+        # given to whoever handles the row, with the customer's words as their detail. At most MAX_GAP_TASKS per row.
+        owners = list(built.get('people') or item['phu_trach'])
+        gaps = [g for g in built['gaps'] if g['ten']]
+        for index, gap in enumerate(gaps[:MAX_GAP_TASKS], 1):
             output.append(
                 {
                     **item,
-                    'ten': title[:TITLE_MAX],
-                    'chi_tiet': [p[:300] for p in points[:6]] + ([f'… và {len(points) - 6} yêu cầu khác'] if len(points) > 6 else []),
+                    'ten': gap['ten'][:TITLE_MAX],
+                    'chi_tiet': [f'Khách yêu cầu: {short_title(gap["trich_dan"], 220)}'],
                     'phu_trach': owners,
                     'han': None,
                     'trang_thai': 'chua_bat_dau',
@@ -1107,13 +1105,12 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                     'vuong_mac': None,
                     'chua_giao': not owners,
                     'doi_nhom': [t for t in built.get('teams') or [] if t in owners],
-                    'trich_dan': ' '.join(g['trich_dan'] for g in gaps)[:QUOTE_CHARS],
-                    'khoa': f'{item["khoa"]}#yc',
+                    'trich_dan': gap['trich_dan'],
+                    'khoa': f'{item["khoa"]}#yc{index}',
                     'xac_minh': True,
                 }
             )
-            report['gaps'] += len(gaps)
-            report['gap_tasks'] = report.get('gap_tasks', 0) + 1
+            report['gaps'] += 1
     teams_seen = {normalize_key(t) for built in results.values() for t in built.get('teams') or []}
     for entry in output:
         teams = [o for o in entry.get('phu_trach') or [] if normalize_key(o) in teams_seen]
@@ -1360,6 +1357,15 @@ def merge_into_state(
         by_id[new.id] = new
         added += 1
 
+    # The same rows read again: their earlier tasks the new reading no longer produces are superseded.
+    exact = {i.get('khoa') for i in items if (i.get('khoa') or '').startswith('table:')}
+    bases = {k.split('#')[0] for k in exact}
+    superseded = []
+    for existing in list(state.hang_muc):
+        keys = [n for n in existing.nguon if n.startswith('table:')]
+        if keys and all(k.split('#')[0] in bases and k not in exact for k in keys) and existing.trang_thai != 'hoan_thanh':
+            superseded.append(existing.ten)
+            state.hang_muc.remove(existing)
     # Rows of the same table that the new version no longer has: flagged for review, never deleted.
     prefixes = {k.rsplit(':', 1)[0] + ':' for k in (i.get('khoa') or '' for i in items) if k.startswith('table:')}
     present = {k.split('#')[0] for k in (i.get('khoa') or '' for i in items) if k.startswith('table:')}
@@ -1375,7 +1381,7 @@ def merge_into_state(
                     'nguon_moi': [source],
                 }
             )
-    return {'added': added, 'updated': updated, 'conflicts': conflicts}
+    return {'added': added, 'updated': updated, 'conflicts': conflicts, 'superseded': superseded}
 
 
 def item_line(item: dict) -> str:
