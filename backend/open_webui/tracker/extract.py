@@ -26,7 +26,7 @@ from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 27
+EXTRACT_VERSION = 28
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 # Names this alike (trigrams) or sharing this share of the shorter name's words are shown to the model, which says
@@ -539,6 +539,12 @@ Trả về đúng một JSON: {{"sua": [{{"so": 1, "chi_tiet": ["..."]}}], "tach
  "de_xuat_moi": [{{"sheet": "...", "dong": 19, "ten": "...", "yeu_cau": "..."}}], "bo_de_xuat": [3],
  "la_viec": [{{"sheet": "...", "dong": 14}}]}}"""
 
+TEAMS_PROMPT = """Các tên người phụ trách dưới đây lấy từ file "{name}":
+{names}
+Tên nào là team, phòng ban, nhóm hoặc chức vụ / vai trò (vd SOC, PM, PM dự án, BA, DevOps, BE Lead, QA Lead, AI Engineer,
+Phòng KD, Blue team), không phải tên riêng của một người (vd Long, Triển, Nguyễn Văn A, Hằng Nguyễn)?
+Trả về đúng một JSON: {{"nhom": ["..."]}}"""
+
 OVERVIEW_PROMPT = """File bảng tính "{name}" lớn, sẽ được đọc theo từng phần. Dưới đây là các dòng đầu của mỗi sheet
 (số dòng, các ô theo chữ cái cột).
 <tai_lieu>
@@ -906,6 +912,14 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
             dropped = [pairs[i][0] for i in same]
             tasks[:] = [t for t in tasks if not any(t is d for d in dropped)]
             report['cross_sheet_duplicates'] = len(dropped)
+    # Which owner names are teams or roles is asked once for the whole file, so every row reads them alike (a row
+    # read alone often leaves "BE Lead" or "PM dự án" as a person's name).
+    owner_names = sorted({o for t in tasks for o in t['phu_trach']})
+    if owner_names:
+        answer = await ask(TEAMS_PROMPT.format(name=name, names='\n'.join(f'- {o}' for o in owner_names)), 1500)
+        teams = {str(v).strip() for v in answer.get('nhom') or []} & set(owner_names)
+        for task in tasks:
+            task['doi_nhom'] = list(dict.fromkeys([*task['doi_nhom'], *(o for o in task['phu_trach'] if o in teams)]))
     items = _items_from(tasks, gaps, report)
     return {'kind': 'table', 'items': items, 'quyet_dinh': [], 'rui_ro': [], 'report': report}
 

@@ -366,3 +366,8 @@ Bỏ bước "mô tả bảng" (chọn sheet, dòng tiêu đề, vai trò cột)
   Sửa: thêm lại hướng dẫn đó ở bước xem tổng quan và khi đọc cả file; thêm lớp an toàn: việc ở sheet khác có tên gần
   giống việc ở sheet có nhiều việc nhất được hỏi model có phải cùng một việc, nếu đúng thì bỏ bản ở sheet phụ.
   EXTRACT_VERSION 27.
+- Dev (v27): test02 đúng 50 việc, model bỏ đúng các sheet Tong quan / Tien do 9 tuan (Gantt) / Huong dan; chi tiết gọn,
+  0 vướng mắc giả, tách "BA / FE Lead"; nhưng chỉ DevOps được nhận là team, "PM dự án", "BA", "BE Lead", "QA Lead"… bị coi
+  là người nên 44/50 việc "chưa liên kết". Sửa: sau khi đọc file, hỏi model một lần với mọi tên người phụ trách của file
+  "tên nào là team / phòng ban / chức vụ", áp dụng cho mọi dòng. av: 9 việc + 1 đề xuất (lần trước 3, số đề xuất còn
+  dao động giữa các lần đọc). Không còn lỗi 520 / 502 sau 01:47. EXTRACT_VERSION 28.
