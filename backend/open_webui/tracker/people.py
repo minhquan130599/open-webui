@@ -24,6 +24,7 @@ class Person:
     id: str
     name: str
     email: str = ''
+    role: str = ''  # system role: admin | user | pending
 
 
 def _name_key(name: str) -> list[str]:
@@ -71,16 +72,30 @@ async def channel_people(channel) -> list[Person]:
     if not ids:
         return []
     return [
-        Person(id=u.id, name=u.name or '', email=u.email or '') for u in await Users.get_users_by_user_ids(list(ids))
+        Person(id=u.id, name=u.name or '', email=u.email or '', role=u.role or '')
+        for u in await Users.get_users_by_user_ids(list(ids))
     ]
 
 
-def link_owners(state: ProjectState, people: list[Person]) -> None:
-    """Fill phu_trach_ids from phu_trach for every open item."""
+async def channel_roles(channel) -> tuple[list[str], set[str]]:
+    """(active member ids, manager ids) of a channel; empty for channel types without a member list."""
+    try:
+        members = await Channels.get_members_by_channel_id(channel.id)
+    except Exception:
+        return [], set()
+    active = [m for m in members if m.user_id and getattr(m, 'is_active', True)]
+    return [m.user_id for m in active], {m.user_id for m in active if getattr(m, 'role', None) == 'manager'}
+
+
+def link_owners(state: ProjectState, people: list[Person], aliases: Optional[dict] = None) -> None:
+    """Fill phu_trach_ids from phu_trach for every open item; a channel alias ("Duy" -> an account) wins."""
+    aliases = aliases or {}
     for item in state.hang_muc:
         ids = []
         for name in item.phu_trach:
-            user_id = match_person(name, people)
+            if name in item.ben_ngoai:
+                continue
+            user_id = aliases.get(normalize_key(name)) or match_person(name, people)
             if user_id and user_id not in ids:
                 ids.append(user_id)
         item.phu_trach_ids = ids

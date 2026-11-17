@@ -26,7 +26,8 @@ from open_webui.tracker.prompts import (
     get_tz,
     is_trivial,
 )
-from open_webui.tracker.people import channel_people, link_owners
+from open_webui.tracker import assign, channel_config
+from open_webui.tracker.people import channel_people, channel_roles, link_owners
 from open_webui.tracker.schema import SCHEMA_VERSION, apply_delta, load_state, normalize_key, render_state_markdown
 
 log = logging.getLogger(__name__)
@@ -259,13 +260,54 @@ def _drop_ai_tasks(state, old_state, messages: list[Message], names: set[str]) -
         owners = [o for o in item.phu_trach if normalize_key(o) not in names]
         had_ai = len(owners) != len(item.phu_trach)
         item.phu_trach = owners
-        if item.id not in known and item.nguon and set(item.nguon) <= asks and (had_ai or not owners):
+        # Given to a role or team ("các AM") through the assistant is real work, even with nobody resolved yet.
+        if item.id not in known and item.nguon and set(item.nguon) <= asks and (had_ai or not owners) and not item.nhom:
             log.info('Tracker: dropped "%s", a request to the AI assistant', item.ten)
             continue
         kept.append(item)
     state.hang_muc = kept
     for step in state.viec_tiep_theo:
         step.phu_trach = [o for o in step.phu_trach if normalize_key(o) not in names]
+
+
+def _assign_owners(delta, ref_sources: dict, ctx, counts: dict) -> dict:
+    """Owners of the delta's new items and owner changes, worked out by code from how the model says the work was
+    given (assign.py). New items without a valid source message are dropped. Returns {item id: Resolved} for the
+    changes, to set their group after the delta is applied."""
+    kept = []
+    for new in delta.hang_muc_moi:
+        refs = [r for r in new.nguon if r in ref_sources]
+        if not refs:
+            counts['khong_nguon'] = counts.get('khong_nguon', 0) + 1
+            log.info('Tracker: dropped new item "%s" without a source message', new.ten)
+            continue
+        resolved = assign.resolve(
+            new.giao_cho.model_dump() if new.giao_cho else None, new.phu_trach, [ref_sources[r] for r in refs], ctx
+        )
+        counts['ten_bi_loai'] = counts.get('ten_bi_loai', 0) + resolved.rejected
+        new.phu_trach, new.nhom, new.ben_ngoai = resolved.names, resolved.group, resolved.external
+        new.chua_giao = resolved.unassigned
+        kept.append(new)
+    delta.hang_muc_moi = kept
+    changes = {}
+    for change in delta.cap_nhat:
+        if change.giao_cho is None and change.phu_trach is None:
+            continue
+        refs = [r for r in change.nguon if r in ref_sources] or list(ref_sources)
+        resolved = assign.resolve(
+            change.giao_cho.model_dump() if change.giao_cho else None,
+            change.phu_trach or [],
+            [ref_sources[r] for r in refs],
+            ctx,
+        )
+        counts['ten_bi_loai'] = counts.get('ten_bi_loai', 0) + resolved.rejected
+        replace = bool(change.giao_cho and (change.giao_cho.thay_the or change.giao_cho.kieu in ('chuc_vu', 'ca_nhom')))
+        if resolved.names or replace:
+            change.phu_trach = resolved.names
+            changes[change.id] = resolved
+        else:
+            change.phu_trach = None  # nobody the messages name: keep the current owners
+    return changes
 
 
 def _drop_sources(state: dict, source_ids: set[str]) -> dict:
@@ -354,20 +396,55 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         state, file_tasks = await _merge_extractions(old_state, extractions, today, archived_keys, archived_rows)
         merged_away, summaries = set(), []
         people = await channel_people(channel)
-        members = sorted({p.name for p in people if p.name})
+        member_ids, manager_ids = await channel_roles(channel)
+        config = await channel_config.get(channel_id)
+        ctx = assign.Context(
+            people=people,
+            member_ids=member_ids,
+            owner_id=channel.user_id,
+            manager_ids=manager_ids,
+            admin_ids={p.id for p in people if p.role == 'admin'},
+            config=config,
+        )
+        members = sorted({assign.display_name(p.name) for p in people if p.name})
+        raw = {m.id: m for m in candidates}
+        counts: dict = {}
+        learned: list[dict] = []
         # Usually one call; a message longer than the per-message limit is read in parts over several calls.
         for group in _prompt_groups(_split_long(prompt_messages)):
+            roles = [f'{r["ten"]}: {", ".join(r["nguoi"])}' for r in ctx.config['vai_tro'].values()]
             chat_messages, ref_map = build_update_messages(
-                channel.name, state, group, TZ, TRACKER_MESSAGE_MAX_CHARS, time.time_ns(), members
+                channel.name, state, group, TZ, TRACKER_MESSAGE_MAX_CHARS, time.time_ns(), members, roles
             )
             delta = await llm.generate_state_update(chat_messages)
+            by_message = {f'msg:{m.id}': m for m in group}
+            ref_sources = {}
+            for ref, source in ref_map.items():
+                message = by_message.get(source)
+                if message is None:
+                    continue
+                original = raw.get(message.id)
+                ref_sources[ref] = assign.Source(
+                    text='\n'.join([message.content or '', *message.attachments]),
+                    sender_id=original.user_id if original else None,
+                    tagged=assign.tagged_ids(original.content if original else ''),
+                )
+            roles_now = assign.learned_roles(delta.vai_tro_moi, ref_sources, ref_map, ctx)
+            if roles_now:
+                ctx.config = await channel_config.update(channel_id, lambda c: channel_config.learn_roles(c, roles_now))
+                learned += roles_now
+            changed_groups = _assign_owners(delta, ref_sources, ctx, counts)
             state, merged = apply_delta(state, delta, ref_map, today, archived_keys)
+            for item in state.hang_muc:
+                if item.id in changed_groups:
+                    item.nhom = changed_groups[item.id].group
+                    item.ben_ngoai = changed_groups[item.id].external
             merged_away |= merged
             if delta.tom_tat_lo:
                 summaries.append(delta.tom_tat_lo)
 
         _drop_ai_tasks(state, old_state, candidates, await _ai_names(candidates))
-        link_owners(state, people)
+        link_owners(state, people, ctx.config.get('bi_danh'))
         stored = {**state.model_dump(), 'schema_version': SCHEMA_VERSION}
         _drop_sources(stored, {f'msg:{d.get("id")}' for d in deletions})
         sources = [m.id for m in candidates]
@@ -382,6 +459,8 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                 'deleted_ids': [d.get('id') for d in deletions],
                 'attachments': [line for lines in attachments.values() for line in lines],
                 **({'file_tasks': file_tasks} if file_tasks else {}),
+                **({'giao_viec': counts} if counts else {}),
+                **({'vai_tro_moi': learned} if learned else {}),
             },
         }
         await Trackers.complete(

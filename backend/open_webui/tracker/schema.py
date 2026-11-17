@@ -101,6 +101,10 @@ class WorkItem(_Entry):
     chi_tiet: list[str] = Field(default_factory=list)
     # Asked for (by a customer, in a file) but nobody has taken it on yet: no owner, no due date until assigned.
     chua_giao: bool = False
+    # The role or team the work was given to ("AM", "Cả nhóm"), when it was not given to named people.
+    nhom: Optional[str] = None
+    # Owners outside the company (a customer, a partner "PH04"): shown as such, never linked to an account.
+    ben_ngoai: list[str] = Field(default_factory=list)
     # YYYY-MM-DD in the tracker timezone: first seen, last changed, and when it reached hoan_thanh.
     tao_luc: Optional[str] = None
     cap_nhat_luc: Optional[str] = None
@@ -120,6 +124,16 @@ class WorkItem(_Entry):
     @classmethod
     def _unassigned(cls, value):
         return bool(value)
+
+    @field_validator('ben_ngoai', mode='before')
+    @classmethod
+    def _outside(cls, value):
+        return _clean_list(value)
+
+    @field_validator('nhom', mode='before')
+    @classmethod
+    def _group(cls, value):
+        return _clean_text(value)
 
     @field_validator('tao_luc', 'cap_nhat_luc', 'hoan_thanh_luc', mode='before')
     @classmethod
@@ -221,6 +235,61 @@ class ProjectState(BaseModel):
         return [v for v in value if not isinstance(v, dict) or _clean_text(v.get('ten', v.get('noi_dung')))]
 
 
+class Assignment(BaseModel):
+    """How the work was given, read by the model; assign.py works out who that is."""
+
+    kieu: str = 'ten'  # ten | chuc_vu | ca_nhom | tu_nhan | khong_ro
+    ten: list[str] = Field(default_factory=list)
+    chuc_vu: Optional[str] = None
+    ben_ngoai: list[str] = Field(default_factory=list)
+    thay_the: bool = False
+
+    @field_validator('kieu', mode='before')
+    @classmethod
+    def _kind(cls, value):
+        return (_clean_text(value) or 'ten').lower()
+
+    @field_validator('ten', 'ben_ngoai', mode='before')
+    @classmethod
+    def _names(cls, value):
+        return _clean_list(value)
+
+    @field_validator('chuc_vu', mode='before')
+    @classmethod
+    def _role(cls, value):
+        return _clean_text(value)
+
+    @field_validator('thay_the', mode='before')
+    @classmethod
+    def _replace(cls, value):
+        return bool(value)
+
+
+class NewItem(WorkItem):
+    """A new item in the model's answer: an item plus how it was given (not stored)."""
+
+    giao_cho: Optional[Assignment] = Field(default=None, exclude=True)
+
+
+class RoleUpdate(BaseModel):
+    """A role or team the messages assign people to ("AM: @Tuấn Anh, @Nghĩa"), kept in the channel's role table."""
+
+    ten: str = ''
+    nguoi: list[str] = Field(default_factory=list)
+    thay_the: bool = False
+    nguon: list[str] = Field(default_factory=list)
+
+    @field_validator('ten', mode='before')
+    @classmethod
+    def _name(cls, value):
+        return _clean_text(value) or ''
+
+    @field_validator('nguoi', 'nguon', mode='before')
+    @classmethod
+    def _list(cls, value):
+        return _clean_list(value)
+
+
 class ItemChange(BaseModel):
     """Changes to an existing item, by id. Omitted fields stay unchanged."""
 
@@ -232,6 +301,7 @@ class ItemChange(BaseModel):
     han: Optional[str] = None
     vuong_mac: Optional[str] = None
     nguon: list[str] = Field(default_factory=list)
+    giao_cho: Optional[Assignment] = None
 
     @field_validator('id', mode='before')
     @classmethod
@@ -280,13 +350,14 @@ class StateDelta(BaseModel):
     """What the LLM returns for one batch: only what changed."""
 
     tong_quan: Optional[str] = None
-    hang_muc_moi: list[WorkItem] = Field(default_factory=list)
+    hang_muc_moi: list[NewItem] = Field(default_factory=list)
     cap_nhat: list[ItemChange] = Field(default_factory=list)
     gop: list[ItemMerge] = Field(default_factory=list)
     quyet_dinh_moi: list[Decision] = Field(default_factory=list)
     # None = unchanged; a list replaces the current one (both stay short).
     rui_ro: Optional[list[Risk]] = None
     viec_tiep_theo: Optional[list[NextStep]] = None
+    vai_tro_moi: list[RoleUpdate] = Field(default_factory=list)
     tom_tat_lo: str = ''
 
     @field_validator('tong_quan', mode='before')
@@ -435,6 +506,8 @@ def apply_delta(
             if new.phu_trach:
                 existing.phu_trach = new.phu_trach
                 existing.chua_giao = False
+                existing.nhom = new.nhom
+                existing.ben_ngoai = new.ben_ngoai
             _set_status(existing, new.trang_thai, today)
             if new.tien_do is not None:
                 existing.tien_do = new.tien_do
@@ -445,7 +518,7 @@ def apply_delta(
             continue
         if key in archived_keys:
             continue  # closed or cancelled by the channel owner; only a reopen brings it back
-        item = new.model_copy(
+        item = WorkItem.model_validate(new.model_dump()).model_copy(
             update={
                 'id': new_item_id(),
                 'phu_trach_ids': [],
@@ -511,7 +584,7 @@ def state_for_prompt(state: ProjectState) -> str:
             fields = [
                 f'#{item.id}',
                 item.ten + (f' ({"; ".join(item.chi_tiet)[:200]})' if item.chi_tiet else ''),
-                ', '.join(item.phu_trach) or ('CHƯA GIAO' if item.chua_giao else '-'),
+                (f'[{item.nhom}] ' if item.nhom else '') + (', '.join(item.phu_trach) or ('CHƯA GIAO' if item.chua_giao else '-')),
                 item.trang_thai,
                 f'{item.tien_do}%' if item.tien_do is not None else '-',
                 item.han or '-',

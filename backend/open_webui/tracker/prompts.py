@@ -22,13 +22,21 @@ Quy tắc:
 4. Tin nhắn đính chính ("đính chính", "sửa lại", "nhầm", "thực ra") được ưu tiên hơn thông tin cũ. Tin nhắn đánh dấu (đã sửa) thay thế nội dung trước đó của chính tin nhắn ấy. Tin nhắn đánh dấu (đã xóa) không còn hiệu lực: sửa lại thông tin chỉ dựa vào tin đó.
 5. Không bịa. Chỉ ghi tien_do (0-100) và han (YYYY-MM-DD) khi tin nhắn nêu rõ hoặc suy ra chắc chắn (ví dụ "thứ 6 tuần này" tính theo ngày hôm nay).
 6. trang_thai là một trong: chua_bat_dau, dang_lam, bi_chan, tam_dung, hoan_thanh. muc_do rủi ro: thap, trung_binh, cao.
-7. phu_trach ghi họ tên người như trong tin nhắn (người được giao, hoặc người tự báo cáo việc của mình). Đối chiếu với THÀNH VIÊN KÊNH: tên người có thể viết thường hoặc không dấu ("giao triển làm X" là giao cho Triển làm X, không phải "triển khai X"). Tên người không thuộc tên công việc. Người gửi tin chỉ là người phụ trách khi tự nhận hoặc tự báo cáo việc; tin giao việc cho người khác thì người được giao mới là phu_trach. Dòng bắt đầu bằng "↳" là tóm tắt tệp hoặc ảnh đính kèm của tin nhắn ngay trên, dùng như bằng chứng của tin nhắn đó; đầu việc liệt kê trong tệp cũng phải được ghi nhận.
+7. Với mỗi việc mới, và mỗi khi tin nhắn đổi người làm một việc đã có, ghi "giao_cho" = CÁCH việc được giao, đúng theo chữ trong tin (hệ thống tự tính ra danh sách người):
+   - "ten": giao cho người được nêu tên hoặc @tag ("@Tuấn Anh làm X", "@admin check hộ em", "remind PM vietanh.nguyen") -> "ten": tên chép đúng như trong tin.
+   - "chuc_vu": giao theo chức vụ / nhóm ("các AM", "PM", "team SOC") -> "chuc_vu": tên chức vụ. KHÔNG tự đoán ai giữ chức vụ.
+   - "ca_nhom": giao chung ("mọi người", "toàn team", "các nhân sự", "anh em") -> không ghi tên ai.
+   - "tu_nhan": người gửi tự nhận hoặc tự báo cáo việc của mình ("em làm X", "mình sẽ gửi").
+   - "khong_ro": không nêu ai làm (kế hoạch, mốc thời gian không ghi người).
+   "ben_ngoai": bên ngoài công ty được giao (khách hàng, đối tác như "PH04"). "thay_the": true khi tin đính chính danh sách người ("chỉ… các nhân sự sau", "thay bằng", "bỏ X ra").
+   THÀNH VIÊN KÊNH chỉ để nhận ra tên viết thường / không dấu ("giao triển làm X" là giao cho Triển làm X), KHÔNG dùng để điền người. Tên người không thuộc tên công việc. Dòng bắt đầu bằng "↳" là tóm tắt tệp hoặc ảnh đính kèm của tin nhắn ngay trên, dùng như bằng chứng của tin nhắn đó; đầu việc liệt kê trong tệp cũng phải được ghi nhận.
+   Khi tin nhắn phân công chức vụ / nhóm ("AM: @A, @B", "PM dự án là @C", "team SOC gồm @D, @E"), ghi vào "vai_tro_moi" (thay_the: true nếu là danh sách mới thay danh sách cũ).
 8. nguon: mã tin nhắn MỚI (m1, m2, ...) là bằng chứng cho thay đổi đó.
 9. tong_quan: 1-3 câu về tình hình chung, chỉ ghi khi cần cập nhật. tom_tat_lo: 1-3 câu tóm tắt riêng các tin nhắn mới.
-10. Tin nhắn có thẻ (hỏi trợ lý AI) là câu hỏi hoặc yêu cầu gửi cho trợ lý AI (tra cứu, lọc, tổng hợp, soạn báo cáo...), KHÔNG phải giao việc cho dự án: không tạo hạng mục từ yêu cầu đó; chỉ ghi nhận nếu chính tin đó báo một tiến độ thật của dự án. Trợ lý AI không bao giờ là phu_trach.
+10. Tin nhắn có thẻ (hỏi trợ lý AI) gửi cho trợ lý AI. Phần nhờ AI làm (tra cứu, lọc, tổng hợp, soạn báo cáo, thông báo, nhắc, tính điểm) KHÔNG phải việc của dự án. Nhưng tin đó vẫn có thể GIAO VIỆC cho người ("@Knight thông báo cho các AM sẽ báo cáo thứ 3", "@Knight remind PM X cập nhật tiến độ"): việc của những người đó vẫn phải ghi nhận. Trợ lý AI không bao giờ là người làm.
 11. quyet_dinh_moi: quyết định mới trong lô này. rui_ro và viec_tiep_theo: nếu có thay đổi thì ghi lại TOÀN BỘ danh sách mới; nếu không đổi thì bỏ trường đó.
 12. Viết tiếng Việt, ngắn gọn. Chỉ trả về một đối tượng JSON, bỏ các trường không có thay đổi:
-{"tong_quan": str, "hang_muc_moi": [{"ten", "phu_trach": [str], "trang_thai", "tien_do", "han", "vuong_mac", "nguon": [str]}], "cap_nhat": [{"id", "ten", "phu_trach", "trang_thai", "tien_do", "han", "vuong_mac", "nguon"}], "gop": [{"vao": id, "tu": [id]}], "quyet_dinh_moi": [{"noi_dung", "ngay", "nguon"}], "rui_ro": [{"noi_dung", "muc_do", "nguon"}], "viec_tiep_theo": [{"noi_dung", "phu_trach", "han", "nguon"}], "tom_tat_lo": str}"""
+{"tong_quan": str, "hang_muc_moi": [{"ten", "giao_cho": {"kieu": "ten|chuc_vu|ca_nhom|tu_nhan|khong_ro", "ten": [str], "chuc_vu": str, "ben_ngoai": [str], "thay_the": bool}, "trang_thai", "tien_do", "han", "vuong_mac", "nguon": [str]}], "cap_nhat": [{"id", "ten", "giao_cho", "trang_thai", "tien_do", "han", "vuong_mac", "nguon"}], "vai_tro_moi": [{"ten": "AM", "nguoi": [str], "thay_the": bool, "nguon": [str]}], "gop": [{"vao": id, "tu": [id]}], "quyet_dinh_moi": [{"noi_dung", "ngay", "nguon"}], "rui_ro": [{"noi_dung", "muc_do", "nguon"}], "viec_tiep_theo": [{"noi_dung", "phu_trach", "han", "nguon"}], "tom_tat_lo": str}"""
 
 
 @dataclass
@@ -106,6 +114,7 @@ def build_update_messages(
     message_max_chars: int,
     now_ns: int,
     members: Optional[list[str]] = None,
+    roles: Optional[list[str]] = None,
 ) -> tuple[list[dict], dict[str, str]]:
     """Return the chat messages for one batch and the ref -> source id map."""
     ref_by_id = {m.id: f'm{i + 1}' for i, m in enumerate(messages)}
@@ -116,7 +125,8 @@ def build_update_messages(
     user_prompt = (
         f'Hôm nay: {format_time(now_ns, tz)[:10]}\n'
         f'Kênh (dự án): {channel_name}\n'
-        f'THÀNH VIÊN KÊNH: {", ".join(members) if members else "(không rõ)"}\n\n'
+        f'THÀNH VIÊN KÊNH (chỉ để nhận tên): {", ".join(members) if members else "(không rõ)"}\n'
+        f'CHỨC VỤ / NHÓM ĐÃ KHAI BÁO: {"; ".join(roles) if roles else "(chưa có)"}\n\n'
         f'TRẠNG THÁI HIỆN TẠI:\n{previous or "(chưa có)"}\n\n'
         f'TIN NHẮN MỚI:\n<du_lieu>\n' + '\n'.join(lines) + '\n</du_lieu>'
     )

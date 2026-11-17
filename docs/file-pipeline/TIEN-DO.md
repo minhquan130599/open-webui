@@ -55,9 +55,9 @@ Trạng thái: ⬜ chưa làm · 🔄 đang làm · ✅ xong (đã test) · ⚠�
 ## Nhóm 9. Gán việc đúng người, giảm việc chưa gán, quản lý kênh (kế hoạch: KE-HOACH-GAN-VIEC.md)
 Chốt: Q1 kế hoạch không nêu người → chưa giao; Q2 có danh sách "không nhận việc chung"; Q3 nhắc thứ Hai chỉ chủ kênh /
 người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
-- ⬜ T1. Prompt tổng hợp chat: `giao_cho`, tin @Knight vẫn giao việc, đính chính thay danh sách
-- ⬜ T2. Code tính người phụ trách (tên/@tag, chức vụ, cả nhóm, tự nhận, không rõ), kiểm tên có trong tin, bắt buộc nguồn
-- ⬜ T3. Bảng chức vụ / nhóm / "không nhận việc chung" của kênh: lưu, tự học từ tin, API
+- ✅ T1. Prompt tổng hợp chat: `giao_cho`, tin @Knight vẫn giao việc, đính chính thay danh sách
+- ✅ T2. Code tính người phụ trách (tên/@tag, chức vụ, cả nhóm, tự nhận, không rõ), kiểm tên có trong tin, bắt buộc nguồn
+- 🔄 T3. Bảng chức vụ / nhóm / "không nhận việc chung" của kênh: lưu, tự học từ tin, API
 - ⬜ T4. Giao diện "Thành viên & chức vụ" trong bảng tiến độ kênh
 - ⬜ T5. Nhãn Ngoài kênh / Bên ngoài / Đã nghỉ; bí danh kênh; gán nhanh việc chưa có người
 - ⬜ T6. Yêu cầu chưa giao: gom 1 việc / dòng, gán người phụ trách của dòng
@@ -125,3 +125,10 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   do model chỉ ra theo từng ý (code kiểm ngày có viết trong ý rồi tách việc), đọc lại phần văn bản theo số việc model đếm
   ("tong_so_viec") thay cho đếm từ khóa. Regex còn lại chỉ để kiểm / đọc định dạng: dò câu gốc, đọc ngày, kiểm %, cắt câu
   theo dấu chấm để đánh số ý, mention và link file của hệ thống.
+- Nhóm 9 / T1–T2 (`tracker/assign.py`, `channel_config.py`, `service.py`, `prompts.py`, `schema.py`): model trả `giao_cho`
+  (ten / chuc_vu / ca_nhom / tu_nhan / khong_ro), code tính người: @tag theo mã tài khoản, tên phải có trong tin (hoặc
+  tên email "vietanh.nguyen", 2 chữ cuối họ tên, bí danh kênh); "cả nhóm" = thành viên trừ admin, chủ kênh, người quản
+  lý, người gửi, "không nhận việc chung"; chức vụ tra bảng chức vụ kênh (học từ tin "AM: @…"); đính chính thay danh sách;
+  việc mới không có tin nguồn bị bỏ; tin @Knight vẫn giao việc. Đã test trên tin thật bd3 / poc soc (model giả lập cố
+  tình sai): AM đúng 3 người, bỏ Sơn; "các nhân sự" bỏ Sơn / My / người không nhận việc chung; 9 tên tự nở bị loại;
+  đính chính thay đúng 5 người; vietanh.nguyen → Nguyễn Việt Anh; PH04 bên ngoài; việc không nguồn bị bỏ.
