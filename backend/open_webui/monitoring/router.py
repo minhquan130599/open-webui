@@ -549,14 +549,24 @@ async def mail_test(form: MailTestForm, x_monitor_key: Optional[str] = Header(No
 
     current = await mailer.settings()
     names = {
+        mailer.METHOD_KEY: 'method',
         mailer.SENDER_KEY: 'sender',
+        mailer.SENDER_NAME_KEY: 'sender_name',
         mailer.TENANT_KEY: 'tenant_id',
         mailer.CLIENT_ID_KEY: 'client_id',
         mailer.CLIENT_SECRET_KEY: 'client_secret',
+        mailer.SMTP_HOST_KEY: 'smtp_host',
+        mailer.SMTP_SECURITY_KEY: 'smtp_security',
+        mailer.SMTP_USERNAME_KEY: 'smtp_username',
+        mailer.SMTP_PASSWORD_KEY: 'smtp_password',
     }
     for key, value in (form.overrides or {}).items():
         if key in names and isinstance(value, str) and value.strip():
             current[names[key]] = value.strip()
+        elif key == mailer.SMTP_PORT_KEY and str(value).strip().isdigit():
+            current['smtp_port'] = int(str(value).strip())
+        elif key == mailer.SMTP_VERIFY_KEY and isinstance(value, bool):
+            current['smtp_verify_tls'] = value
     import datetime as dt
 
     tomorrow = (dt.date.fromisoformat(today()) + dt.timedelta(days=1)).isoformat()

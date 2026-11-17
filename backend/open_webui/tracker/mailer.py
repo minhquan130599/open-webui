@@ -1,17 +1,26 @@
-"""Due-reminder emails through Microsoft Graph (Microsoft 365).
+"""Due-reminder emails, sent through Microsoft Graph (Microsoft 365) or a company SMTP server.
 
-NCS AI sends from one shared mailbox (e.g. ncs-ai@company.com) with an app-only token (client credentials): the
-Azure app needs the *application* permission Mail.Send with admin consent. Restrict it to that mailbox with an
-Exchange Application Access Policy so the app cannot send as anyone else.
+Graph: NCS AI sends from one shared mailbox (e.g. ncs-ai@company.com) with an app-only token (client credentials):
+the Azure app needs the *application* permission Mail.Send with admin consent, and the tenant needs Exchange Online.
+Restrict it to that mailbox with an Exchange Application Access Policy so the app cannot send as anyone else. The app
+registration defaults to the one used for Microsoft login (oauth.microsoft.*); a separate one can be set.
 
-The app registration defaults to the one used for Microsoft login (oauth.microsoft.*); a separate one can be set.
+SMTP: any mail server the company already sends with (host, port, STARTTLS/SSL, account), no Microsoft 365 needed.
+
 Settings live in the config table and are edited on the monitor page.
 """
 
+import asyncio
 import html
 import logging
 import os
+import re
+import smtplib
+import socket
+import ssl
 import time
+from email.message import EmailMessage
+from email.utils import formataddr, make_msgid
 from typing import Optional
 
 import aiohttp
@@ -21,19 +30,50 @@ from open_webui.models.config import Config
 log = logging.getLogger(__name__)
 
 ENABLE_KEY = 'tracker.reminder.email.enable'
+METHOD_KEY = 'tracker.reminder.email.method'  # graph | smtp
 SENDER_KEY = 'tracker.reminder.email.sender'
+SENDER_NAME_KEY = 'tracker.reminder.email.sender_name'
 TENANT_KEY = 'tracker.reminder.email.tenant_id'
 CLIENT_ID_KEY = 'tracker.reminder.email.client_id'
 CLIENT_SECRET_KEY = 'tracker.reminder.email.client_secret'
-KEYS = (ENABLE_KEY, SENDER_KEY, TENANT_KEY, CLIENT_ID_KEY, CLIENT_SECRET_KEY)
+SMTP_HOST_KEY = 'tracker.reminder.email.smtp_host'
+SMTP_PORT_KEY = 'tracker.reminder.email.smtp_port'
+SMTP_SECURITY_KEY = 'tracker.reminder.email.smtp_security'  # starttls | ssl | none
+SMTP_USERNAME_KEY = 'tracker.reminder.email.smtp_username'
+SMTP_PASSWORD_KEY = 'tracker.reminder.email.smtp_password'
+SMTP_VERIFY_KEY = 'tracker.reminder.email.smtp_verify_tls'
+KEYS = (
+    ENABLE_KEY,
+    METHOD_KEY,
+    SENDER_KEY,
+    SENDER_NAME_KEY,
+    TENANT_KEY,
+    CLIENT_ID_KEY,
+    CLIENT_SECRET_KEY,
+    SMTP_HOST_KEY,
+    SMTP_PORT_KEY,
+    SMTP_SECURITY_KEY,
+    SMTP_USERNAME_KEY,
+    SMTP_PASSWORD_KEY,
+    SMTP_VERIFY_KEY,
+)
 
 DEFAULTS = {
     ENABLE_KEY: os.getenv('TRACKER_REMINDER_EMAIL_ENABLE', 'False').lower() == 'true',
+    METHOD_KEY: os.getenv('TRACKER_REMINDER_EMAIL_METHOD', 'graph'),
     SENDER_KEY: os.getenv('TRACKER_REMINDER_EMAIL_SENDER', ''),
+    SENDER_NAME_KEY: os.getenv('TRACKER_REMINDER_EMAIL_SENDER_NAME', 'NCS AI'),
     TENANT_KEY: os.getenv('TRACKER_REMINDER_EMAIL_TENANT_ID', ''),
     CLIENT_ID_KEY: os.getenv('TRACKER_REMINDER_EMAIL_CLIENT_ID', ''),
     CLIENT_SECRET_KEY: os.getenv('TRACKER_REMINDER_EMAIL_CLIENT_SECRET', ''),
+    SMTP_HOST_KEY: os.getenv('TRACKER_REMINDER_SMTP_HOST', ''),
+    SMTP_PORT_KEY: os.getenv('TRACKER_REMINDER_SMTP_PORT', '587'),
+    SMTP_SECURITY_KEY: os.getenv('TRACKER_REMINDER_SMTP_SECURITY', 'starttls'),
+    SMTP_USERNAME_KEY: os.getenv('TRACKER_REMINDER_SMTP_USERNAME', ''),
+    SMTP_PASSWORD_KEY: os.getenv('TRACKER_REMINDER_SMTP_PASSWORD', ''),
+    SMTP_VERIFY_KEY: os.getenv('TRACKER_REMINDER_SMTP_VERIFY_TLS', 'True').lower() == 'true',
 }
+SMTP_TIMEOUT = 30
 
 GRAPH_URL = 'https://graph.microsoft.com/v1.0'
 TIMEOUT = aiohttp.ClientTimeout(total=30)
@@ -63,9 +103,22 @@ async def settings() -> dict:
             value = DEFAULTS[key] or (values.get(fallback) if fallback else '')
         return value
 
+    try:
+        smtp_port = int(pick(SMTP_PORT_KEY) or 587)
+    except (TypeError, ValueError):
+        smtp_port = 587
+    verify = pick(SMTP_VERIFY_KEY)
     return {
         'enable': bool(pick(ENABLE_KEY)),
+        'method': 'smtp' if str(pick(METHOD_KEY) or '').strip().lower() == 'smtp' else 'graph',
         'sender': (pick(SENDER_KEY) or '').strip(),
+        'sender_name': (pick(SENDER_NAME_KEY) or '').strip(),
+        'smtp_host': (pick(SMTP_HOST_KEY) or '').strip(),
+        'smtp_port': smtp_port,
+        'smtp_security': str(pick(SMTP_SECURITY_KEY) or 'starttls').strip().lower(),
+        'smtp_username': (pick(SMTP_USERNAME_KEY) or '').strip(),
+        'smtp_password': pick(SMTP_PASSWORD_KEY) or '',
+        'smtp_verify_tls': verify if isinstance(verify, bool) else str(verify).lower() != 'false',
         'tenant_id': (pick(TENANT_KEY, 'oauth.microsoft.tenant_id') or '').strip(),
         'client_id': (pick(CLIENT_ID_KEY, 'oauth.microsoft.client_id') or '').strip(),
         'client_secret': pick(CLIENT_SECRET_KEY, 'oauth.microsoft.client_secret') or '',
@@ -76,13 +129,81 @@ async def settings() -> dict:
 
 
 def missing(s: dict) -> list[str]:
-    names = {
-        'sender': 'hộp thư gửi',
-        'tenant_id': 'Tenant ID',
-        'client_id': 'Client ID',
-        'client_secret': 'Client secret',
-    }
+    if s.get('method') == 'smtp':
+        # Username/password are optional: an internal relay may accept the server without login.
+        names = {'sender': 'địa chỉ gửi', 'smtp_host': 'máy chủ SMTP'}
+    else:
+        names = {
+            'sender': 'hộp thư gửi',
+            'tenant_id': 'Tenant ID',
+            'client_id': 'Client ID',
+            'client_secret': 'Client secret',
+        }
     return [label for key, label in names.items() if not s.get(key)]
+
+
+def _html_to_text(body: str) -> str:
+    """Plain-text part for mail clients that do not show HTML."""
+    body = re.sub(r'(?is)<(script|style).*?</\1>', '', body)
+    body = re.sub(r'(?i)<br\s*/?>|</(p|div|li|tr|h[1-6])>', '\n', body)
+    text = html.unescape(re.sub(r'<[^>]+>', '', body))
+    return re.sub(r'\n{3,}', '\n\n', '\n'.join(line.strip() for line in text.splitlines())).strip()
+
+
+def _send_smtp(s: dict, to: str, subject: str, html_body: str) -> None:
+    """Blocking SMTP send (run in a thread). Raises MailError with a readable reason."""
+    message = EmailMessage()
+    message['From'] = formataddr((s['sender_name'], s['sender'])) if s.get('sender_name') else s['sender']
+    message['To'] = to
+    message['Subject'] = subject
+    message['Message-ID'] = make_msgid(domain=s['sender'].rsplit('@', 1)[-1] or None)
+    message.set_content(_html_to_text(html_body) or subject)
+    message.add_alternative(html_body, subtype='html')
+
+    context = ssl.create_default_context()
+    if not s.get('smtp_verify_tls', True):
+        # Internal servers with a self-signed certificate.
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    host, port, security = s['smtp_host'], s['smtp_port'], s.get('smtp_security', 'starttls')
+    where = f'{host}:{port}'
+    try:
+        if security == 'ssl':
+            server = smtplib.SMTP_SSL(host, port, timeout=SMTP_TIMEOUT, context=context)
+        else:
+            server = smtplib.SMTP(host, port, timeout=SMTP_TIMEOUT)
+        with server:
+            server.ehlo()
+            if security == 'starttls':
+                server.starttls(context=context)
+                server.ehlo()
+            if s.get('smtp_username'):
+                server.login(s['smtp_username'], s.get('smtp_password') or '')
+            server.send_message(message)
+    except smtplib.SMTPAuthenticationError as e:
+        raise MailError(f'Máy chủ SMTP {where} từ chối đăng nhập: sai tài khoản/mật khẩu, hoặc tài khoản chưa được '
+                        f'phép gửi qua SMTP ({e.smtp_code} {e.smtp_error.decode(errors="replace") if isinstance(e.smtp_error, bytes) else e.smtp_error})'[:400])
+    except smtplib.SMTPSenderRefused as e:
+        raise MailError(f'Máy chủ SMTP không cho gửi từ {s["sender"]}: địa chỉ gửi phải là tài khoản đăng nhập '
+                        f'hoặc địa chỉ được phép gửi thay ({e.smtp_code})'[:400])
+    except smtplib.SMTPRecipientsRefused as e:
+        raise MailError(f'Máy chủ SMTP từ chối người nhận {to}: có thể cần đăng nhập để gửi ra ngoài (relay) '
+                        f'({", ".join(str(v[0]) for v in e.recipients.values())})'[:400])
+    except smtplib.SMTPNotSupportedError:
+        raise MailError(f'Máy chủ {where} không hỗ trợ STARTTLS hoặc đăng nhập: đổi kiểu mã hóa (cổng 465 → SSL, '
+                        '587/25 → STARTTLS) hoặc bỏ tài khoản nếu máy chủ không cần đăng nhập')
+    except ssl.SSLCertVerificationError as e:
+        raise MailError(f'Chứng chỉ TLS của {where} không hợp lệ ({e.verify_message}); máy chủ nội bộ dùng chứng chỉ '
+                        'tự ký thì tắt "Kiểm tra chứng chỉ TLS"')
+    except ssl.SSLError as e:
+        raise MailError(f'Lỗi TLS với {where} ({e.reason}): thường do sai kiểu mã hóa so với cổng '
+                        '(465 → SSL, 587 → STARTTLS, 25 → STARTTLS hoặc không mã hóa)')
+    except (socket.timeout, TimeoutError):
+        raise MailError(f'Hết thời gian kết nối {where}: kiểm tra địa chỉ, cổng và firewall từ server NCS AI')
+    except (ConnectionRefusedError, socket.gaierror, OSError) as e:
+        raise MailError(f'Không kết nối được máy chủ SMTP {where}: {e}')
+    except smtplib.SMTPException as e:
+        raise MailError(f'Máy chủ SMTP {where} báo lỗi: {e}'[:400])
 
 
 async def _access_token(s: dict) -> str:
@@ -122,6 +243,9 @@ async def send(to: str, subject: str, html_body: str, s: Optional[dict] = None) 
     lacking = missing(s)
     if lacking:
         raise MailError(f'Chưa cấu hình: {", ".join(lacking)}')
+    if s.get('method') == 'smtp':
+        await asyncio.to_thread(_send_smtp, s, to, subject, html_body)
+        return
     token = await _access_token(s)
     payload = {
         'message': {
@@ -213,7 +337,8 @@ async def send_reminders(per_user: dict[str, list[tuple]]) -> dict:
         return result
     try:
         # A wrong secret or an unreachable Microsoft fails once here instead of once per person.
-        await _access_token(s)
+        if s['method'] == 'graph':
+            await _access_token(s)
     except MailError as e:
         log.warning('Reminder emails skipped: %s', e)
         perf.record('tracker', name='email', status='error', error=str(e)[:400])
