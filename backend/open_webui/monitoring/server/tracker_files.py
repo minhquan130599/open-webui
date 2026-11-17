@@ -355,21 +355,22 @@ def _why(item: dict, messages: list, files: list, readings: list) -> list:
         key = entry.get('khoa') or ''
         where = key.split(':', 2)[-1] if key else ''
         code, _, part = where.partition('#')
+        sheet = key.split(':', 2)[1] if key.count(':') >= 2 else ''
+        place = f'dòng {entry.get("dong")}' + (f' (mã {code})' if code and code != str(entry.get('dong')) else '') + (
+            f', sheet "{sheet}"' if sheet else '')
         if part.startswith('yc'):
+            asked = (f'cột bối cảnh {_columns(cols, "ngu_canh")} ' if _columns(cols, 'ngu_canh') else 'dòng ')
             lines.append(
-                f'Đề xuất từ yêu cầu chưa có ai xử lý ở dòng {code} (dòng {entry.get("dong")}) của file "{r["name"]}": '
-                f'cột bối cảnh {_columns(cols, "ngu_canh") or "?"} nêu yêu cầu này nhưng cột hành động '
-                f'{_columns(cols, "ten") or "?"} không có việc nào đáp ứng. Tên việc do model đặt; chi tiết là câu gốc trong file.'
+                f'Đề xuất từ yêu cầu chưa có ai xử lý ở {place} của file "{r["name"]}": {asked}nêu yêu cầu này nhưng '
+                'việc của dòng không đáp ứng. Tên việc do model đặt; chi tiết là câu gốc trong file.'
             )
         elif key:
             lines.append(
-                f'Từ dòng {code} (dòng {entry.get("dong")}) của file "{r["name"]}"'
+                f'Model đọc {place} của file "{r["name"]}"'
                 + (f', việc thứ {part} tách từ dòng này (khác người hoặc khác hạn)' if part and part != '1' else '')
-                + f'. Tên việc tóm tắt từ cột {_columns(cols, "ten") or "?"}'
-                + (f', chi tiết từ cột {_columns(cols, "mo_ta")}' if _columns(cols, 'mo_ta') else '')
+                + (f'. Tên việc tóm tắt từ cột {_columns(cols, "ten")}' if _columns(cols, 'ten') else '')
                 + (f'; phụ trách từ cột {_columns(cols, "phu_trach")}' if _columns(cols, 'phu_trach') else '')
-                + (f'; hạn từ cột {_columns(cols, "han")}' if _columns(cols, 'han') else '')
-                + '.'
+                + '; người, hạn, tiến độ đã được đối chiếu có trong dòng.'
             )
         else:
             page = f', trang {entry.get("trang")}' if entry.get('trang') else ''

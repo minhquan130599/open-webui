@@ -5,15 +5,11 @@ read, in parallel, for structured items with the sentence they come from and its
 task-like lines (dates, owners, deadlines) but few items is read a second time for what was missed. Each quote is
 looked up in the text: verified items go into the state, unverified ones are only shown to the update LLM.
 
-Spreadsheets: a model describes the table once (which sheet holds the tasks, the header row, the code column, and
-which columns look like name, owner, deadline...). Code copies every row with text, all its cells under their own
-column names (cells merged over several rows repeated in each), and the model reads each row as a whole: whether it
-is a task, its tasks with owners, deadline, status, progress, details, and requests it leaves unanswered. Code
-reads no meaning into cells; it checks the answer against the row (owners, deadlines, percents must be written in
-it) and copies any cell the tasks do not reflect into the details. Tables that are not one row per task are read
-by the model in batches like a document. The description is kept
-by the table's signature (sheet names and headers), reused for later versions of the file and editable on the
-monitor; an edited description is never replaced by the model.
+Spreadsheets: the file is given to the model as it is (every filled cell under its column letter, cells merged over
+several rows repeated in each). A small file is read whole in one call; a big one in parts of rows, each carrying the
+first rows of its sheet. The model decides which sheets hold tasks, which rows are headers (several, or none) or page
+heads, which rows are tasks, and every field; a second call reviews each part. Code checks the facts against the row
+(owners, deadlines, percents written in it) and asks again for rows the model did not mention.
 
 Items are matched against the current state (same table row, same name, or similar names confirmed by the
 model): a match is updated with the newer values and both sources are kept; a changed deadline or owner is
@@ -21,8 +17,6 @@ recorded as a conflict for review on the monitor.
 """
 
 import asyncio
-import hashlib
-import json
 import logging
 import re
 from typing import Optional
@@ -32,7 +26,7 @@ from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 22
+EXTRACT_VERSION = 23
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 # Names this alike (trigrams) or sharing this share of the shorter name's words are shown to the model, which says
@@ -102,46 +96,6 @@ Lần đọc trước ước tính phần này có {expected} đầu việc như
 Đọc lại từ đầu đến cuối và chỉ liệt kê các đầu việc CÒN THIẾU, không lặp lại việc đã có; "tong_so_viec" là tổng số đầu
 việc của cả phần sau khi đọc lại. Trả về đúng một JSON cùng định dạng:
 """ + ITEM_FORMAT
-
-SPEC_PROMPT = """File bảng tính "{name}". Dưới đây là các sheet: số dòng, vài dòng đầu (cột theo chữ cái A, B, C...),
-và các giá trị khác nhau của những cột ít giá trị.
-<tai_lieu>
-{sheets}
-</tai_lieu>
-
-Hãy mô tả cách đọc danh sách công việc từ file này. Nhiều sheet có thể là các góc nhìn của cùng một dữ liệu
-(tổng quan, tra cứu, xuất dữ liệu): chọn MỘT sheet gốc đầy đủ nhất, mỗi dòng là một việc. Trả về đúng một JSON:
-{{"loai": "bang_viec (mỗi dòng một việc) | tu_do (việc nằm rải rác, không theo dòng) | khong_co_viec",
- "sheet": "tên sheet", "dong_tieu_de": số dòng tiêu đề (bắt đầu từ 1); 0 nếu bảng KHÔNG có dòng tiêu đề (dòng đầu đã là dữ liệu),
- "cot": {{"ma": "cột mã/ID của việc hoặc null",
-          "ten": ["CHỈ cột ghi việc phải làm / hành động (vd Next step, Action, Công việc, Nhiệm vụ)"],
-          "mo_ta": ["cột mô tả chi tiết CHÍNH việc đó: các bước, phạm vi cần làm (vd Mô tả chi tiết, Nội dung công việc) hoặc []"],
-          "ngu_canh": ["cột vấn đề / yêu cầu của khách hoặc bên khác mà việc phải đáp ứng (vd nội dung phản hồi, mô tả lỗi, mong đợi của khách) hoặc []"],
-          "phu_trach": "cột hoặc null", "han": "cột hoặc null", "trang_thai": "cột hoặc null",
-          "tien_do": "cột % hoàn thành hoặc null", "vuong_mac": "cột khó khăn / vướng mắc hoặc null",
-          "ngay_hoan_thanh": "cột ngày hoàn thành thực tế hoặc null", "ket_qua": "cột kết quả xử lý hoặc null"}},
- "trang_thai": {{"giá trị trong file": "chua_bat_dau|dang_lam|bi_chan|tam_dung|hoan_thanh"}},
- "tach_phu_trach": "ký tự ngăn cách nhiều người phụ trách trong một ô, vd \\",\\" hoặc null",
- "ngay": "dmy hoặc mdy (thứ tự ngày tháng của các ô ngày dạng chữ)",
- "ly_do": "một câu: vì sao chọn sheet và các cột này"}}
-Cột ghi bằng chữ cái (A, B, AA). Ánh xạ trang_thai cho mọi giá trị trạng thái đang có trong file.
-Không đưa cột mô tả vấn đề, nội dung phản hồi hay ghi chú dài vào "ten": tên việc sẽ được tóm tắt từ cột hành động,
-cột bối cảnh chỉ giúp hiểu việc."""
-
-FIX_PROMPT = """Bản mô tả dưới đây đọc file bảng tính "{name}" chưa tốt.
-Bản mô tả: {spec}
-Vấn đề: {issues}
-Một số dòng đọc lỗi (số dòng: các ô theo cột):
-<tai_lieu>
-{rows}
-</tai_lieu>
-Thông tin các sheet:
-<tai_lieu>
-{sheets}
-</tai_lieu>
-Sửa bản mô tả cho đúng và trả về đúng một JSON cùng định dạng (đủ các khóa loai, sheet, dong_tieu_de, cot, trang_thai,
-tach_phu_trach, ngay, ly_do). "cot.ten" chỉ gồm cột hành động; cột mô tả cách làm của chính việc đưa vào "cot.mo_ta";
-cột vấn đề, yêu cầu của khách đưa vào "cot.ngu_canh"."""
 
 SAME_PROMPT = """Các cặp đầu việc dưới đây có tên gần giống nhau. Với mỗi cặp, cho biết có phải CÙNG MỘT việc không
 (cùng nội dung công việc, chỉ khác cách viết hoặc đã cập nhật thêm).
@@ -463,18 +417,6 @@ async def extract_document(name: str, content: str, structure: dict, today: str,
 # ---------------------------------------------------------------- spreadsheets
 
 
-def table_signature(sheets: list[dict]) -> str:
-    """Same for later versions of a table: sheet names and their header rows, not the data."""
-    from open_webui.file_pipeline.tables import detect_header
-
-    parts = []
-    for sheet in sheets:
-        rows = sheet['rows']
-        header = rows[detect_header(rows)] if rows else []
-        parts.append(sheet['name'] + '|' + '|'.join(v for v in header if v))
-    return hashlib.sha1('\n'.join(parts).encode('utf-8')).hexdigest()[:16]
-
-
 def describe_sheets(sheets: list[dict], first_rows: int = 15, sheet_chars: int = 6000, max_chars: int = 24_000) -> str:
     """Each sheet for the model as it is: its first non-empty rows with their numbers (the model decides which one,
     if any, is the header; no guess is shown, a wrong guess was followed), and the values of short columns with few
@@ -505,275 +447,98 @@ def describe_sheets(sheets: list[dict], first_rows: int = 15, sheet_chars: int =
     return text if len(text) <= max_chars else text[:max_chars] + '\n…'
 
 
-def _column(spec_value, names: list[str]) -> Optional[int]:
-    from open_webui.file_pipeline.tables import resolve_column
-
-    if spec_value is None or str(spec_value).strip().lower() in ('', 'null', 'none'):
-        return None
-    return resolve_column(names, str(spec_value).strip())
-
-
-def column_titles(spec: dict, names: list[str]) -> dict:
-    """The header of each column the description uses, by role ("ten": ["Next step/Action"]), for people reviewing."""
-    out = {}
-    for role, value in (spec.get('cot') or {}).items():
-        values = value if isinstance(value, list) else [value]
-        titles = [names[i] for i in (_column(v, names) for v in values) if i is not None and i < len(names) and names[i]]
-        if titles:
-            out[role] = titles
-    return out
-
-
-def _find_sheet(sheets: list[dict], name) -> Optional[dict]:
-    wanted = str(name or '').strip().lower()
-    for sheet in sheets:
-        if sheet['name'].strip().lower() == wanted:
-            return sheet
-    if wanted.isdigit() and 1 <= int(wanted) <= len(sheets):
-        return sheets[int(wanted) - 1]
-    return None
-
-
 def _is_text(value: str) -> bool:
-    """A cell that says something: not empty, not a number, a percent or a yes/no flag."""
+    """A cell that says something in words: not empty, not a number, a percent or a yes/no flag."""
     from open_webui.file_pipeline.tables import parse_number
 
     value = (value or '').strip()
     return bool(value) and value.upper() not in ('TRUE', 'FALSE') and parse_number(value.rstrip('%')) is None
 
 
-def _header_names(row: list[str]) -> list[str]:
-    from open_webui.file_pipeline.tables import column_letter
-
-    names, seen = [], {}
-    for i, value in enumerate(row):
-        name = ' '.join((value or '').split()) or f'Cột {column_letter(i)}'
-        seen[name] = seen.get(name, 0) + 1
-        names.append(name if seen[name] == 1 else f'{name} ({seen[name]})')
-    return names
-
-
-def _data_rows(rows: list[list[str]], header: int) -> list[tuple[int, list[str]]]:  # header -1: no header row
-    """(1-based sheet row number, cells) of every row under the header that has text. Rows of numbers or flags only
-    (templates pre-filled with formulas) say nothing to read, nor a row repeating the header (a header merged over
-    two rows)."""
-    titles = rows[header] if 0 <= header < len(rows) else []
-
-    def repeats_header(row: list[str]) -> bool:
-        filled = [(i, v) for i, v in enumerate(row) if v]
-        return bool(filled) and all(i < len(titles) and titles[i] == v for i, v in filled)
-
-    return [
-        (header + 2 + offset, row)
-        for offset, row in enumerate(rows[header + 1 :])
-        if any(_is_text(v) for v in row) and not repeats_header(row)
-    ]
-
-
-def apply_spec(sheets: list[dict], spec: dict) -> dict:
-    """The rows the description points at, every cell kept with its column name: {'rows', 'stats', 'issues',
-    'bad_rows', 'columns', 'intro', 'roles'}. Code only copies the table; the model reads each row."""
-    sheet = _find_sheet(sheets, spec.get('sheet'))
-    if not sheet:
-        return {'rows': [], 'stats': {}, 'issues': [f'không có sheet "{spec.get("sheet")}"'], 'bad_rows': []}
-    # dong_tieu_de 0: no header row, every row is data and columns are named by their letters.
-    try:
-        header = max(int(spec.get('dong_tieu_de') if spec.get('dong_tieu_de') is not None else 1) - 1, -1)
-    except (TypeError, ValueError):
-        header = 0
-    raw = sheet['rows']
-    width = max((len(r) for r in raw), default=0)
-    names = _header_names(raw[header] if 0 <= header < len(raw) else [''] * width)
-    data = _data_rows(raw, header)
-    columns = spec.get('cot') or {}
-
-    def index_of(value) -> Optional[int]:
-        return _column(value, names)
-
-    def indexes(value) -> list[int]:
-        values = value if isinstance(value, list) else [value] if value else []
-        return [i for i in (index_of(v) for v in values) if i is not None]
-
-    roles = {role: indexes(columns.get(role)) for role in ROLE_NAMES}
-    code_col = index_of(columns.get('ma'))
-
-    def cell(row, index) -> str:
-        return row[index].strip() if index is not None and index < len(row) else ''
-
-    # A code shared by several rows (a group or KPI number chosen as the code) identifies none of them: those rows
-    # are keyed by code and row number.
-    code_count: dict[str, int] = {}
-    for _, row in data:
-        value = cell(row, code_col)
-        if value:
-            code_count[value] = code_count.get(value, 0) + 1
-    rows = []
-    for number, row in data:
-        cells = [(names[i] if i < len(names) else f'Cột {i + 1}', v.strip()) for i, v in enumerate(row) if v and v.strip()]
-        code = cell(row, code_col)
-        key = (f'{code} dòng {number}' if code_count.get(code, 0) > 1 else code) if code else str(number)
-        rows.append(
-            {
-                'number': number,
-                'cells': cells,
-                'khoa': f'table:{sheet["name"]}:{key}',
-                # The cells the description names for these roles: shown to the model as hints, and used to keep
-                # a row the model calls "not a task" when it names someone or a deadline.
-                'roles': {role: [cell(row, i) for i in idx if cell(row, i)] for role, idx in roles.items()},
-            }
-        )
-    intro = [
-        ' | '.join(v.strip() for v in row if v and v.strip())
-        for row in raw[: max(header, 0)]
-        if any(v and v.strip() for v in row)
-    ][-8:]
-    issues = []
-    if header >= 0 and sum(1 for v in (raw[header] if header < len(raw) else []) if _is_text(v)) < 2:
-        issues.append(f'dòng tiêu đề {header + 1} không có tên cột')
-    elif header >= 0 and header < len(raw):
-        titles = [v.strip() for v in raw[header]]
-        below = [row for _, row in data]
-        like_data = [
-            v for i, v in enumerate(titles)
-            if v and (not _is_text(v) or sum(1 for row in below if i < len(row) and row[i].strip() == v) >= 2)
-        ]
-        if len([v for v in titles if v]) and len(like_data) * 2 >= len([v for v in titles if v]):
-            issues.append(
-                f'dòng tiêu đề {header + 1} trông như một dòng dữ liệu ({", ".join(like_data[:4])}): nếu bảng không có '
-                'dòng tiêu đề thì đặt dong_tieu_de = 0'
-            )
-    if not rows:
-        issues.append('sheet không có dòng dữ liệu dưới dòng tiêu đề')
-    return {
-        'rows': rows,
-        'stats': {
-            'sheet': sheet['name'], 'rows': len(rows), 'skipped_rows': len(raw) - header - 1 - len(rows),
-            'shared_codes': sum(1 for n in code_count.values() if n > 1),
-        },
-        'issues': issues,
-        'bad_rows': [(number, row) for number, row in data[:8]] if issues else [],
-        'columns': names,
-        'intro': intro,
-        'roles': {role: [names[i] for i in idx if i < len(names)] for role, idx in roles.items() if idx},
-    }
-
-
-def _row_lines(rows: list[tuple[int, list[str]]], names: list[str]) -> list[str]:
-    return [
-        f'dòng {number}: ' + ' | '.join(f'{names[i] if i < len(names) else i}={v[:200]}' for i, v in enumerate(row) if v)
-        for number, row in rows
-    ]
-
-
-async def _rows_by_model(name: str, sheet: dict, header: int, today: str, concurrency: int) -> list[dict]:
-    """Free-form sheet: rows sent as text in batches and read like a document."""
-    width = max((len(r) for r in sheet['rows']), default=0)
-    names = _header_names(sheet['rows'][header] if 0 <= header < len(sheet['rows']) else [''] * width)
-    lines = _row_lines(_data_rows(sheet['rows'], header), names)
-    batches, current = [], []
-    for line in lines:
-        if current and sum(len(l) for l in current) + len(line) > ROW_BATCH_CHARS:
-            batches.append(current)
-            current = []
-        current.append(line)
-    if current:
-        batches.append(current)
-    semaphore = asyncio.Semaphore(max(concurrency, 1))
-
-    async def read(index: int, batch: list[str]) -> list[dict]:
-        text = '\n'.join(batch)
-        async with semaphore:
-            data = await _ask_json(
-                DOC_PROMPT.format(
-                    name=f'{name} / {sheet["name"]}', index=index, total=len(batches), pages='', today=today, text=text
-                )
-            )
-        items = [i for i in (_clean_item(r) for r in data.get('hang_muc') or []) if i]
-        for item in items:
-            check_against_text(item, text)
-            offset = locate_quote(text, item['trich_dan']) if item['trich_dan'] else None
-            item['xac_minh'] = offset is not None
-            item['trang'] = None
-            if offset is not None:
-                before = [line for line in text[: offset + 1].splitlines() if line.startswith('dòng ')]
-                number = before[-1].split(':', 1)[0].removeprefix('dòng ').strip() if before else ''
-                item['dong'] = int(number) if number.isdigit() else None
-        return items
-
-    results = await asyncio.gather(*(read(i + 1, b) for i, b in enumerate(batches)))
-    return await dedupe_items([item for batch in results for item in batch])
-
-
-ROLE_NAMES = ('ten', 'mo_ta', 'ngu_canh', 'phu_trach', 'han', 'trang_thai', 'tien_do', 'vuong_mac', 'ngay_hoan_thanh', 'ket_qua')
-ROLE_LABELS = {
-    'ten': 'tên / việc cần làm', 'mo_ta': 'mô tả cách làm', 'ngu_canh': 'yêu cầu / vấn đề cần đáp ứng',
-    'phu_trach': 'người phụ trách', 'han': 'hạn', 'trang_thai': 'trạng thái', 'tien_do': 'tiến độ %',
-    'vuong_mac': 'vướng mắc', 'ngay_hoan_thanh': 'ngày hoàn thành', 'ket_qua': 'kết quả',
-}
-ROW_BATCH_ROWS = 6
-ROW_BATCH_CHARS = 9000
-ROW_CHARS = 4000
+TABLE_SEGMENT_CHARS = 20_000  # rows sent in one reading (the rest of a 64k context is the instructions and the answer)
+TABLE_SEGMENT_ROWS = 40
+TABLE_HEAD_ROWS = 15  # first rows of a sheet repeated with every later part, as they are, so the columns are understood
+TABLE_ANSWER_TOKENS = 12_000
 CELL_CHARS = 1500
 TITLE_MAX = 160
 TITLE_WORDS = 15
 MAX_GAP_TASKS = 3
 MAX_DETAILS = 8
-# Share of a model sentence's words that must come from the row (else it is invented and dropped).
-MIN_WORD_SUPPORT = 0.2
-# A cell with this many words that the tasks of its row do not reflect (share of its words found in them) is copied
-# into the details as it is: nothing in the table is lost.
-COVER_MIN_WORDS = 4
-# Share of a detail's words that must be in the row (a detail restates the row; an invented step shares little).
-DETAIL_SUPPORT = 0.5
-COVER_SUPPORT = 0.35
 
-ROW_PROMPT = """Bảng "{name}". Hôm nay là {today}.
-{context}Mỗi mục [R..] là một dòng của bảng: mọi ô có dữ liệu, dạng "tên cột: giá trị".
-<tai_lieu>
+TABLE_PROMPT = """File bảng tính "{name}". Hôm nay là {today}.
+{context}<tai_lieu>
 {rows}
 </tai_lieu>
 
-Đọc hiểu từng dòng như một người quản lý dự án và lập đầu việc để theo dõi tiến độ.
-- "loai": "khong_phai_viec" khi dòng không giao hay yêu cầu việc gì: tiêu đề nhóm / mục, dòng tổng cộng, dòng tiêu đề
-  phụ, dòng chữ ký / người duyệt, ghi chú chung, phản hồi chỉ khen hoặc nhận xét mà không đòi hỏi gì. Còn lại "viec".
-- Mặc định mỗi dòng là MỘT việc. Chỉ tách nhiều việc khi dòng giao các phần cho người khác nhau hoặc ghi hạn khác nhau.
-- "ten": tóm tắt CHÍNH việc / chỉ tiêu của dòng (không phải phần việc của một người được nhắc trong mô tả) tối đa 15 từ,
-  bắt đầu bằng động từ, giữ tên đơn vị, khách hàng, sản phẩm, viết cùng ngôn ngữ với dòng.
-- "chi_tiet": tối đa 5 ý ngắn lấy từ CHỮ CỦA DÒNG, viết gọn lại: những gì dòng ghi về cách làm, đầu ra / tiêu chí, công
-  thức, tần suất, việc phải làm trước (vd "Làm sau CV-01"), con số và tên quan trọng. Dòng không ghi thì không có: không
-  tự nghĩ thêm bước, phạm vi hay mục đích, không thêm nhãn "Bước 1:", "Phạm vi:" khi dòng không viết. KHÔNG đưa vào chi tiết
-  các ô chỉ để phân loại hay quản lý bảng: mã, giai đoạn, hạng mục, nhóm / loại / segment, mức ưu tiên, ngày bắt đầu,
-  ước tính, trạng thái, số ngày còn lại, cảnh báo tự tính, người cung cấp thông tin. Liệt kê tên các cột đó trong
-  "cot_phan_loai".
-- "phu_trach": người hoặc team ĐƯỢC GIAO làm việc, CHÉP ĐÚNG chữ trong dòng (cột phụ trách / thực hiện / owner, hoặc phần
-  đầu trang). Người góp ý, người yêu cầu, khách hàng, đầu mối phía khách, người duyệt KHÔNG phải người phụ trách; câu mô
-  tả cách làm ("PM phối hợp", "QA khảo sát") cũng không phải giao việc. Ô ghi nhiều tên ("BA / FE Lead", "Hà, Nam") thì
-  tách từng tên. "nhom": những tên trong "phu_trach" là team, phòng ban hoặc chức vụ (SOC, PM, BA, DevOps, BE Lead,
-  QA Lead, AI Engineer, Phòng KD), không phải tên một người. "Long (BE)" là người "Long" (BE là phòng ban của Long).
-- "han_goc": chép đúng chữ ghi hạn của việc trong dòng; "han": ngày đó dạng YYYY-MM-DD. Hạn không phải một ngày ("Hàng
-  tháng", "Khi đóng dự án", "Q4") thì "han" null và ghi vào "chi_tiet". Ngày bắt đầu không phải hạn. Excel có thể đã
-  đảo ngày / tháng (ô 2026-02-11 trong khi các ô khác của bảng là tháng 11, vd "13/11"): khi chắc chắn, ghi ngày đúng vào
-  "han" (2026-11-02) và vẫn chép ô gốc vào "han_goc".
-- "trang_thai": chua_bat_dau | dang_lam | bi_chan | tam_dung | hoan_thanh, theo ô trạng thái / tiến độ của dòng; không ghi
-  gì thì null. "tien_do": số phần trăm 0-100 (ô 0.6 trong cột % là 60), "tien_do_goc": chép đúng ô đó.
-  "hoan_thanh_goc" / "hoan_thanh_luc": ngày hoàn thành thực tế nếu dòng ghi.
-- "vuong_mac": CHỈ khi dòng nêu một khó khăn đang cản trở việc (thiếu nguồn lực, chờ bên khác chưa làm, lỗi chưa có
-  cách xử lý). Việc phải làm trước theo kế hoạch ("Phụ thuộc: CV-01") KHÔNG phải vướng mắc. Không có thì null.
-- "de_xuat": chỉ khi dòng có yêu cầu / phản hồi / vấn đề của người khác (khách hàng, người dùng, đơn vị) mà việc của
-  dòng KHÔNG đáp ứng, kể cả gián tiếp: mỗi mục là việc cần làm để đáp ứng ("ten" bắt đầu bằng động từ) kèm "yeu_cau"
-  chép đúng câu yêu cầu trong dòng. Không lặp lại việc đã có trong "viec". Gộp yêu cầu trùng ý, tối đa 3. Không đề xuất
-  điều dòng đã quyết định không làm.
-- Không thêm thông tin không có trong dòng.
+Đọc bảng như một người quản lý dự án và lập đầu việc để theo dõi tiến độ. Bạn tự xác định: sheet nào là danh sách
+việc, dòng nào là tiêu đề (có thể nhiều tầng, hoặc bảng không có tiêu đề), thông tin đầu trang (phòng ban, người nhận,
+kỳ, dự án) áp dụng cho các dòng, và dòng nào là việc. Mỗi dòng ghi "dòng N" với các ô theo chữ cái cột.
+- Sheet chỉ là tổng hợp / biểu đồ / tra cứu / hướng dẫn / bảng giá / danh sách không giao việc: ghi vào "sheet_khong_doc".
+- MỌI dòng của phần cần đọc phải có mặt đúng một chỗ: trong "viec" (theo "dong", hoặc "cac_dong" khi một việc ghi trên
+  nhiều dòng liền nhau) hoặc trong "khong_phai_viec" (dòng tiêu đề, tiêu đề phụ, tiêu đề nhóm / mục, dòng tổng, chữ ký /
+  người duyệt, ghi chú chung, phản hồi chỉ khen hoặc nhận xét không đòi hỏi gì, dòng không có nội dung việc).
+- Mặc định mỗi dòng là MỘT việc; chỉ tách nhiều việc khi dòng giao các phần cho người khác nhau hoặc ghi hạn khác nhau.
+- "ma": giá trị ô mã / ID của dòng nếu bảng có cột mã riêng cho từng dòng (chép đúng), không có thì null.
+- "ten": tóm tắt CHÍNH việc / chỉ tiêu của dòng tối đa 15 từ, bắt đầu bằng động từ, giữ tên đơn vị, khách hàng, sản
+  phẩm, viết cùng ngôn ngữ với dòng.
+- "chi_tiet": tối đa 5 ý ngắn lấy từ chữ của dòng: cách làm, đầu ra / tiêu chí, công thức, mục tiêu, tần suất, việc
+  phải làm trước, con số và tên quan trọng. Không tự nghĩ thêm bước, phạm vi, mục đích. Không đưa các ô chỉ để phân
+  loại hay quản lý bảng (mã, giai đoạn, hạng mục, nhóm, segment, mức ưu tiên, ngày bắt đầu, ước tính, trạng thái, số
+  ngày còn lại, cảnh báo tự tính).
+- "phu_trach": người hoặc team ĐƯỢC GIAO làm, CHÉP ĐÚNG chữ trong dòng hoặc thông tin đầu trang. Người góp ý, người
+  yêu cầu, khách hàng, đầu mối phía khách, người duyệt không phải người phụ trách; câu mô tả cách làm ("PM phối hợp")
+  không phải giao việc. Ô nhiều tên ("BA / FE Lead", "Hà, Nam") tách từng tên. "nhom": những tên trong "phu_trach" là
+  team, phòng ban hoặc chức vụ (SOC, PM, BA, DevOps, BE Lead, Phòng KD). "Long (BE)" là người "Long".
+- "han_goc": chép đúng chữ ghi hạn của việc; "han": ngày đó dạng YYYY-MM-DD. Hạn không phải một ngày ("Hàng tháng",
+  "Khi đóng dự án") thì "han" null và ghi vào chi tiết. Ngày bắt đầu không phải hạn. Excel có thể đã đảo ngày / tháng
+  (ô 2026-02-11 trong khi các ô khác là tháng 11): khi chắc chắn, ghi ngày đúng vào "han" và chép ô gốc vào "han_goc".
+- "trang_thai": chua_bat_dau | dang_lam | bi_chan | tam_dung | hoan_thanh theo ô trạng thái / tiến độ; không ghi thì
+  null. "tien_do": số phần trăm 0-100 (ô 0.6 trong cột % là 60), "tien_do_goc": chép đúng ô đó.
+  "hoan_thanh_goc" / "hoan_thanh_luc": ngày hoàn thành thực tế nếu có.
+- "vuong_mac": chỉ khó khăn đang cản trở việc (thiếu nguồn lực, chờ bên khác, lỗi chưa có cách xử lý); việc phải làm
+  trước theo kế hoạch không phải vướng mắc.
+- "de_xuat": chỉ khi dòng có yêu cầu / phản hồi của người khác (khách hàng, người dùng, đơn vị) mà việc của dòng KHÔNG
+  đáp ứng: "ten" là việc cần làm (bắt đầu bằng động từ), "yeu_cau" chép đúng câu yêu cầu trong dòng. Không lặp việc
+  đã có, gộp yêu cầu trùng ý, tối đa 3 mỗi dòng.
+- Không thêm thông tin không có trong bảng.
 Trả về đúng một JSON:
-{{"dong": [{{"ma": "R1", "loai": "viec | khong_phai_viec",
-  "viec": [{{"ten": "...", "chi_tiet": ["..."], "phu_trach": ["..."], "nhom": ["..."], "han_goc": "... hoặc null",
-            "han": "YYYY-MM-DD hoặc null", "trang_thai": "... hoặc null", "tien_do": số hoặc null, "tien_do_goc": "... hoặc null",
-            "hoan_thanh_goc": "... hoặc null", "hoan_thanh_luc": "YYYY-MM-DD hoặc null", "vuong_mac": "... hoặc null"}}],
-  "de_xuat": [{{"ten": "...", "yeu_cau": "..."}}], "cot_phan_loai": ["tên cột ..."]}}]}}"""
+{{"sheet_khong_doc": [{{"sheet": "...", "ly_do": "..."}}],
+ "khong_phai_viec": [{{"sheet": "...", "dong": [12, 13]}}],
+ "viec": [{{"sheet": "...", "dong": 19, "cac_dong": [], "ma": "... hoặc null", "ten": "...", "chi_tiet": ["..."],
+           "phu_trach": ["..."], "nhom": ["..."], "han_goc": "... hoặc null", "han": "YYYY-MM-DD hoặc null",
+           "trang_thai": "... hoặc null", "tien_do": số hoặc null, "tien_do_goc": "... hoặc null",
+           "hoan_thanh_goc": "... hoặc null", "hoan_thanh_luc": "YYYY-MM-DD hoặc null", "vuong_mac": "... hoặc null"}}],
+ "de_xuat": [{{"sheet": "...", "dong": 19, "ten": "...", "yeu_cau": "..."}}]}}"""
+
+REVIEW_PROMPT = """File bảng tính "{name}". Dưới đây là các dòng của bảng và các đầu việc đã lập từ chúng.
+{context}<tai_lieu>
+{rows}
+</tai_lieu>
+Đầu việc đã lập (số thứ tự. sheet / dòng: tên | chi tiết):
+{tasks}
+Dòng được coi là không phải việc: {skipped}
+
+Rà lại như người kiểm tra:
+- Với từng đầu việc: chi tiết nào KHÔNG có trong dòng (tự nghĩ ra) thì bỏ; thông tin quan trọng của dòng (cách làm,
+  đầu ra, tiêu chí, mục tiêu, tần suất, con số, tên) chưa có trong tên và chi tiết thì thêm. Không thêm ô phân loại.
+  Chỉ ghi các việc cần sửa, với danh sách chi tiết ĐẦY ĐỦ sau khi sửa (tối đa 6 ý).
+- Đề xuất nào không có yêu cầu thật trong dòng thì ghi số thứ tự vào "bo_de_xuat".
+- Dòng nào bị coi là không phải việc nhưng thật ra giao hoặc yêu cầu việc thì ghi vào "la_viec".
+Trả về đúng một JSON: {{"sua": [{{"so": 1, "chi_tiet": ["..."]}}], "bo_de_xuat": [3], "la_viec": [{{"sheet": "...", "dong": 14}}]}}"""
+
+OVERVIEW_PROMPT = """File bảng tính "{name}" lớn, sẽ được đọc theo từng phần. Dưới đây là các dòng đầu của mỗi sheet
+(số dòng, các ô theo chữ cái cột).
+<tai_lieu>
+{sheets}
+</tai_lieu>
+Với mỗi sheet, cho biết có cần đọc để lập đầu việc không (sheet tổng hợp / biểu đồ / tra cứu / hướng dẫn / bảng giá /
+danh sách không giao việc thì không), và dòng dữ liệu đầu tiên (dòng sau tiêu đề; các dòng phía trên nó là tiêu đề và
+thông tin đầu trang, sẽ được gửi kèm mỗi phần để hiểu cột).
+Trả về đúng một JSON: {{"sheets": [{{"sheet": "...", "doc": true, "dong_du_lieu_dau": 2, "ly_do": "..."}}]}}"""
 
 
 def short_title(text: str, limit: int = 120) -> str:
-    """Last resort when no model summary: the first line, cut at a word."""
+    """The first line of a text, cut at a word (a name kept when nothing shorter is given)."""
     first = (text or '').strip().splitlines()[0] if (text or '').strip() else ''
     first = first.strip().lstrip('•▪◦-*+').strip().rstrip('.;:')
     first = first[:1].upper() + first[1:]
@@ -818,7 +583,8 @@ def _written_in(value, folded: str) -> bool:
 
 def _checked_date(iso, written, folded: str) -> tuple[Optional[str], bool]:
     """(date, rejected): a date the model read is kept only when the words it read it from are in the text; when
-    those words are a plain date (30/11/2026, 2026-11-30) that date wins over the model's conversion."""
+    those words are a plain date (30/11/2026, 2026-11-30) that date wins over the model's conversion, except the same
+    date with day and month exchanged (Excel turned the typed "2/11" into 11 February)."""
     from open_webui.file_pipeline.tables import parse_date
 
     if not iso and not written:
@@ -827,417 +593,373 @@ def _checked_date(iso, written, folded: str) -> tuple[Optional[str], bool]:
         return None, True
     plain = parse_date(str(written))
     read = _clean_date(iso)
-    # Excel may have swapped day and month when the date was typed ("2/11" stored as 11 February): the model may
-    # correct it from the other dates of the table, but only to that same date with day and month exchanged.
     if plain and read and read != plain and read == f'{plain[:4]}-{plain[8:10]}-{plain[5:7]}':
         return read, False
     date = plain or read
     return date, not date
 
 
-async def summarize_rows(
-    name: str, rows: list[dict], today: str, concurrency: int = 4, intro: Optional[list[str]] = None,
-    roles: Optional[dict] = None,
-) -> tuple[list[dict], dict]:
-    """Every row read by the model as a whole (all its cells with their column names): whether it is a task, its
-    tasks with name, details, owners, deadline, status, progress and blocker, and requests it leaves unanswered.
+def _render_row(number: int, row: list[str]) -> str:
+    """A row as it is in the file: its number and every filled cell under its column letter."""
+    from open_webui.file_pipeline.tables import column_letter
 
-    Code reads no meaning into the cells. It only checks the answer against the row: owners, deadlines, percents
-    and completion dates must be written in the row, names and details must come from its words; and it keeps
-    everything: a cell the tasks do not reflect is copied into the details, a row the model does not answer is asked
-    again alone, then kept with its own words."""
+    lines = [f'dòng {number}:']
+    for i, value in enumerate(row):
+        value = (value or '').strip()
+        if not value:
+            continue
+        parts = [p.strip() for p in value[:CELL_CHARS].splitlines() if p.strip()]
+        lines.append(f'  {column_letter(i)}: {parts[0]}')
+        lines += [f'     {p}' for p in parts[1:]]
+    return '\n'.join(lines)
+
+
+def _sheet_rows(sheet: dict) -> tuple[list[tuple[int, list[str]]], list[tuple[int, int]]]:
+    """(rows with words, ranges of rows with numbers or flags only). The second kind (templates pre-filled with
+    formulas: 0, FALSE) is not sent row by row; the model is told which rows they are."""
+    rows, blank, start = [], [], None
+    for number, row in enumerate(sheet['rows'], 1):
+        if any(_is_text(v) for v in row):
+            rows.append((number, row))
+            if start is not None:
+                blank.append((start, number - 1))
+                start = None
+        elif any((v or '').strip() for v in row):
+            start = number if start is None else start
+        elif start is not None:
+            blank.append((start, number - 1))
+            start = None
+    if start is not None:
+        blank.append((start, len(sheet['rows'])))
+    return rows, blank
+
+
+def _parts(sheet_name: str, rows: list[tuple[int, list[str]]], first_data: Optional[int]) -> list[dict]:
+    """The rows of one sheet cut into parts that fit one reading. Every part after the first carries the head of
+    the sheet (header and page head, as they are) for the columns to be understood."""
+    head_end = first_data - 1 if first_data and first_data > 1 else TABLE_HEAD_ROWS
+    head = [(n, r) for n, r in rows if n <= head_end][-25:]
+    parts, current, used = [], [], 0
+    for number, row in rows:
+        text = _render_row(number, row)
+        if current and (len(current) >= TABLE_SEGMENT_ROWS or used + len(text) > TABLE_SEGMENT_CHARS):
+            parts.append(current)
+            current, used = [], 0
+        current.append((sheet_name, number, row, text))
+        used += len(text)
+    if current:
+        parts.append(current)
+    return [{'entries': part, 'heads': {} if part[0][1] <= head_end else {sheet_name: head}} for part in parts]
+
+
+async def extract_table(name: str, sheets: list[dict], today: str, concurrency: int = 4, **_ignored) -> dict:
+    """Tasks of a spreadsheet read by the model from the file as it is.
+
+    Code only copies the cells (merged cells repeated in the rows they cover) and cuts big sheets into parts; a small
+    file is read whole in one call. The model decides everything about meaning: which sheets hold tasks, which rows
+    are headers (several, or none), page heads, which rows are tasks, and every field. A second call reviews each
+    part (details not in the row removed, missing information added, rows wrongly left out read again). Code checks
+    the facts against the row (owners, deadlines, percents, completion dates written in it) and asks again for rows
+    the model did not mention."""
     report = {
-        'rows': len(rows), 'tasks': 0, 'gaps': 0, 'not_tasks': 0, 'retried': 0, 'fallback': 0, 'owners_rejected': 0,
-        'due_rejected': 0, 'progress_rejected': 0, 'titles_replaced': 0, 'details_dropped': 0, 'added_by_code': 0,
+        'rows': 0, 'tasks': 0, 'gaps': 0, 'not_tasks': 0, 'retried': 0, 'unread': 0, 'owners_rejected': 0,
+        'due_rejected': 0, 'progress_rejected': 0, 'reviewed': 0, 'details_changed': 0, 'gaps_removed': 0,
+        'rows_restored': 0, 'calls': 0,
     }
-    if not rows:
-        return [], report
-    intro_text = '\n'.join(intro or [])
-    context = ''
-    if intro_text:
-        context += f'Phần đầu trang (áp dụng cho mọi dòng):\n<tai_lieu>\n{intro_text}\n</tai_lieu>\n'
-    labelled = [{**row, 'label': f'R{n}'} for n, row in enumerate(rows, 1)]
-    by_label = {row['label']: row for row in labelled}
+    data_rows: dict[str, list] = {}
+    blank_rows: dict[str, list] = {}
+    for sheet in sheets:
+        rows, blank = _sheet_rows(sheet)
+        if rows:
+            data_rows[sheet['name']] = rows
+            blank_rows[sheet['name']] = blank
+    if not data_rows:
+        return {'kind': 'table', 'items': [], 'quyet_dinh': [], 'rui_ro': [], 'report': {**report, 'mode': 'none'}}
+    row_text = {(s, n): '\n'.join(v for v in r if v) for s, rows in data_rows.items() for n, r in rows}
+    total_chars = sum(len(_render_row(n, r)) for rows in data_rows.values() for n, r in rows)
+    skipped_sheets: dict[str, str] = {}
+    if total_chars <= TABLE_SEGMENT_CHARS:
+        # A small file is read whole: every sheet, every row, in one call.
+        parts = [{'entries': [(s, n, r, _render_row(n, r)) for s, rows in data_rows.items() for n, r in rows],
+                  'heads': {}, 'whole': True}]
+    else:
+        # A big file: the model first says which sheets to read and where their data starts.
+        answer = await _ask_json(OVERVIEW_PROMPT.format(name=name, sheets=describe_sheets(sheets)), max_tokens=2000)
+        report['calls'] += 1
+        first_data: dict[str, int] = {}
+        for entry in answer.get('sheets') or []:
+            if not isinstance(entry, dict) or entry.get('sheet') not in data_rows:
+                continue
+            if entry.get('doc') is False:
+                skipped_sheets[entry['sheet']] = str(entry.get('ly_do') or '')[:200]
+            if str(entry.get('dong_du_lieu_dau') or '').isdigit():
+                first_data[entry['sheet']] = int(entry['dong_du_lieu_dau'])
+        parts = []
+        for sheet_name, rows in data_rows.items():
+            if sheet_name not in skipped_sheets:
+                parts += _parts(sheet_name, rows, first_data.get(sheet_name))
+    report['rows'] = sum(len(p['entries']) for p in parts)
     semaphore = asyncio.Semaphore(max(concurrency, 1))
 
-    def render(row: dict) -> str:
-        lines = [f'[{row["label"]}] dòng {row["number"]}']
-        for column, value in row['cells']:
-            value = value[:CELL_CHARS]
-            parts = [p.strip() for p in value.splitlines() if p.strip()]
-            if len(parts) <= 1:
-                lines.append(f'  {column}: {value.strip()}')
-            else:
-                lines.append(f'  {column}:')
-                lines += [f'    {p}' for p in parts]
-        text = '\n'.join(lines)
-        return text if len(text) <= ROW_CHARS else text[:ROW_CHARS] + ' …'
+    def sheets_in(part: dict) -> list[str]:
+        return list(dict.fromkeys(s for s, _, _, _ in part['entries']))
 
-    def batches_of(selected: list[dict], size: int) -> list[list[dict]]:
-        batches, current, used = [], [], 0
-        for row in selected:
-            size_of = len(render(row))
-            if current and (len(current) >= size or used + size_of > ROW_BATCH_CHARS):
-                batches.append(current)
-                current, used = [], 0
-            current.append(row)
-            used += size_of
-        return batches + ([current] if current else [])
+    def context_of(part: dict) -> str:
+        lines = []
+        for sheet_name in sheets_in(part):
+            blank = blank_rows.get(sheet_name) or []
+            note = '; '.join(f'{a}-{b}' if a != b else str(a) for a, b in blank[:20])
+            numbers = [n for s, n, _, _ in part['entries'] if s == sheet_name]
+            what = 'cả sheet' if part.get('whole') else f'dòng {numbers[0]}–{numbers[-1]}'
+            lines.append(f'Sheet "{sheet_name}": {what}' + (f' (các dòng chỉ có số / TRUE-FALSE, không gửi: {note})' if note else ''))
+            head = part['heads'].get(sheet_name)
+            if head:
+                lines.append('Các dòng đầu của sheet (tiêu đề, thông tin đầu trang) để hiểu cột, KHÔNG lập việc từ chúng:')
+                lines += [_render_row(n, r) for n, r in head]
+        return '\n'.join(lines) + '\n'
 
-    async def run(batch: list[dict]) -> dict:
-        text = '\n\n'.join(render(row) for row in batch)
+    def render(part: dict) -> str:
+        blocks = []
+        for sheet_name in sheets_in(part):
+            blocks.append(f'### Sheet "{sheet_name}"')
+            blocks += [text for s, _, _, text in part['entries'] if s == sheet_name]
+        return '\n'.join(blocks)
+
+    async def ask(prompt: str, max_tokens: int) -> dict:
         async with semaphore:
+            report['calls'] += 1
             try:
-                return await _ask_json(ROW_PROMPT.format(name=name, today=today, context=context, rows=text))
+                return await _ask_json(prompt, max_tokens=max_tokens)
             except llm.TrackerLLMError:
                 raise
             except Exception as error:
-                log.warning('Tracker: row batch failed (%s)', error)
+                log.warning('Tracker: table part failed (%s)', error)
                 return {}
 
-    def build(row: dict, answer: dict) -> Optional[dict]:
-        source = '\n'.join(v for _, v in row['cells'])
-        folded = f' {normalize_key(source + chr(10) + intro_text)} '
-        if str(answer.get('loai') or '').strip() == 'khong_phai_viec':
-            # The model's call; the rows it leaves out are listed in the report for review.
-            return {'skip': True}
-        tasks = []
+    async def read(part: dict) -> dict:
+        prompt = TABLE_PROMPT.format(name=name, today=today, context=context_of(part), rows=render(part))
+        return await ask(prompt, TABLE_ANSWER_TOKENS)
+
+    tasks: list[dict] = []
+    gaps: list[dict] = []
+    not_tasks: set[tuple[str, int]] = set()
+
+    def sheet_of(value, part: dict) -> Optional[str]:
+        value = str(value or '').strip()
+        names = sheets_in(part)
+        if value in names:
+            return value
+        return names[0] if len(names) == 1 else None
+
+    def collect(answer: dict, part: dict) -> None:
+        for entry in answer.get('sheet_khong_doc') or []:
+            if isinstance(entry, dict) and entry.get('sheet') in sheets_in(part):
+                skipped_sheets[entry['sheet']] = str(entry.get('ly_do') or '')[:200]
+        for entry in answer.get('khong_phai_viec') or []:
+            if isinstance(entry, dict):
+                sheet_name = sheet_of(entry.get('sheet'), part)
+                for number in entry.get('dong') or []:
+                    if str(number).isdigit() and (sheet_name, int(number)) in row_text:
+                        not_tasks.add((sheet_name, int(number)))
         for raw in answer.get('viec') or []:
-            if not isinstance(raw, dict):
+            if not isinstance(raw, dict) or not str(raw.get('dong') or '').isdigit():
                 continue
-            title = _title(str(raw.get('ten') or '').strip())
-            if not title or word_support(title, source) < MIN_WORD_SUPPORT:
-                fallback = (row['roles'].get('ten') or [v for _, v in row['cells'] if _is_text(v)] or [''])[0]
-                if not fallback:
-                    continue
-                title = short_title(fallback, TITLE_MAX)
-                report['titles_replaced'] += 1
-            details = []
-            for detail in raw.get('chi_tiet') or []:
-                detail = ' '.join(str(detail).split())[:300]
-                if not detail:
-                    continue
-                if word_support(detail, source + ' ' + intro_text) < DETAIL_SUPPORT:
-                    report['details_dropped'] += 1
-                    continue
-                if not _repeats(detail, [title, *details]):
-                    details.append(detail)
-            owners, teams = [], []
-            for value in raw.get('phu_trach') or []:
-                value = ' '.join(str(value).split())
-                if _written_in(value, folded):
-                    if value not in owners:
-                        owners.append(value)
-                elif value:
-                    report['owners_rejected'] += 1
-            for value in raw.get('nhom') or []:
-                value = ' '.join(str(value).split())
-                if value in owners and value not in teams:
-                    teams.append(value)
-            due, rejected = _checked_date(raw.get('han'), raw.get('han_goc'), folded)
-            report['due_rejected'] += rejected
-            done, _ = _checked_date(raw.get('hoan_thanh_luc'), raw.get('hoan_thanh_goc'), folded)
-            progress = None
-            if raw.get('tien_do') is not None:
-                try:
-                    value = int(round(float(raw['tien_do'])))
-                except (TypeError, ValueError):
-                    value = None
-                if value is not None and 0 <= value <= 100 and _written_in(raw.get('tien_do_goc'), folded):
-                    progress = value
-                else:
-                    report['progress_rejected'] += 1
-            status = str(raw.get('trang_thai') or '').strip()
-            status = status if status in STATUSES else None
-            if done:
-                status = 'hoan_thanh'
-            if not status:
-                status = (
-                    ('hoan_thanh' if progress >= 100 else 'dang_lam' if progress > 0 else 'chua_bat_dau')
-                    if progress is not None
-                    else 'chua_bat_dau'
-                )
-            blocker = ' '.join(str(raw.get('vuong_mac') or '').split())[:300] or None
-            if blocker and word_support(blocker, source) < MIN_WORD_SUPPORT:
-                blocker = None
-            tasks.append(
-                {
-                    'ten': title, 'chi_tiet': details, 'phu_trach': owners, 'doi_nhom': teams, 'han': due,
-                    'trang_thai': status, 'tien_do': progress, 'hoan_thanh_luc': done if status == 'hoan_thanh' else None,
-                    'vuong_mac': blocker,
-                }
-            )
-        if not tasks:
-            return None
-        gaps = []
+            sheet_name = sheet_of(raw.get('sheet'), part)
+            if (sheet_name, int(raw['dong'])) not in row_text:
+                continue
+            task = _checked_task(raw, sheet_name, int(raw['dong']), row_text, part['heads'].get(sheet_name), report)
+            if task:
+                tasks.append(task)
         for raw in answer.get('de_xuat') or []:
-            if not isinstance(raw, dict):
+            if not isinstance(raw, dict) or not str(raw.get('dong') or '').isdigit():
                 continue
+            key = (sheet_of(raw.get('sheet'), part), int(raw['dong']))
             request = ' '.join(str(raw.get('yeu_cau') or '').split())
-            if not request or word_support(request, source) < 0.5:
-                continue
             title = _title(str(raw.get('ten') or '').strip())
-            if not title or word_support(title, source) < MIN_WORD_SUPPORT:
-                title = short_title(request, TITLE_MAX)
-                report['titles_replaced'] += 1
-            if _repeats(title, [t['ten'] for t in tasks] + [g['ten'] for g in gaps]):
-                report['gaps_repeating'] = report.get('gaps_repeating', 0) + 1
-                continue
-            gaps.append({'ten': title, 'yeu_cau': request})
-        columns = {name for name, _ in row['cells']}
-        labels = [str(c).strip() for c in answer.get('cot_phan_loai') or [] if str(c).strip() in columns]
-        return {'tasks': tasks, 'gaps': gaps[:MAX_GAP_TASKS], 'labels': labels}
+            if key in row_text and request and title:
+                gaps.append({'sheet': key[0], 'dong': key[1], 'ten': title, 'yeu_cau': request})
 
-    results: dict[str, dict] = {}
+    for part, answer in zip(parts, await asyncio.gather(*(read(p) for p in parts))):
+        collect(answer, part)
 
-    async def ask(selected: list[dict], size: int) -> None:
-        answers = await asyncio.gather(*(run(batch) for batch in batches_of(selected, size)))
-        for answer in answers:
-            for raw in answer.get('dong') or []:
-                if not isinstance(raw, dict):
-                    continue
-                label = str(raw.get('ma') or '').strip('[] ').upper()
-                if label in by_label and label not in results:
-                    built = build(by_label[label], raw)
-                    if built:
-                        results[label] = built
+    def covered() -> set:
+        return {(t['sheet'], n) for t in tasks for n in [t['dong'], *t['cac_dong']]} | not_tasks
 
-    await ask(labelled, ROW_BATCH_ROWS)
-    again = [row for row in labelled if row['label'] not in results]
+    # Rows the model did not mention (a long answer cut short, a row overlooked) are read again, a few at a time.
+    seen = covered()
+    missing = [e for p in parts for e in p['entries'] if e[0] not in skipped_sheets and (e[0], e[1]) not in seen]
+    again = []
+    for sheet_name in dict.fromkeys(e[0] for e in missing):
+        rows = [e for e in missing if e[0] == sheet_name]
+        for start in range(0, len(rows), 10):
+            chunk = rows[start:start + 10]
+            head = [(n, r) for n, r in data_rows[sheet_name][:TABLE_HEAD_ROWS] if n < chunk[0][1]]
+            again.append({'entries': chunk, 'heads': {sheet_name: head} if head else {}})
     if again:
-        report['retried'] = len(again)
-        await ask(again, 1)
-    # Consistency: a row left out while at least two rows with the same filled columns are tasks is read again,
-    # next to one of those task rows (rows of one table are alike; one batch read differently is the model's slip).
-    def shape(row: dict) -> frozenset:
-        return frozenset(column for column, _ in row['cells'])
+        report['retried'] = len(missing)
+        for part, answer in zip(again, await asyncio.gather(*(read(p) for p in again))):
+            collect(answer, part)
 
-    task_shapes: dict[frozenset, list[dict]] = {}
-    for row in labelled:
-        if row['label'] in results and not results[row['label']].get('skip'):
-            task_shapes.setdefault(shape(row), []).append(row)
-    doubtful = [
-        row for row in labelled
-        if results.get(row['label'], {}).get('skip') and len(task_shapes.get(shape(row), [])) >= 2
-    ]
-    if doubtful:
-        report['rechecked_not_tasks'] = len(doubtful)
-        for row in doubtful:
-            results.pop(row['label'], None)
-        example = render(task_shapes[shape(doubtful[0])][0])
-        note = (
-            'Lưu ý: các dòng dưới đây có cùng các cột với những dòng khác của bảng đã được xác định là việc, ví dụ:\n'
-            f'{example}\nChỉ trả "khong_phai_viec" khi dòng thật sự không giao việc gì.\n'
+    # Review: a second reader checks each part's tasks against its rows.
+    async def review(part: dict) -> None:
+        keys = {(s, n) for s, n, _, _ in part['entries']}
+        mine = [t for t in tasks if (t['sheet'], t['dong']) in keys]
+        my_gaps = [g for g in gaps if (g['sheet'], g['dong']) in keys]
+        if not mine and not my_gaps:
+            return
+        listed = [f'{i}. {t["sheet"]} / dòng {t["dong"]}: {t["ten"]} | ' + '; '.join(t['chi_tiet']) for i, t in enumerate(mine, 1)]
+        listed += [f'{len(mine) + j}. (đề xuất) {g["sheet"]} / dòng {g["dong"]}: {g["ten"]} | yêu cầu: {g["yeu_cau"]}'
+                   for j, g in enumerate(my_gaps, 1)]
+        left_out = ', '.join(f'{s} dòng {n}' for s, n in sorted(not_tasks & keys)) or '(không có)'
+        answer = await ask(
+            REVIEW_PROMPT.format(name=name, context=context_of(part), rows=render(part), tasks='\n'.join(listed), skipped=left_out),
+            6000,
         )
-        for batch in batches_of(doubtful, ROW_BATCH_ROWS):
-            text = '\n\n'.join(render(row) for row in batch)
-            async with semaphore:
-                try:
-                    answer = await _ask_json(ROW_PROMPT.format(name=name, today=today, context=context + note, rows=text))
-                except llm.TrackerLLMError:
-                    raise
-                except Exception as error:
-                    log.warning('Tracker: row recheck failed (%s)', error)
-                    answer = {}
-            for raw in answer.get('dong') or []:
-                if isinstance(raw, dict):
-                    label = str(raw.get('ma') or '').strip('[] ').upper()
-                    if label in by_label and label not in results:
-                        built = build(by_label[label], raw)
-                        if built:
-                            results[label] = built
-        for row in doubtful:
-            results.setdefault(row['label'], {'skip': True})
+        report['reviewed'] += 1
+        for fix in answer.get('sua') or []:
+            if isinstance(fix, dict) and str(fix.get('so') or '').isdigit() and 1 <= int(fix['so']) <= len(mine):
+                details = [' '.join(str(d).split())[:300] for d in fix.get('chi_tiet') or [] if str(d).strip()]
+                task = mine[int(fix['so']) - 1]
+                if details != task['chi_tiet']:
+                    task['chi_tiet'] = details[:MAX_DETAILS]
+                    report['details_changed'] += 1
+        for number in answer.get('bo_de_xuat') or []:
+            if str(number).isdigit() and len(mine) < int(number) <= len(mine) + len(my_gaps):
+                gap = my_gaps[int(number) - len(mine) - 1]
+                if gap in gaps:
+                    gaps.remove(gap)
+                    report['gaps_removed'] += 1
+        restored = []
+        for entry in answer.get('la_viec') or []:
+            if isinstance(entry, dict) and str(entry.get('dong') or '').isdigit():
+                key = (sheet_of(entry.get('sheet'), part), int(entry['dong']))
+                if key in not_tasks:
+                    not_tasks.discard(key)
+                    restored.append(key)
+        if restored:
+            report['rows_restored'] += len(restored)
+            again_part = {'entries': [e for e in part['entries'] if (e[0], e[1]) in restored], 'heads': part['heads']}
+            collect(await read(again_part), again_part)
 
-    output = []
-    for row in labelled:
-        built = results.get(row['label'])
-        if built and built.get('skip'):
-            report['not_tasks'] += 1
-            report.setdefault('not_task_rows', []).append(
-                {'dong': row['number'], 'noi_dung': clip(' | '.join(v for _, v in row['cells']), 120)}
-            )
-            continue
-        if not built:
-            # Never answered: the row is kept with its own words.
-            title = (row['roles'].get('ten') or [v for _, v in row['cells'] if _is_text(v)] or [''])[0]
-            if not title:
+    await asyncio.gather(*(review(p) for p in parts))
+
+    sent = {(e[0], e[1]) for p in parts for e in p['entries']}
+    unread = [key for key in sent if key[0] not in skipped_sheets and key not in covered()]
+    report['unread'] = len(unread)
+    report['unread_rows'] = [f'{s} dòng {n}' for s, n in sorted(unread)[:30]]
+    report['not_tasks'] = len(not_tasks)
+    report['not_task_rows'] = [
+        {'dong': n, 'sheet': s, 'noi_dung': clip(row_text[(s, n)].replace('\n', ' | '), 120)} for s, n in sorted(not_tasks)
+    ][:60]
+    report['sheets_skipped'] = skipped_sheets
+    report['mode'] = 'whole' if parts and parts[0].get('whole') else 'parts'
+    items = _items_from(tasks, gaps, report)
+    return {'kind': 'table', 'items': items, 'quyet_dinh': [], 'rui_ro': [], 'report': report}
+
+
+def _checked_task(raw: dict, sheet_name: str, number: int, row_text: dict, head_rows, report: dict) -> Optional[dict]:
+    """One task the model read, with its facts checked against its rows (and the sheet's head rows)."""
+    rows = [number] + [int(n) for n in raw.get('cac_dong') or [] if str(n).isdigit() and (sheet_name, int(n)) in row_text]
+    source = '\n'.join(row_text[(sheet_name, n)] for n in rows)
+    head = '\n'.join('\n'.join(v for v in r if v) for _, r in head_rows or [])
+    folded = f' {normalize_key(source + chr(10) + head)} '
+    title = _title(str(raw.get('ten') or '').strip())
+    if not title:
+        return None
+    owners, teams = [], []
+    for value in raw.get('phu_trach') or []:
+        value = ' '.join(str(value).split())
+        if _written_in(value, folded):
+            if value not in owners:
+                owners.append(value)
+        elif value:
+            report['owners_rejected'] += 1
+    for value in raw.get('nhom') or []:
+        value = ' '.join(str(value).split())
+        if value in owners and value not in teams:
+            teams.append(value)
+    due, rejected = _checked_date(raw.get('han'), raw.get('han_goc'), folded)
+    report['due_rejected'] += rejected
+    done, _ = _checked_date(raw.get('hoan_thanh_luc'), raw.get('hoan_thanh_goc'), folded)
+    progress = None
+    if raw.get('tien_do') is not None:
+        try:
+            value = int(round(float(raw['tien_do'])))
+        except (TypeError, ValueError):
+            value = None
+        if value is not None and 0 <= value <= 100 and _written_in(raw.get('tien_do_goc'), folded):
+            progress = value
+        else:
+            report['progress_rejected'] += 1
+    status = str(raw.get('trang_thai') or '').strip()
+    status = status if status in STATUSES else None
+    if done:
+        status = 'hoan_thanh'
+    if not status:
+        status = (
+            ('hoan_thanh' if progress >= 100 else 'dang_lam' if progress > 0 else 'chua_bat_dau')
+            if progress is not None else 'chua_bat_dau'
+        )
+    code = ' '.join(str(raw.get('ma') or '').split())[:80]
+    return {
+        'sheet': sheet_name, 'dong': number, 'cac_dong': rows[1:], 'ma': code if code and _written_in(code, folded) else None,
+        'ten': title,
+        'chi_tiet': [' '.join(str(d).split())[:300] for d in raw.get('chi_tiet') or [] if str(d).strip()][:MAX_DETAILS],
+        'phu_trach': owners, 'doi_nhom': teams, 'han': due, 'trang_thai': status, 'tien_do': progress,
+        'hoan_thanh_luc': done if status == 'hoan_thanh' else None,
+        'vuong_mac': ' '.join(str(raw.get('vuong_mac') or '').split())[:300] or None,
+        'trich_dan': clip(source.replace('\n', ' | '), QUOTE_CHARS),
+    }
+
+
+def _items_from(tasks: list[dict], gaps: list[dict], report: dict) -> list[dict]:
+    """Work items with stable keys: the row's code when the model read one that no other row has, else the row
+    number; several tasks of a row are numbered."""
+    codes: dict[tuple[str, str], int] = {}
+    for task in tasks:
+        if task['ma']:
+            codes[(task['sheet'], task['ma'])] = codes.get((task['sheet'], task['ma']), 0) + 1
+    rows_of_code: dict[tuple[str, str], set] = {}
+    for task in tasks:
+        if task['ma']:
+            rows_of_code.setdefault((task['sheet'], task['ma']), set()).add(task['dong'])
+    output, index_of = [], {}
+    for task in sorted(tasks, key=lambda t: (t['sheet'], t['dong'])):
+        unique = task['ma'] and len(rows_of_code[(task['sheet'], task['ma'])]) == 1
+        base = f'table:{task["sheet"]}:{task["ma"] if unique else task["dong"]}'
+        index_of[base] = index_of.get(base, 0) + 1
+        output.append({
+            'ten': task['ten'], 'chi_tiet': task['chi_tiet'], 'phu_trach': task['phu_trach'], 'doi_nhom': task['doi_nhom'],
+            'han': task['han'], 'trang_thai': task['trang_thai'], 'tien_do': task['tien_do'],
+            'hoan_thanh_luc': task['hoan_thanh_luc'], 'vuong_mac': task['vuong_mac'], 'chua_giao': not task['phu_trach'],
+            'trich_dan': task['trich_dan'], 'dong': task['dong'], 'khoa': f'{base}#{index_of[base]}', 'xac_minh': True,
+        })
+        report['tasks'] += 1
+        task['khoa_goc'] = base
+    by_row: dict[tuple[str, int], dict] = {}
+    for task in tasks:
+        by_row.setdefault((task['sheet'], task['dong']), task)
+    for key in {(g['sheet'], g['dong']) for g in gaps}:
+        row_gaps = [g for g in gaps if (g['sheet'], g['dong']) == key][:MAX_GAP_TASKS]
+        owner = by_row.get(key)
+        base = owner['khoa_goc'] if owner else f'table:{key[0]}:{key[1]}'
+        owners = list(owner['phu_trach']) if owner else []
+        for index, gap in enumerate(row_gaps, 1):
+            if owner and _repeats(gap['ten'], [t['ten'] for t in tasks if (t['sheet'], t['dong']) == key]):
                 continue
-            built = {
-                'tasks': [{'ten': short_title(title, TITLE_MAX), 'chi_tiet': [], 'phu_trach': list(row['roles'].get('phu_trach') or []),
-                           'doi_nhom': [], 'han': None, 'trang_thai': 'chua_bat_dau', 'tien_do': None,
-                           'hoan_thanh_luc': None, 'vuong_mac': None}],
-                'gaps': [],
-            }
-            report['fallback'] += 1
-        # Nothing is lost: a cell with words that the row's tasks do not reflect goes into the details as it is.
-        written = ' '.join(
-            [t['ten'] for t in built['tasks']] + [d for t in built['tasks'] for d in t['chi_tiet']]
-            + [t['vuong_mac'] or '' for t in built['tasks']] + [g['yeu_cau'] for g in built['gaps']]
-        )
-        labels = set(built.get('labels') or [])
-        # The model's own call: a column it names as classification is not a detail, even when it wrote one.
-        for task in built['tasks']:
-            kept = [d for d in task['chi_tiet'] if not (':' in d[:48] and d.split(':', 1)[0].strip() in labels)]
-            report['details_dropped'] += len(task['chi_tiet']) - len(kept)
-            task['chi_tiet'] = kept
-        for column in labels:
-            report.setdefault('label_columns', {})
-            report['label_columns'][column] = report['label_columns'].get(column, 0) + 1
-        missing = [
-            f'{column}: {clip(value, 300)}' for column, value in row['cells']
-            if column not in labels
-            and len(_content_words(value)) >= COVER_MIN_WORDS and word_support(value, written) < COVER_SUPPORT
-        ]
-        if missing:
-            first = built['tasks'][0]
-            first['chi_tiet'] = [*first['chi_tiet'], *missing]
-            report['added_by_code'] += len(missing)
-        quote = clip(' | '.join(v for _, v in row['cells']), QUOTE_CHARS)
-        for index, task in enumerate(built['tasks'], 1):
-            output.append(
-                {
-                    **task,
-                    'chi_tiet': task['chi_tiet'][:MAX_DETAILS],
-                    'chua_giao': not task['phu_trach'],
-                    'trich_dan': quote,
-                    'dong': row['number'],
-                    'khoa': f'{row["khoa"]}#{index}',
-                    'xac_minh': True,
-                }
-            )
-            report['tasks'] += 1
-        # Requests no task of the row answers become tasks of their own, given to whoever handles the row.
-        owners = list(dict.fromkeys(o for t in built['tasks'] for o in t['phu_trach']))
-        teams = list(dict.fromkeys(o for t in built['tasks'] for o in t['doi_nhom']))
-        for index, gap in enumerate(built['gaps'], 1):
-            output.append(
-                {
-                    'ten': gap['ten'], 'chi_tiet': [clip(gap['yeu_cau'], 300)], 'phu_trach': owners, 'doi_nhom': teams,
-                    'han': None, 'trang_thai': 'chua_bat_dau', 'tien_do': None, 'hoan_thanh_luc': None,
-                    'vuong_mac': None, 'chua_giao': not owners, 'trich_dan': clip(gap['yeu_cau'], QUOTE_CHARS),
-                    'dong': row['number'], 'khoa': f'{row["khoa"]}#yc{index}', 'xac_minh': True,
-                }
-            )
+            output.append({
+                'ten': gap['ten'], 'chi_tiet': [clip(gap['yeu_cau'], 300)], 'phu_trach': owners,
+                'doi_nhom': list(owner['doi_nhom']) if owner else [], 'han': None, 'trang_thai': 'chua_bat_dau',
+                'tien_do': None, 'hoan_thanh_luc': None, 'vuong_mac': None, 'chua_giao': not owners,
+                'trich_dan': clip(gap['yeu_cau'], QUOTE_CHARS), 'dong': key[1], 'khoa': f'{base}#yc{index}', 'xac_minh': True,
+            })
             report['gaps'] += 1
     # A name the table calls a team on one row is a team on every row.
     teams_seen = {normalize_key(t) for entry in output for t in entry.get('doi_nhom') or []}
     for entry in output:
         teams = [o for o in entry.get('phu_trach') or [] if normalize_key(o) in teams_seen]
         entry['doi_nhom'] = list(dict.fromkeys([*(entry.get('doi_nhom') or []), *teams]))
-    return output, report
-
-
-def _normalize_spec(spec: dict) -> dict:
-    """The model may copy the choice with its explanation ("bang_viec (mỗi dòng một việc)")."""
-    if not isinstance(spec, dict):
-        return {}
-    kind = normalize_key(str(spec.get('loai') or '')).replace(' ', '_')
-    for value in ('bang_viec', 'tu_do', 'khong_co_viec'):
-        if value in kind:
-            spec['loai'] = value
-            break
-    else:
-        # No kind but columns given: a task table.
-        spec['loai'] = 'bang_viec' if (spec.get('cot') or {}).get('ten') else 'tu_do'
-    return spec
-
-
-async def _corrected(name: str, sheets: list[dict], spec: dict, described: str, notes: list[str]) -> dict:
-    """The spec, or the model's correction of it when it points at no rows or at a row without column names."""
-    if spec.get('loai') != 'bang_viec':
-        return spec
-    result = apply_spec(sheets, spec)
-    if not result['issues']:
-        return spec
-    fixed = _normalize_spec(
-        await _ask_json(
-            FIX_PROMPT.format(
-                name=name,
-                spec=json.dumps(spec, ensure_ascii=False),
-                issues='; '.join(result['issues']),
-                rows='\n'.join(_row_lines(result['bad_rows'], result.get('columns') or [])) or '(không có)',
-                sheets=described or describe_sheets(sheets),
-            ),
-            max_tokens=3000,
-        )
-    )
-    if fixed.get('sheet'):
-        better = apply_spec(sheets, fixed)
-        if len(better['issues']) < len(result['issues']) or (
-            len(better['issues']) == len(result['issues']) and len(better['rows']) > len(result['rows'])
-        ):
-            notes.append('model tự sửa bản mô tả: ' + '; '.join(result['issues']))
-            return fixed
-    return spec
-
-
-async def table_spec(
-    name: str, sheets: list[dict], cached: Optional[dict] = None, edited: bool = False
-) -> tuple[dict, list[str]]:
-    """The table description to use and notes about how it was made.
-
-    An edited description is used as it is. A description the model made earlier is reused (no model call) while
-    it still points at rows; when a new version of the table no longer fits it, the model corrects it."""
-    notes = []
-    if cached:
-        cached = _normalize_spec(dict(cached))
-        if edited:
-            return cached, ['dùng bản mô tả đã sửa tay']
-        if 'mo_ta' in (cached.get('cot') or {}):
-            notes.append('dùng lại bản mô tả đã lưu')
-            return await _corrected(name, sheets, cached, '', notes), notes
-        notes.append('bản mô tả cũ chưa có cột mô tả việc: model mô tả lại')
-    described = describe_sheets(sheets)
-    spec = _normalize_spec(await _ask_json(SPEC_PROMPT.format(name=name, sheets=described), max_tokens=3000))
-    notes.append('model mô tả bảng' if spec else 'model không trả được bản mô tả')
-    return await _corrected(name, sheets, spec, described, notes), notes
-
-
-async def extract_table(
-    name: str,
-    sheets: list[dict],
-    today: str,
-    cached_spec: Optional[dict] = None,
-    concurrency: int = 4,
-    edited: bool = False,
-) -> dict:
-    spec, notes = await table_spec(name, sheets, cached_spec, edited)
-    spec = _normalize_spec(spec)
-    kind = spec.get('loai')
-    report = {'spec': spec, 'notes': notes, 'signature': table_signature(sheets)}
-    if kind == 'khong_co_viec':
-        return {'kind': 'table', 'items': [], 'quyet_dinh': [], 'rui_ro': [], 'report': {**report, 'mode': 'none'}}
-    if kind == 'bang_viec':
-        result = apply_spec(sheets, spec)
-        if result['rows']:
-            items, split = await summarize_rows(
-                name, result['rows'], today, concurrency, intro=result['intro'], roles=result['roles']
-            )
-            return {
-                'kind': 'table',
-                'items': items,
-                'quyet_dinh': [],
-                'rui_ro': [],
-                'report': {
-                    **report, 'mode': 'spec', 'stats': result['stats'], 'issues': result['issues'], 'split': split,
-                    'tieu_de_cot': result['roles'],
-                },
-            }
-        notes.append('bản mô tả không chỉ tới dòng nào, chuyển sang đọc theo lô: ' + '; '.join(result['issues']))
-    sheet = _find_sheet(sheets, spec.get('sheet')) or max(sheets, key=lambda s: len(s['rows']))
-    try:
-        header = int(spec.get('dong_tieu_de') or 0) - 1
-    except (TypeError, ValueError):
-        header = -1
-    items = await _rows_by_model(name, sheet, header, today, concurrency)
-    return {
-        'kind': 'table',
-        'items': items,
-        'quyet_dinh': [],
-        'rui_ro': [],
-        'report': {**report, 'mode': 'model', 'stats': {'sheet': sheet['name']}, 'unverified': sum(1 for i in items if not i['xac_minh'])},
-    }
+    return output
 
 
 # ---------------------------------------------------------------- matching against the state

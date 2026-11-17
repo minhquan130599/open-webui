@@ -38,11 +38,13 @@ async def check(paths: list[str], out: str = '') -> None:
         report = result['report']
         split = report.get('split') or {}
         print(f'\n===== {name}  ({seconds:.0f}s, cách đọc: {report.get("mode")})')
-        spec = report.get('spec') or {}
-        print(f'  sheet "{spec.get("sheet")}", tiêu đề dòng {spec.get("dong_tieu_de")}; cột: {report.get("tieu_de_cot") or spec.get("cot")}')
+        if report.get('sheets_skipped'):
+            print('  sheet không đọc:', report['sheets_skipped'])
+        if report.get('unread_rows'):
+            print('  dòng chưa đọc được:', ', '.join(report['unread_rows']))
         if report.get('issues'):
             print('  vấn đề:', '; '.join(report['issues']))
-        print('  ' + ', '.join(f'{k}={v}' for k, v in split.items() if v and k != 'not_task_rows'))
+        print('  ' + ', '.join(f'{k}={v}' for k, v in split.items() if v and k not in ('not_task_rows', 'unread_rows', 'sheets_skipped')))
         for row in split.get('not_task_rows') or []:
             print(f"  (bỏ dòng {row['dong']}: {row['noi_dung']})")
         for item in result['items']:

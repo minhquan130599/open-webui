@@ -331,3 +331,21 @@ Làm lại:
     Knight đếm thiếu dòng, vd phiếu KPI bắt đầu từ cột B); dòng có chữ ở bất kỳ ô nào là dòng.
   Giữ lại (kiểm tra, không đoán nghĩa): người / ngày / % phải có trong dòng hoặc văn bản, chi tiết lấy từ chữ của dòng,
   ô bị bỏ sót được chép lại, đọc định dạng ngày / số chuẩn, bỏ dòng chỉ toàn số / TRUE-FALSE. EXTRACT_VERSION 22.
+
+## Đọc bảng tính: gửi file nguyên trạng cho model (18/11)
+
+Bỏ bước "mô tả bảng" (chọn sheet, dòng tiêu đề, vai trò cột) và mọi xử lý theo nó. Cách mới:
+- Code chỉ chép file: mỗi dòng "dòng N" với các ô theo chữ cái cột, ô gộp đã điền; dòng chỉ có số / TRUE-FALSE (dòng
+  công thức trống của mẫu) không gửi từng dòng, model được báo số các dòng đó.
+- File nhỏ (≤ 20.000 ký tự): cả file, mọi sheet, một lượt. File lớn: model xem các dòng đầu của mỗi sheet và cho biết
+  sheet nào cần đọc, dòng dữ liệu bắt đầu ở đâu; mỗi phần ~40 dòng, mang kèm các dòng đầu của sheet nguyên trạng.
+- Model tự xác định: sheet nào là danh sách việc, dòng tiêu đề (nhiều tầng / không có), thông tin đầu trang, dòng nào
+  là việc, mã của dòng, và mọi trường. Mỗi phần có một lượt rà lại: bỏ chi tiết không có trong dòng, thêm thông tin
+  quan trọng còn thiếu, bỏ đề xuất không có yêu cầu thật, đọc lại dòng bị coi nhầm là không phải việc (thay ngưỡng
+  chép ô bị bỏ sót và kiểm tra cùng dạng dòng trước đây).
+- Code chỉ: so người / chữ ghi hạn / chữ ghi tiến độ / ngày hoàn thành với chữ của dòng; hỏi lại các dòng model
+  không nhắc tới (10 dòng một lượt); khóa việc = mã model đọc (nếu có trong dòng và không trùng) hoặc số dòng.
+- Monitor: cột Chất lượng theo chỉ số mới (lượt gọi, đọc lại, rà lại, dòng chưa đọc được); Truy vết ghi dòng / mã /
+  sheet. Bản mô tả bảng đã lưu và màn sửa trên monitor không còn tác dụng. EXTRACT_VERSION 23.
+- Thử bằng model thật: KPI_PM 2 lượt gọi, đủ 6 chỉ tiêu, tự hiểu tiêu đề hai tầng ("Mục tiêu (L2): 90%, Tối thiểu (L1):
+  85%"), không còn bước tự nghĩ; Lịch KS BN (không có tiêu đề) 15/15 buổi; NganTT tự bỏ sheet tra cứu và sheet tạm.
