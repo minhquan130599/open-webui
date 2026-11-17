@@ -26,7 +26,7 @@ from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 24
+EXTRACT_VERSION = 25
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 # Names this alike (trigrams) or sharing this share of the shorter name's words are shown to the model, which says
@@ -539,9 +539,12 @@ OVERVIEW_PROMPT = """File bảng tính "{name}" lớn, sẽ được đọc theo
 <tai_lieu>
 {sheets}
 </tai_lieu>
-Với mỗi sheet, cho biết có cần đọc để lập đầu việc không (sheet tổng hợp / biểu đồ / tra cứu / hướng dẫn / bảng giá /
-danh sách không giao việc thì không), và dòng dữ liệu đầu tiên (dòng sau tiêu đề; các dòng phía trên nó là tiêu đề và
-thông tin đầu trang, sẽ được gửi kèm mỗi phần để hiểu cột).
+Với mỗi sheet, cho biết sheet có phải là DANH SÁCH VIỆC không: mỗi dòng (hoặc nhóm dòng) là một việc, nhiệm vụ, hạng mục,
+chỉ tiêu hay phản hồi cần xử lý mà người ta giao và theo dõi (kế hoạch, tiến độ, phân công, KPI, việc cần làm). Bảng DỮ
+LIỆU thì không, kể cả khi có thể suy ra việc từ nó: danh sách thiết bị / máy / client / tài khoản / khách hàng / nhân sự,
+log, giao dịch, số liệu đo, bảng giá, xuất dữ liệu từ phần mềm, tra cứu, tổng hợp, biểu đồ, hướng dẫn. "doc": true chỉ với
+danh sách việc. Cho biết thêm dòng dữ liệu đầu tiên (dòng sau tiêu đề; các dòng phía trên nó là tiêu đề và thông tin đầu
+trang, sẽ được gửi kèm mỗi phần để hiểu cột).
 Trả về đúng một JSON: {{"sheets": [{{"sheet": "...", "doc": true, "dong_du_lieu_dau": 2, "ly_do": "..."}}]}}"""
 
 
