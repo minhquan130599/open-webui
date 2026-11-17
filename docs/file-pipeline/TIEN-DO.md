@@ -100,3 +100,7 @@ Trạng thái: ⬜ chưa làm · 🔄 đang làm · ✅ xong (đã test) · ⚠�
   mới thiếu PH-000008 → ghi mâu thuẫn "không còn trong bản mới". Kế hoạch dự án (WBS) có dòng tiêu đề ở dòng 4, % dạng
   0.6, ngày xong, không cột trạng thái: đọc đúng người (tách ";"), % 100/60/20/0, trạng thái suy từ %, ngày xong → hoàn
   thành. Biên bản họp: người / hạn / % không có trong văn bản bị loại. Chưa test với model thật và ảnh thật.
+- Tổng hợp lại kênh (monitor → Tracker → Kênh dự án): xóa trạng thái đang mở và bản trích file cũ của kênh, đưa con
+  trỏ tin nhắn về 0; tracker đọc lại toàn bộ tin nhắn và file theo lô cho đến hết (cột "Chờ tổng hợp" giảm về 0). Việc đã
+  đóng/hủy giữ trong lưu trữ và không bị tạo lại (theo tên, hoặc theo khóa dòng bảng: hủy một việc của dòng chỉ chặn việc
+  đó, việc cũ mang khóa cả dòng thì chặn cả dòng). Từ chối khi kênh đang được tổng hợp. Cần phiên chỉnh sửa. Chưa test trên app thật.

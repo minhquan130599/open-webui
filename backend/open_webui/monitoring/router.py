@@ -745,3 +745,29 @@ async def file_page_review(file_id: str, page: int, form: PageReviewForm, x_moni
     )
     await FileJobs.enqueue(file_id, {'rebuild': True})
     return {'saved': True, 'score': score['score'], 'queued': True}
+
+
+@router.get('/tracker/channels/{channel_id}/rebuild')
+async def tracker_rebuild_preview(channel_id: str, x_monitor_key: Optional[str] = Header(None)):
+    """What rebuilding the channel's summary would redo (messages, files, items), for the confirmation."""
+    _check(x_monitor_key)
+    from open_webui.tracker.files_admin import rebuild_preview
+
+    try:
+        return await rebuild_preview(channel_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail='Không tìm thấy kênh')
+
+
+@router.post('/tracker/channels/{channel_id}/rebuild')
+async def tracker_rebuild(channel_id: str, x_monitor_key: Optional[str] = Header(None)):
+    """Read every message and file of the channel again with the current code; closed items stay closed."""
+    _check(x_monitor_key)
+    from open_webui.tracker.files_admin import rebuild_channel
+
+    try:
+        return await rebuild_channel(channel_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail='Kênh chưa được theo dõi tiến độ')
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))

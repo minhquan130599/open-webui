@@ -153,7 +153,7 @@ async def _summarize_batch_attachments(
 
 
 async def _merge_extractions(
-    state, extractions: dict[str, list[dict]], today: str, archived_keys: frozenset
+    state, extractions: dict[str, list[dict]], today: str, archived_keys: frozenset, archived_rows: frozenset = frozenset()
 ) -> tuple[object, list[dict]]:
     """Fold the verified items extracted from files into the state before the update LLM runs, so no item
     depends on the LLM copying it. Returns (state, one log entry per file for the batch record)."""
@@ -167,7 +167,14 @@ async def _merge_extractions(
     entries = []
     for message_id, results in extractions.items():
         for result in results:
-            items = [i for i in result.get('items') or [] if normalize_key(i['ten']) not in archived_keys]
+            # Closed or cancelled items stay closed: matched by name, or by their table row key, which survives
+            # a rebuild where the model names the row differently.
+            items = [
+                i
+                for i in result.get('items') or []
+                if normalize_key(i['ten']) not in archived_keys
+                and not (i.get('khoa') and ({i['khoa'], i['khoa'].split('#')[0]} & archived_rows))
+            ]
             matches = await extract.match_state(items, state.hang_muc)
             outcome = extract.merge_into_state(state, items, f'msg:{message_id}', today, matches)
             report = result.get('report') or {}
@@ -337,7 +344,14 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         archived_keys = frozenset(normalize_key(e.get('ten', '')) for e in row.archive or [])
         today = format_time(time.time_ns(), TZ)[:10]
         started = time.monotonic()
-        state, file_tasks = await _merge_extractions(old_state, extractions, today, archived_keys)
+        # Table rows of closed items (exact keys); an item archived with a whole-row key closes that row's tasks.
+        archived_rows = frozenset(
+            source
+            for entry in row.archive or []
+            for source in entry.get('nguon') or []
+            if source.startswith('table:')
+        )
+        state, file_tasks = await _merge_extractions(old_state, extractions, today, archived_keys, archived_rows)
         merged_away, summaries = set(), []
         people = await channel_people(channel)
         members = sorted({p.name for p in people if p.name})
