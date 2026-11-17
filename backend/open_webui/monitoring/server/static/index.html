@@ -1136,7 +1136,7 @@
       { label: 'Tin nhắn', num: true, render: (r) => n(r.messages) },
       { label: 'Chờ tổng hợp', num: true, render: (r) => (r.pending_count ? `<span class="pill warn">${n(r.pending_count)}</span>` : '0') },
       { label: 'Tổng hợp gần nhất', render: (r) => `${r.running ? '<span class="spin"></span> đang chạy · ' : ''}${r.processed_at ? when(r.processed_at) : '—'}${r.fail_count ? `<div style="font-size:11px;color:var(--red)">${esc(r.last_error || '')}</div>` : ''}` },
-      { label: '', render: (r) => `<button class="btn" type="button" data-tx-team="${esc(r.channel_id)}">Chủ kênh &amp; quản lý</button> <button class="btn" type="button" data-tx-rebuild="${esc(r.channel_id)}" ${r.running ? 'disabled title="Đang tổng hợp"' : ''}>Tổng hợp lại kênh</button>` },
+      { label: '', render: (r) => `<button class="btn" type="button" data-tx-items="${esc(r.channel_id)}" title="Danh sách việc của kênh và truy vết từng việc (cần khóa truy xuất)">Xem việc</button> <button class="btn" type="button" data-tx-team="${esc(r.channel_id)}">Chủ kênh &amp; quản lý</button> <button class="btn" type="button" data-tx-rebuild="${esc(r.channel_id)}" ${r.running ? 'disabled title="Đang tổng hợp"' : ''}>Tổng hợp lại kênh</button>` },
     ], d.items, 'Chưa có kênh nào được theo dõi tiến độ.');
     const teamBox = tx.team ? `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
         <div style="display:flex;justify-content:space-between;align-items:center"><b>Kênh ${esc(tx.team.channel || '')}: chủ kênh &amp; người quản lý</b><button class="btn" type="button" data-tx-team-close>Đóng</button></div>
@@ -1146,11 +1146,106 @@
           { label: 'Vai trò', render: (m) => [m.is_owner ? '<span class="pill ok">chủ kênh</span>' : '', m.is_manager ? '<span class="pill">quản lý</span>' : '', m.is_admin ? '<span class="pill">admin</span>' : '', m.left ? '<span class="pill err">đã nghỉ</span>' : ''].join(' ') },
           { label: '', render: (m) => (m.is_owner || m.left ? '' : `<button class="btn" type="button" data-tx-owner="${esc(m.id)}" data-tx-name="${esc(m.name)}">Chuyển chủ kênh</button> <button class="btn" type="button" data-tx-manager="${esc(m.id)}" data-tx-on="${m.is_manager ? '0' : '1'}">${m.is_manager ? 'Bỏ quản lý' : 'Đặt làm quản lý'}</button>`) },
         ], tx.team.members || [], 'Kênh chưa có thành viên.')}</div>` : '';
-    return card('Kênh dự án', `<p class="muted" style="font-size:12.5px;margin:-4px 0 10px"><b>Tổng hợp lại kênh</b> đọc lại toàn bộ tin nhắn và file của kênh bằng phiên bản hiện tại, thay danh sách việc đang mở bằng kết quả mới (không trùng, không còn việc rác từ các lần đọc cũ). Việc đã đóng hoặc hủy được giữ và không bị tạo lại; lịch sử cập nhật được ghi lại từ đầu. Các chỉnh tay trên việc đang mở sẽ mất. Cần phiên chỉnh sửa.</p>${tx.rebuildNote ? `<div class="notice info" style="margin-bottom:8px">${esc(tx.rebuildNote)}</div>` : ''}${rows}${teamBox}`);
+    return card('Kênh dự án', `<p class="muted" style="font-size:12.5px;margin:-4px 0 10px"><b>Tổng hợp lại kênh</b> đọc lại toàn bộ tin nhắn và file của kênh bằng phiên bản hiện tại, thay danh sách việc đang mở bằng kết quả mới (không trùng, không còn việc rác từ các lần đọc cũ). Việc đã đóng hoặc hủy được giữ và không bị tạo lại; lịch sử cập nhật được ghi lại từ đầu. Các chỉnh tay trên việc đang mở sẽ mất. Cần phiên chỉnh sửa.</p>${tx.rebuildNote ? `<div class="notice info" style="margin-bottom:8px">${esc(tx.rebuildNote)}</div>` : ''}${rows}${teamBox}<div id="tx-items">${txItemsHtml()}</div>`);
+  }
+
+  // Work items of one channel, and the trace of one item: where it comes from and why it exists.
+  const TXI_FILTERS = [
+    ['open', 'Đang mở', (i) => !i.da_dong],
+    ['unassigned', 'Chưa gán', (i) => !i.da_dong && (i.chua_giao || !(i.phu_trach || []).length)],
+    ['suggested', 'Đề xuất từ yêu cầu', (i) => !i.da_dong && (i.nguon || []).some((s) => s.includes('#yc'))],
+    ['file', 'Từ file', (i) => !i.da_dong && (i.nguon_dem.file || i.nguon_dem.dong_bang)],
+    ['message', 'Chỉ từ tin nhắn', (i) => !i.da_dong && !i.nguon_dem.file && !i.nguon_dem.dong_bang],
+    ['closed', 'Đã đóng / hủy', (i) => i.da_dong],
+  ];
+  function txItemsHtml() {
+    const v = tx.items;
+    if (!v) return '';
+    const head = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b>Việc trong kênh ${esc(v.channel || '')}</b><button class="btn" type="button" data-tx-items-close>Đóng</button></div>`;
+    const frame = (body) => `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">${head}${body}</div>`;
+    if (v.loading) return frame('<span class="spin"></span> Đang tải…');
+    if (v.error) return frame(`<div class="error-box">${esc(v.error)}</div>`);
+    const all = v.data.items || [];
+    const tabs = TXI_FILTERS.map(([key, label, test]) => `<button class="btn${v.filter === key ? ' primary' : ''}" type="button" data-tx-items-filter="${key}">${label} (${all.filter(test).length})</button>`).join(' ');
+    const test = (TXI_FILTERS.find(([key]) => key === v.filter) || TXI_FILTERS[0])[2];
+    const list = all.filter(test);
+    const sourceText = (i) => [i.nguon_dem.dong_bang ? `${i.nguon_dem.dong_bang} dòng bảng` : '', i.nguon_dem.file ? `${i.nguon_dem.file} file` : '', i.nguon_dem.tin_nhan ? `${i.nguon_dem.tin_nhan} tin nhắn` : ''].filter(Boolean).join(' · ') || '<span class="pill warn">không còn nguồn</span>';
+    const rowsHtml = table([
+      { label: 'Việc', render: (i) => `<b>${esc(i.ten)}</b>${(i.nguon || []).some((s) => s.includes('#yc')) ? ' <span class="pill">đề xuất từ yêu cầu</span>' : ''}${(i.chi_tiet || []).length ? `<ul style="margin:2px 0 0 16px;padding:0;font-size:11.5px" class="muted">${i.chi_tiet.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}${i.vuong_mac ? `<div class="muted" style="font-size:11px">vướng: ${esc(i.vuong_mac)}</div>` : ''}` },
+      { label: 'Phụ trách', render: (i) => (i.chua_giao || !(i.phu_trach || []).length ? '<span class="pill warn">chưa gán</span>' : esc((i.phu_trach || []).join(', '))) },
+      { label: 'Hạn', render: (i) => esc(i.han || '—') },
+      { label: 'Trạng thái', render: (i) => `${esc(TX_STATUS[i.trang_thai] || i.trang_thai || '')}${i.tien_do != null ? ` · ${i.tien_do}%` : ''}` },
+      { label: 'Nguồn', render: (i) => `<span class="muted" style="font-size:11.5px">${sourceText(i)}</span>` },
+      { label: '', render: (i) => `<button class="btn" type="button" data-tx-trace="${esc(i.id)}">${v.trace && v.trace.id === i.id ? 'Đang xem' : 'Truy vết'}</button>` },
+    ], list, 'Không có việc nào ở mục này.');
+    return frame(`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${tabs}</div>${rowsHtml}<div id="tx-trace">${txTraceHtml()}</div>`);
+  }
+  function txTraceHtml() {
+    const t = tx.items && tx.items.trace;
+    if (!t) return '';
+    const frame = (body) => `<div style="margin-top:12px;border:1px solid var(--line);border-radius:12px;padding:12px">${body}</div>`;
+    if (t.loading) return frame('<span class="spin"></span> Đang truy vết…');
+    if (t.error) return frame(`<div class="error-box">${esc(t.error)}</div>`);
+    const d = t.data;
+    const it = d.item || {};
+    const section = (title, body) => `<div style="margin-top:10px"><div style="font-weight:600;font-size:12.5px;margin-bottom:4px">${title}</div>${body}</div>`;
+    const why = `<ul style="margin:0 0 0 18px;padding:0;font-size:12.5px;line-height:1.55">${(d.why || []).map((w) => `<li>${esc(w)}</li>`).join('')}</ul>`;
+    const owners = table([
+      { label: 'Tên', render: (o) => `<b>${esc(o.ten)}</b>` },
+      { label: 'Cách xác định', render: (o) => `<span style="font-size:12px">${esc(o.trang_thai)}</span>` },
+      { label: 'Tài khoản', render: (o) => `<span class="muted" style="font-size:11px">${esc(o.tai_khoan || '')}</span>` },
+    ], d.owners || [], 'Chưa có người phụ trách.');
+    const readings = (d.readings || []).map((r) => {
+      const e = r.entry || {};
+      const cols = Object.entries(r.columns || {}).filter(([, val]) => val && (!Array.isArray(val) || val.length)).map(([k, val]) => `${esc(k)}=${esc(Array.isArray(val) ? val.join('+') : val)}`).join(' · ');
+      return `<div class="notice info" style="margin-bottom:6px;font-size:12.5px"><b>${esc(r.name || '')}</b> · đọc lúc ${when(r.created_at)}${e.khoa ? ` · ${esc(e.khoa.split(':').slice(1).join(':'))}` : ''}${e.dong ? ` · dòng ${esc(e.dong)}` : ''}${e.trang ? ` · trang ${esc(e.trang)}` : ''}
+        <div style="margin-top:4px">Kết quả đọc: <b>${esc(e.ten || '')}</b> — ${esc((e.phu_trach || []).join(', ') || 'chưa giao')} — hạn ${esc(e.han || '—')} — ${esc(TX_STATUS[e.trang_thai] || e.trang_thai || '')}</div>
+        <div class="muted" style="margin-top:4px">Câu gốc trong file: ${esc(e.trich_dan || '—')}</div>
+        ${cols ? `<div class="muted" style="margin-top:4px;font-size:11px">Cột dùng: ${cols}</div>` : ''}</div>`;
+    }).join('') || '<span class="muted" style="font-size:12px">Không đến từ file.</span>';
+    const messages = (d.messages || []).map((m) => (m.con
+      ? `<div style="border-left:3px solid var(--blue);padding:4px 8px;margin-bottom:6px;font-size:12.5px"><b>${esc(m.user_name || '?')}</b> <span class="muted">${when(m.created_at)}${m.parent_id ? ' · trả lời trong luồng' : ''}</span>${m.files ? `<div class="muted" style="font-size:11px">file: ${esc(m.files)}</div>` : ''}<div style="white-space:pre-wrap;margin-top:2px">${esc(m.content || '')}</div></div>`
+      : `<div style="border-left:3px solid var(--red);padding:4px 8px;margin-bottom:6px;font-size:12.5px"><span class="pill err">đã xóa</span> <span class="muted">${esc(m.id)}</span></div>`)).join('') || '<span class="muted" style="font-size:12px">Không có tin nhắn nguồn.</span>';
+    const files = (d.files || []).map((f) => `${f.con ? '' : '<span class="pill err">không còn</span> '}${esc(f.ten || f.id)}`).join(', ');
+    const history = table([
+      { label: 'Lúc', render: (h) => when(h.created_at) },
+      { label: 'Lượt tổng hợp ghi', render: (h) => `<span style="font-size:12px">${esc(h.summary || '')}</span>${(h.removed || []).length ? `<div class="muted" style="font-size:11px">gỡ: ${esc(h.removed.join('; '))}</div>` : ''}` },
+    ], d.history || [], 'Không có lượt tổng hợp nào ghi nhận.');
+    return frame(`<div style="display:flex;justify-content:space-between;align-items:center"><b>Truy vết: ${esc(it.ten || '')}</b><button class="btn" type="button" data-tx-trace-close>Đóng</button></div>
+      <div class="muted" style="font-size:11.5px;margin-top:2px">mã ${esc(it.id || '')} · nguồn: ${esc((it.nguon || []).join(', ') || '—')}</div>
+      ${section('Vì sao có việc này', why)}
+      ${section('Người phụ trách được xác định thế nào', owners)}
+      ${section('Đọc từ file', `${readings}${files ? `<div class="muted" style="font-size:11.5px">File nguồn: ${files}</div>` : ''}`)}
+      ${section('Tin nhắn nguồn', messages)}
+      ${section('Các lượt tổng hợp đã đọc tin nguồn', history)}`);
+  }
+  function drawTxItems() { const box = document.getElementById('tx-items'); if (box) box.innerHTML = txItemsHtml(); }
+  function askRevealKey() {
+    if (editor.token || fp.key) return true;
+    const key = prompt('Danh sách việc chứa nội dung tin nhắn và tài liệu. Nhập khóa truy xuất (hoặc mở phiên Chỉnh sửa cấu hình):');
+    if (!key) return false;
+    fp.key = key.trim();
+    return true;
+  }
+  async function openChannelItems(id) {
+    if (!askRevealKey()) return;
+    tx.items = { id, loading: true, filter: 'open' }; drawTxItems();
+    try { const data = await api(`${fpBase()}/tracker/channels/${encodeURIComponent(id)}/items`, { headers: fpHeaders() }); tx.items = { id, data, channel: data.channel, filter: 'open' }; }
+    catch (err) { if (!editor.token) fp.key = ''; tx.items = { id, error: err.message }; }
+    drawTxItems();
+    document.getElementById('tx-items')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  async function openTrace(itemId) {
+    if (!tx.items || !askRevealKey()) return;
+    tx.items.trace = { id: itemId, loading: true }; drawTxItems();
+    try { tx.items.trace = { id: itemId, data: await api(`${fpBase()}/tracker/channels/${encodeURIComponent(tx.items.id)}/items/${encodeURIComponent(itemId)}/trace`, { headers: fpHeaders() }) }; }
+    catch (err) { if (!editor.token) fp.key = ''; tx.items.trace = { id: itemId, error: err.message }; }
+    drawTxItems();
+    document.getElementById('tx-trace')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   // Work items the tracker read from files: what was extracted, what may be missing, conflicts, table descriptions.
-  const tx = { view: null, note: '', editing: '', draft: '', rebuildNote: '', team: null };
+  const tx = { view: null, note: '', editing: '', draft: '', rebuildNote: '', team: null, items: null };
   const TX_STATUS = { chua_bat_dau: 'Chưa bắt đầu', dang_lam: 'Đang làm', bi_chan: 'Bị chặn', tam_dung: 'Tạm dừng', hoan_thanh: 'Hoàn thành' };
   const TX_FIELD = { han: 'Hạn', phu_trach: 'Phụ trách', trang_thai: 'Trạng thái', trong_file: 'Dòng trong file' };
   async function trackerFilesHtml() {
@@ -1617,6 +1712,11 @@
       load(); return;
     }
     if (b.dataset.txOpen) { await openExtraction(b.dataset.txOpen); return; }
+    if (b.dataset.txItems) { await openChannelItems(b.dataset.txItems); return; }
+    if (b.dataset.txItemsClose !== undefined) { tx.items = null; drawTxItems(); return; }
+    if (b.dataset.txItemsFilter) { tx.items.filter = b.dataset.txItemsFilter; tx.items.trace = null; drawTxItems(); return; }
+    if (b.dataset.txTrace) { await openTrace(b.dataset.txTrace); return; }
+    if (b.dataset.txTraceClose !== undefined) { tx.items.trace = null; drawTxItems(); return; }
     if (b.dataset.txClose !== undefined) { tx.view = null; drawTxView(); return; }
     if (b.dataset.txReimport !== undefined) {
       if (!(await ensureSession('đọc lại đầu việc của file'))) return;

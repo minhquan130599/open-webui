@@ -188,3 +188,267 @@ async def channel_manager(channel_id: str, form: ManagerForm, token: str = Depen
     if isinstance(result, dict) and result.get('error'):
         raise HTTPException(502, result['error'])
     return result
+
+
+# ---------- work items of a channel, and why each one exists ----------
+# Item names, details and the messages behind them are channel content: reveal key or admin edit session.
+
+STATUS_TEXT = {
+    'chua_bat_dau': 'chưa bắt đầu', 'dang_lam': 'đang làm', 'bi_chan': 'bị chặn', 'tam_dung': 'tạm dừng',
+    'hoan_thanh': 'hoàn thành',
+}
+
+
+async def _channel_state(channel_id: str) -> dict:
+    from open_webui.monitoring.server.app import rows
+
+    found = await rows(
+        """SELECT c.name AS channel, s.state::jsonb AS state, s.archive::jsonb AS archive,
+               s.processed_at / 1000000 AS processed_at
+           FROM tracker_state s LEFT JOIN channel c ON c.id = s.channel_id WHERE s.channel_id = :id""",
+        id=channel_id,
+    )
+    if not found:
+        raise HTTPException(404, 'Kênh chưa được theo dõi tiến độ')
+    return found[0]
+
+
+def _source_kinds(sources: list) -> dict:
+    return {
+        'tin_nhan': sum(1 for s in sources if s.startswith('msg:')),
+        'file': sum(1 for s in sources if s.startswith('file:')),
+        'dong_bang': sum(1 for s in sources if s.startswith('table:')),
+    }
+
+
+async def _channel_items(channel_id: str) -> dict:
+    found = await _channel_state(channel_id)
+    items = []
+    for entry in (found['state'] or {}).get('hang_muc') or []:
+        items.append({**entry, 'da_dong': False, 'nguon_dem': _source_kinds(entry.get('nguon') or [])})
+    for entry in found['archive'] or []:
+        items.append({**entry, 'da_dong': True, 'nguon_dem': _source_kinds(entry.get('nguon') or [])})
+    return {'channel': found['channel'], 'processed_at': found['processed_at'], 'items': items}
+
+
+async def _trace(channel_id: str, item_id: str) -> dict:
+    """Everything behind one item: the messages, file rows and document quotes it came from, how its owners were
+    resolved, and the summary runs that read its messages."""
+    from open_webui.monitoring.server.app import rows
+
+    found = await _channel_state(channel_id)
+    entries = [*((found['state'] or {}).get('hang_muc') or []), *(found['archive'] or [])]
+    item = next((e for e in entries if e.get('id') == item_id), None)
+    if not item:
+        raise HTTPException(404, 'Không có việc này trong kênh (có thể đã bị gỡ ở lần tổng hợp sau)')
+    sources = item.get('nguon') or []
+    message_ids = [s[4:] for s in sources if s.startswith('msg:')]
+    file_ids = [s[5:] for s in sources if s.startswith('file:')]
+    table_keys = [s for s in sources if s.startswith('table:')]
+
+    messages = []
+    if message_ids:
+        present = {
+            r['id']: r
+            for r in await rows(
+                """SELECT m.id, m.created_at / 1000000 AS created_at, m.content, m.parent_id, u.name AS user_name,
+                       (SELECT string_agg(coalesce(f->>'name', f->'file'->>'filename', ''), ', ')
+                          FROM jsonb_array_elements(coalesce(m.data::jsonb->'files', '[]'::jsonb)) f) AS files
+                   FROM message m LEFT JOIN "user" u ON u.id = m.user_id
+                   WHERE m.channel_id = :channel AND m.id = ANY(:ids)""",
+                channel=channel_id,
+                ids=message_ids,
+            )
+        }
+        for message_id in message_ids:
+            row = present.get(message_id)
+            messages.append(
+                {**row, 'content': (row['content'] or '')[:4000], 'con': True} if row else {'id': message_id, 'con': False}
+            )
+
+    files = []
+    if file_ids:
+        names = {r['id']: r['filename'] for r in await rows('SELECT id, filename FROM file WHERE id = ANY(:ids)', ids=file_ids)}
+        files = [{'id': i, 'ten': names.get(i), 'con': i in names} for i in file_ids]
+
+    # The file reading that produced the item: the newest cached extraction of its files holding its row key (a
+    # document item has no row key: matched by name).
+    readings = []
+    if file_ids:
+        extracted = await rows(
+            """SELECT t.id, t.created_at / 1000000 AS created_at, t.data::jsonb->>'name' AS name,
+                   t.data::jsonb->>'kind' AS kind, t.data::jsonb->'report'->'spec' AS spec,
+                   t.data::jsonb->'report'->'tieu_de_cot' AS titles, e.value AS entry
+               FROM tracker_item t, jsonb_array_elements(coalesce(t.data::jsonb->'items', '[]'::jsonb)) e(value)
+               WHERE t.source_type = 'file_tasks' AND t.source_ids::jsonb ?| CAST(:files AS text[])
+                 AND (e.value->>'khoa' = ANY(CAST(:keys AS text[]))
+                      OR (cardinality(CAST(:keys AS text[])) = 0 AND e.value->>'ten' = :name))
+               ORDER BY t.created_at DESC LIMIT 20""",
+            files=file_ids,
+            keys=table_keys,
+            name=item.get('ten') or '',
+        )
+        seen = set()
+        for r in extracted:
+            key = r['entry'].get('khoa') or r['entry'].get('ten')
+            if key not in seen:
+                seen.add(key)
+                readings.append(r)
+
+    # Summary runs that read one of its messages (or a file posted in one).
+    history = []
+    if message_ids:
+        wanted = set(message_ids)
+        for r in await rows(
+            """SELECT id, created_at / 1000000 AS created_at, source_ids::jsonb AS source_ids, summary,
+                   data::jsonb->'giao_viec' AS giao_viec, data::jsonb->'viec_bi_go' AS removed,
+                   data::jsonb->'deleted_ids' AS deleted_ids, data::jsonb->'edited_ids' AS edited_ids,
+                   data::jsonb->'file_tasks' AS file_tasks
+               FROM tracker_item WHERE channel_id = :channel AND source_type = 'message_batch'
+               ORDER BY created_at DESC LIMIT 500""",
+            channel=channel_id,
+        ):
+            touched = set(r['source_ids'] or []) | set(r['edited_ids'] or []) | set(r['deleted_ids'] or [])
+            touched |= {f.get('message_id') for f in r['file_tasks'] or [] if isinstance(f, dict)}
+            if touched & wanted:
+                history.append(
+                    {'id': r['id'], 'created_at': r['created_at'], 'summary': r['summary'], 'giao_viec': r['giao_viec'],
+                     'removed': r['removed']}
+                )
+
+    return {
+        'channel': found['channel'],
+        'item': item,
+        'why': _why(item, messages, files, readings),
+        'owners': _owner_trace(item),
+        'messages': messages,
+        'files': files,
+        'readings': [
+            {'id': r['id'], 'created_at': r['created_at'], 'name': r['name'], 'kind': r['kind'], 'entry': r['entry'],
+             'columns': _spec_columns(r)}
+            for r in readings
+        ],
+        'history': history[:30],
+    }
+
+
+def _spec_columns(reading: dict) -> dict:
+    """Columns by role: their header names when the reading kept them, else the letters of the description."""
+    spec = reading.get('spec')
+    letters = (spec.get('cot') or {}) if isinstance(spec, dict) else {}
+    titles = reading.get('titles') if isinstance(reading.get('titles'), dict) else {}
+    return {role: [f'"{t}"' for t in titles[role]] if titles.get(role) else value for role, value in letters.items()}
+
+
+def _columns(cols: dict, role: str) -> str:
+    value = cols.get(role)
+    if not value:
+        return ''
+    return ' + '.join(value) if isinstance(value, list) else str(value)
+
+
+def _why(item: dict, messages: list, files: list, readings: list) -> list:
+    """Plain sentences saying where the item comes from, built from its sources (no model involved)."""
+    lines = []
+    for r in readings:
+        entry, cols = r['entry'], _spec_columns(r)
+        key = entry.get('khoa') or ''
+        where = key.split(':', 2)[-1] if key else ''
+        code, _, part = where.partition('#')
+        if part.startswith('yc'):
+            lines.append(
+                f'Đề xuất từ yêu cầu chưa có ai xử lý ở dòng {code} (dòng {entry.get("dong")}) của file "{r["name"]}": '
+                f'cột bối cảnh {_columns(cols, "ngu_canh") or "?"} nêu yêu cầu này nhưng cột hành động '
+                f'{_columns(cols, "ten") or "?"} không có việc nào đáp ứng. Tên việc do model đặt; chi tiết là câu gốc trong file.'
+            )
+        elif key:
+            lines.append(
+                f'Từ dòng {code} (dòng {entry.get("dong")}) của file "{r["name"]}"'
+                + (f', việc thứ {part} tách từ dòng này (khác người hoặc khác hạn)' if part and part != '1' else '')
+                + f'. Tên việc tóm tắt từ cột {_columns(cols, "ten") or "?"}'
+                + (f', chi tiết từ cột {_columns(cols, "mo_ta")}' if _columns(cols, 'mo_ta') else '')
+                + (f'; phụ trách từ cột {_columns(cols, "phu_trach")}' if _columns(cols, 'phu_trach') else '')
+                + (f'; hạn từ cột {_columns(cols, "han")}' if _columns(cols, 'han') else '')
+                + '.'
+            )
+        else:
+            page = f', trang {entry.get("trang")}' if entry.get('trang') else ''
+            lines.append(
+                f'Trích từ văn bản "{r["name"]}"{page}; câu gốc '
+                + ('khớp văn bản.' if entry.get('xac_minh') else 'chưa khớp hẳn văn bản (model tổng hợp cân nhắc).')
+            )
+    if any(s.startswith('table:') for s in item.get('nguon') or []) and not readings:
+        lines.append('Từ một dòng bảng tính, nhưng bản trích của file không còn trong bộ nhớ (đã đọc lại hoặc file bị gỡ).')
+    alive = [m for m in messages if m.get('con')]
+    gone = [m for m in messages if not m.get('con')]
+    if alive and not readings:
+        names = ', '.join(dict.fromkeys(m.get('user_name') or '?' for m in alive))
+        lines.append(f'Model tổng hợp từ {len(alive)} tin nhắn của {names}; người và hạn đã được code đối chiếu với tin.')
+    elif alive:
+        lines.append(f'File được gửi trong {len(alive)} tin nhắn của kênh.')
+    if gone:
+        lines.append(f'{len(gone)} tin nguồn đã bị xóa khỏi kênh: việc sẽ bị gỡ ở lượt tổng hợp tới nếu không còn nguồn khác.')
+    if any(not f.get('con') for f in files):
+        lines.append('File nguồn không còn trên hệ thống.')
+    if not item.get('nguon'):
+        lines.append('Việc không còn nguồn nào (thêm tay hoặc nguồn đã bị bỏ).')
+    if item.get('tao_luc'):
+        lines.append(
+            f'Tạo ngày {item["tao_luc"]}'
+            + (f', cập nhật lần cuối {item["cap_nhat_luc"]}' if item.get('cap_nhat_luc') else '')
+            + f'; trạng thái {STATUS_TEXT.get(item.get("trang_thai"), item.get("trang_thai"))}.'
+        )
+    return lines
+
+
+def _owner_trace(item: dict) -> list:
+    """How each owner name stands: an account fixed for sure, a team still to declare, someone outside the
+    company, or a name matched (or not) by name."""
+    links = item.get('phu_trach_links') or {}
+    teams = set(item.get('doi_nhom') or [])
+    outside = set(item.get('ben_ngoai') or [])
+    linked = item.get('phu_trach_ids') or []
+    out = []
+    for name in item.get('phu_trach') or []:
+        if name in links:
+            state = 'tài khoản đã gắn chắc (tag @, gán tay hoặc chức vụ kênh)'
+        elif name in teams:
+            state = 'team / chức vụ chưa khai báo thành viên trong kênh'
+        elif name in outside:
+            state = 'người / đơn vị ngoài công ty'
+        elif linked:
+            state = 'khớp theo tên với thành viên kênh'
+        else:
+            state = 'chưa khớp tài khoản nào (tên trùng hoặc không có trong kênh)'
+        out.append({'ten': name, 'trang_thai': state, 'tai_khoan': links.get(name)})
+    if item.get('nhom'):
+        out.append({'ten': item['nhom'], 'trang_thai': 'giao cho cả nhóm / chức vụ', 'tai_khoan': None})
+    if item.get('chua_giao'):
+        out.append({'ten': '—', 'trang_thai': 'chưa giao: nguồn không nêu ai làm', 'tai_khoan': None})
+    return out
+
+
+@router.get('/api/tracker/channels/{channel_id}/items')
+async def channel_items_reveal(channel_id: str, request: Request):
+    from open_webui.monitoring.server.app import check_reveal
+
+    check_reveal(request, f'tracker items {channel_id}')
+    return await _channel_items(channel_id)
+
+
+@router.get('/api/admin/tracker/channels/{channel_id}/items')
+async def channel_items_admin(channel_id: str, token: str = Depends(require_session)):
+    return await _channel_items(channel_id)
+
+
+@router.get('/api/tracker/channels/{channel_id}/items/{item_id}/trace')
+async def item_trace_reveal(channel_id: str, item_id: str, request: Request):
+    from open_webui.monitoring.server.app import check_reveal
+
+    check_reveal(request, f'tracker trace {channel_id}/{item_id}')
+    return await _trace(channel_id, item_id)
+
+
+@router.get('/api/admin/tracker/channels/{channel_id}/items/{item_id}/trace')
+async def item_trace_admin(channel_id: str, item_id: str, token: str = Depends(require_session)):
+    return await _trace(channel_id, item_id)

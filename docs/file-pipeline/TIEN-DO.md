@@ -203,3 +203,9 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   nhận; mỗi lượt còn đối chiếu nguồn: việc mà mọi tin nguồn đã không còn trong kênh (kể cả trả lời bị xóa theo tin gốc,
   vốn không qua hook xóa) được gỡ như tin bị xóa. Nút làm mới ↻ trên bảng tiến độ luôn chạy một lượt (không có gì mới thì
   chỉ đối chiếu, không gọi model).
+- Monitor, tab Tracker → Kênh dự án: nút "Xem việc" mở danh sách việc của kênh (lọc: đang mở, chưa gán, đề xuất từ
+  yêu cầu, từ file, chỉ từ tin nhắn, đã đóng / hủy) và nút "Truy vết" từng việc: vì sao có việc (dòng nào của file, cột
+  nào, tách từ dòng vì khác người / hạn, đề xuất từ yêu cầu chưa ai xử lý, tổng hợp từ tin nhắn nào), người phụ trách
+  được xác định thế nào (gắn chắc / team chưa khai báo / ngoài công ty / khớp tên / chưa khớp), kết quả đọc file và câu
+  gốc, các tin nhắn nguồn (đánh dấu tin đã xóa), các lượt tổng hợp đã đọc tin nguồn. Cần khóa truy xuất hoặc phiên chỉnh
+  sửa (nội dung kênh). Bản trích bảng lưu thêm tên tiêu đề của các cột đã dùng ("tieu_de_cot") để truy vết hiện tên cột.

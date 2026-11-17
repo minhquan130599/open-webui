@@ -474,6 +474,17 @@ def _column(spec_value, names: list[str]) -> Optional[int]:
     return resolve_column(names, str(spec_value).strip())
 
 
+def column_titles(spec: dict, names: list[str]) -> dict:
+    """The header of each column the description uses, by role ("ten": ["Next step/Action"]), for people reviewing."""
+    out = {}
+    for role, value in (spec.get('cot') or {}).items():
+        values = value if isinstance(value, list) else [value]
+        titles = [names[i] for i in (_column(v, names) for v in values) if i is not None and i < len(names) and names[i]]
+        if titles:
+            out[role] = titles
+    return out
+
+
 def _find_sheet(sheets: list[dict], name) -> Optional[dict]:
     wanted = str(name or '').strip().lower()
     for sheet in sheets:
@@ -1247,7 +1258,10 @@ async def extract_table(
                 'items': dedupe_items(items),
                 'quyet_dinh': [],
                 'rui_ro': [],
-                'report': {**report, 'mode': 'spec', 'stats': result['stats'], 'issues': result['issues'], 'split': split},
+                'report': {
+                    **report, 'mode': 'spec', 'stats': result['stats'], 'issues': result['issues'], 'split': split,
+                    'tieu_de_cot': column_titles(spec, result.get('columns') or []),
+                },
             }
         notes.append('bản mô tả đọc được quá ít dòng, chuyển sang đọc theo lô: ' + '; '.join(result['issues']))
     sheet = _find_sheet(sheets, spec.get('sheet')) or max(sheets, key=lambda s: len(s['rows']))
