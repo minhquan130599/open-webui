@@ -1075,7 +1075,14 @@
 									<span
 										class="absolute -left-[1.3rem] top-1 size-2.5 rounded-full border-2 border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-900"
 									></span>
-									<div class="tabular-nums text-gray-500">{fromNs(entry.period_end)}</div>
+									<div class="tabular-nums text-gray-500">
+										{fromNs(entry.period_end)}
+										{#if entry.created_at && entry.created_at - entry.period_end > 15 * 60 * 1e9}
+											<span class="text-gray-400"
+												>· {$i18n.t('summarized {{time}}', { time: fromNs(entry.created_at) })}</span
+											>
+										{/if}
+									</div>
 									<div class="text-gray-700 dark:text-gray-300">{entry.summary}</div>
 								</li>
 							{:else}

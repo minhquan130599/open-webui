@@ -278,6 +278,12 @@ def _extraction_line(name: str, result: dict) -> str:
     are listed for it to judge."""
     from open_webui.tracker.extract import item_line
 
+    report = result.get('report') or {}
+    if report.get('loai') == 'tham_khao':
+        return _truncate(
+            'Tài liệu tham khảo, không giao việc cho dự án' + (f' ({report["ly_do"]})' if report.get('ly_do') else '')
+            + ': không tạo hạng mục từ nội dung tài liệu.'
+        )
     items = result.get('items') or []
     verified = [i for i in items if i.get('xac_minh')]
     lines = [f'{len(verified)} đầu việc trích từ file đã được đưa vào hạng mục (nguồn: tin nhắn này).']

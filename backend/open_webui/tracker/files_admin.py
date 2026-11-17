@@ -102,8 +102,9 @@ async def rebuild_preview(channel_id: str) -> dict:
 async def rebuild_channel(channel_id: str) -> dict:
     """Start the channel's summary over: every message and file is read again with the current code.
 
-    Items closed or cancelled in the channel stay in the archive, so they do not come back. The batch history
-    is kept. Refused while the tracker is working on the channel (its result would be committed on top).
+    Items closed or cancelled in the channel stay in the archive, so they do not come back. The update history is
+    written again as the messages are read again. Refused while the tracker is working on the channel (its result
+    would be committed on top).
     """
     now = time.time_ns()
     preview = await rebuild_preview(channel_id)
@@ -123,6 +124,10 @@ async def rebuild_channel(channel_id: str) -> dict:
         stale = [r.id for r in cached if files & set(r.source_ids or [])]
         if stale:
             await db.execute(delete(TrackerItem).where(TrackerItem.id.in_(stale)))
+        # The update history described the old reading: it is written again as the messages are read again.
+        history = await db.execute(
+            delete(TrackerItem).where(TrackerItem.channel_id == channel_id, TrackerItem.source_type == 'message_batch')
+        )
         row.state = None
         row.version = (row.version or 0) + 1
         row.watermark = 0
@@ -136,4 +141,4 @@ async def rebuild_channel(channel_id: str) -> dict:
         row.last_error = None
         row.updated_at = now
         await db.commit()
-    return {**preview, 'dropped_extractions': len(stale), 'started': True}
+    return {**preview, 'dropped_extractions': len(stale), 'dropped_history': history.rowcount or 0, 'started': True}

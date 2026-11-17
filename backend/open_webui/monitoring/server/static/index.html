@@ -1136,7 +1136,7 @@
       { label: 'Tổng hợp gần nhất', render: (r) => `${r.running ? '<span class="spin"></span> đang chạy · ' : ''}${r.processed_at ? when(r.processed_at) : '—'}${r.fail_count ? `<div style="font-size:11px;color:var(--red)">${esc(r.last_error || '')}</div>` : ''}` },
       { label: '', render: (r) => `<button class="btn" type="button" data-tx-rebuild="${esc(r.channel_id)}" ${r.running ? 'disabled title="Đang tổng hợp"' : ''}>Tổng hợp lại kênh</button>` },
     ], d.items, 'Chưa có kênh nào được theo dõi tiến độ.');
-    return card('Kênh dự án', `<p class="muted" style="font-size:12.5px;margin:-4px 0 10px"><b>Tổng hợp lại kênh</b> đọc lại toàn bộ tin nhắn và file của kênh bằng phiên bản hiện tại, thay danh sách việc đang mở bằng kết quả mới (không trùng, không còn việc rác từ các lần đọc cũ). Việc đã đóng hoặc hủy được giữ và không bị tạo lại; lịch sử tổng hợp được giữ. Các chỉnh tay trên việc đang mở sẽ mất. Cần phiên chỉnh sửa.</p>${tx.rebuildNote ? `<div class="notice info" style="margin-bottom:8px">${esc(tx.rebuildNote)}</div>` : ''}${rows}`);
+    return card('Kênh dự án', `<p class="muted" style="font-size:12.5px;margin:-4px 0 10px"><b>Tổng hợp lại kênh</b> đọc lại toàn bộ tin nhắn và file của kênh bằng phiên bản hiện tại, thay danh sách việc đang mở bằng kết quả mới (không trùng, không còn việc rác từ các lần đọc cũ). Việc đã đóng hoặc hủy được giữ và không bị tạo lại; lịch sử cập nhật được ghi lại từ đầu. Các chỉnh tay trên việc đang mở sẽ mất. Cần phiên chỉnh sửa.</p>${tx.rebuildNote ? `<div class="notice info" style="margin-bottom:8px">${esc(tx.rebuildNote)}</div>` : ''}${rows}`);
   }
 
   // Work items the tracker read from files: what was extracted, what may be missing, conflicts, table descriptions.
@@ -1147,7 +1147,7 @@
     let d;
     try { d = await api(`/api/tracker/extractions?range=${range === '24h' || range === '1h' ? '7d' : range}`); }
     catch (err) { return card('Đầu việc trích từ file', `<div class="error-box">${esc(err.message)}</div>`); }
-    const kindLabel = (r) => { const rep = r.report || {}; if (r.kind === 'table') return rep.mode === 'spec' ? 'Bảng (theo bản mô tả)' : rep.mode === 'model' ? 'Bảng (model đọc theo lô)' : 'Bảng (không có việc)'; return r.kind === 'image' ? 'Ảnh (chép chữ bằng vision)' : 'Văn bản'; };
+    const kindLabel = (r) => { const rep = r.report || {}; if (r.kind === 'table') return rep.mode === 'spec' ? 'Bảng (theo bản mô tả)' : rep.mode === 'model' ? 'Bảng (model đọc theo lô)' : 'Bảng (không có việc)'; if ((r.report || {}).loai === 'tham_khao') return 'Tài liệu tham khảo (không trích việc)'; return r.kind === 'image' ? 'Ảnh (chép chữ bằng vision)' : 'Văn bản'; };
     // Quality of one extraction: every point placed, nothing invented in owners or deadlines.
     const quality = (r) => {
       const rep = r.report || {};
@@ -1161,6 +1161,7 @@
         return `<span class="muted" style="font-size:11.5px">${parts.join(' · ')}${bad.length ? `<br><span style="color:var(--amber, #b45309)">${bad.join(' · ')}</span>` : ''}</span>`;
       }
       if (r.kind === 'table') return `<span class="muted" style="font-size:11.5px">${esc((rep.issues || []).join('; ') || (rep.notes || []).slice(-1).join(''))}</span>`;
+      if (rep.loai === 'tham_khao') return `<span class="muted" style="font-size:11.5px">${esc(rep.ly_do || 'Model xếp là tài liệu tham khảo')}</span>`;
       const rej = rep.rejected || {};
       const removed = [rej.phu_trach ? `${n(rej.phu_trach)} người` : '', rej.han ? `${n(rej.han)} hạn` : '', rej.tien_do ? `${n(rej.tien_do)} %` : ''].filter(Boolean);
       return `${n(rep.rechecked || 0)} phần đọc lại, thêm ${n(rep.added_by_recheck || 0)} việc${(rep.suspect || []).length ? ` · <span class="pill warn">${rep.suspect.length} phần vẫn nghi thiếu</span>` : ''}${removed.length ? `<div class="muted" style="font-size:11px">loại vì không có trong văn bản: ${removed.join(', ')}</div>` : ''}`;

@@ -62,6 +62,7 @@ export type TrackerItem = {
 	period_end: number;
 	summary: string | null;
 	data: { attachments?: string[] } | null;
+	created_at?: number; // ns, when the batch was summarized (period_* are the messages' times)
 };
 
 const request = async (token: string, path: string, method = 'GET', body?: unknown) => {

@@ -29,7 +29,7 @@ from open_webui.tracker.schema import _STATUS_ALIASES, STATUSES, WorkItem, _clea
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 6
+EXTRACT_VERSION = 7
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 ROW_BATCH_CHARS = 10_000
@@ -68,11 +68,27 @@ DOC_PROMPT = """Tài liệu "{name}", phần {index}/{total}{pages}. Hôm nay l�
 
 Liệt kê MỌI đầu việc trong phần này (việc phải làm, nhiệm vụ được giao, hạng mục đang triển khai, việc đã xong),
 kể cả khi danh sách dài, cùng các quyết định và rủi ro. Mỗi việc một mục, không gộp nhiều việc làm một.
+Nghĩa vụ chung được trích từ luật, quy định, quy trình chung không phải đầu việc của dự án.
 "ten" tóm tắt tối đa 15 từ, bắt đầu bằng động từ; ý phụ đưa vào "chi_tiet". Người phụ trách, hạn, tiến độ chỉ ghi khi
 văn bản nêu rõ.
 Dòng [trang N] đánh dấu trang bắt đầu. Trả về đúng một JSON:
 """ + ITEM_FORMAT + """
 Không suy diễn thông tin không có trong văn bản: thiếu thì để null hoặc []. Không có gì thì trả về các danh sách rỗng."""
+
+CLASSIFY_PROMPT = """Tài liệu "{name}". Dưới đây là mục lục và phần đầu của tài liệu.
+<tai_lieu>
+{text}
+</tai_lieu>
+
+Tài liệu này dùng để làm gì?
+- "theo_doi": tài liệu của chính dự án / nhóm để giao việc hoặc theo dõi tiến độ: kế hoạch triển khai, biên bản họp, báo
+  cáo tiến độ, danh sách việc, tin hoặc email giao việc, đề xuất có phân công người làm.
+- "tham_khao": tài liệu để đọc, tra cứu, không giao việc cho người trong dự án: văn bản pháp luật (luật, nghị định,
+  thông tư, quyết định áp dụng chung), quy chuẩn, tiêu chuẩn, quy định / quy trình / quy tắc chung, hướng dẫn sử dụng,
+  tài liệu kỹ thuật, hợp đồng hoặc biểu mẫu mẫu, bài viết, tài liệu đào tạo.
+Nghĩa vụ chung trong văn bản pháp luật hay quy trình ("chủ quản hệ thống phải…", "trợ lý AI phải…") không phải đầu việc
+của dự án. Trả về đúng một JSON: {{"loai": "theo_doi|tham_khao", "ly_do": "một câu"}}"""
+CLASSIFY_CHARS = 6000
 
 RECHECK_PROMPT = """Tài liệu "{name}", phần {index}/{total}{pages}. Hôm nay là {today}.
 <tai_lieu>
@@ -286,12 +302,43 @@ def _with_page_marks(content: str, start: int, end: int, structure: dict) -> str
     return ''.join(pieces)
 
 
+async def classify_document(name: str, content: str, structure: dict) -> dict:
+    """{'loai': 'theo_doi' | 'tham_khao', 'ly_do'}: whether the document assigns or tracks the project's work, or is
+    reference material (a law, a regulation, a guide, rules) whose obligations are nobody's task in the project.
+    Decided by the model from the outline and the beginning; an unclear answer reads the document for tasks."""
+    from open_webui.utils.file_structure import build_outline
+
+    outline = await asyncio.to_thread(build_outline, content, structure, 40)
+    headings = '\n'.join(h['title'] for h in outline.get('headings') or [])
+    text = (f'MỤC LỤC:\n{headings}\n\nPHẦN ĐẦU:\n' if headings else '') + content[:CLASSIFY_CHARS]
+    try:
+        answer = await _ask_json(CLASSIFY_PROMPT.format(name=name, text=text), max_tokens=300)
+    except llm.TrackerLLMError:
+        raise
+    except Exception as error:
+        log.warning('Tracker: document %s not classified (%s)', name, error)
+        answer = {}
+    kind = 'tham_khao' if 'tham_khao' in normalize_key(str(answer.get('loai') or '')).replace(' ', '_') else 'theo_doi'
+    return {'loai': kind, 'ly_do': str(answer.get('ly_do') or '').strip()[:300]}
+
+
 async def extract_document(name: str, content: str, structure: dict, today: str, concurrency: int = 4) -> dict:
-    """{'items', 'quyet_dinh', 'rui_ro', 'report'} from a document's full text; every part is read."""
+    """{'items', 'quyet_dinh', 'rui_ro', 'report'} from a document's full text; every part is read.
+    Reference documents (laws, regulations, guides) are recognized first and give no items."""
     from open_webui.utils.file_structure import page_at, pages_between, split_segments
 
     segments = await asyncio.to_thread(split_segments, content, structure, SEGMENT_CHARS)
     total = len(segments)
+    purpose = await classify_document(name, content, structure)
+    if purpose['loai'] == 'tham_khao':
+        return {
+            'kind': 'document',
+            'items': [],
+            'quyet_dinh': [],
+            'rui_ro': [],
+            'report': {'parts': total, **purpose, 'expected': 0, 'rechecked': 0, 'added_by_recheck': 0,
+                       'unverified': 0, 'rejected': {}, 'suspect': []},
+        }
     semaphore = asyncio.Semaphore(max(concurrency, 1))
 
     async def read(index: int, start: int, end: int) -> dict:
@@ -351,6 +398,7 @@ async def extract_document(name: str, content: str, structure: dict, today: str,
         'rui_ro': [e for part in parts for e in part['rui_ro']],
         'report': {
             'parts': total,
+            **purpose,
             'expected': sum(p['expected'] for p in parts),
             'rechecked': sum(p['rechecked'] for p in parts),
             'added_by_recheck': sum(p['added'] for p in parts),

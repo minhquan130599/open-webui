@@ -944,6 +944,7 @@
 	"Desktop audio unavailable.": "Âm thanh từ màn hình máy tính không khả dụng.",
 	"Desktop connection failed.": "Kết nối màn hình máy tính không thành công.",
 	"Destination": "Đích đến",
+	"summarized {{time}}": "tổng hợp lúc {{time}}",
 	"Details": "Chi tiết",
 	"Detected Variables": "Biến được phát hiện",
 	"dev build": "bản dựng dev",
