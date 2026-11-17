@@ -129,10 +129,10 @@ async def set_roles(channel_id: str, roles: list[dict]) -> dict:
     config = await channel_config.update(channel_id, change)
 
     def follow(state) -> bool:
-        changed = False
+        changed = channel_config.apply_roles(state, config)
         for item in state.hang_muc:
             role = channel_config.find_role(config, item.nhom) if item.nhom and item.nhom != 'Cả nhóm' else None
-            if role is not None and item.phu_trach != role['nguoi']:
+            if role is not None and not item.doi_nhom and item.phu_trach != role['nguoi']:
                 item.phu_trach, item.phu_trach_ids = list(role['nguoi']), list(role['ids'])
                 item.chua_giao = not item.phu_trach
                 changed = True

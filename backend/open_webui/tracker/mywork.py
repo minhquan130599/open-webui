@@ -100,6 +100,7 @@ async def collect(channels: list) -> list[WorkEntry]:
                 continue
             names = [n for n in item.get('phu_trach') or [] if isinstance(n, str)]
             outside_company = [n for n in item.get('ben_ngoai') or [] if isinstance(n, str)]
+            teams = [n for n in item.get('doi_nhom') or [] if isinstance(n, str)]
             owner_ids = [i for i in item.get('phu_trach_ids') or [] if isinstance(i, str)]
             if people is None:
                 people = await channel_people(channel)
@@ -107,6 +108,9 @@ async def collect(channels: list) -> list[WorkEntry]:
             for name in names:
                 if name in outside_company:
                     owners.append({'name': name, 'id': None, 'status': 'external'})
+                    continue
+                if name in teams:
+                    owners.append({'name': name, 'id': None, 'status': 'team'})
                     continue
                 user_id = aliases.get(normalize_key(name)) or match_person(name, people)
                 if user_id and user_id not in owner_ids:

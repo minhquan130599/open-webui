@@ -29,7 +29,7 @@ from open_webui.tracker.schema import _STATUS_ALIASES, STATUSES, WorkItem, _clea
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 8
+EXTRACT_VERSION = 9
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 ROW_BATCH_CHARS = 10_000
@@ -676,8 +676,9 @@ dòng, các ý của VIỆC CẦN LÀM đánh số [1], [2]..., và có thể c�
 </tai_lieu>
 
 Với mỗi dòng, lập đầu việc để theo dõi tiến độ:
-0. "nguoi": tách ô người phụ trách thành từng người hoặc đơn vị, chép đúng chữ trong ô (ô "Long / Triển" là 2 người
-   "Long", "Triển"; ô "Phòng R & D" là 1 đơn vị). Không thêm ai ngoài ô.
+0. Tách ô người phụ trách, chép đúng chữ trong ô, không thêm ai ngoài ô: "nguoi" = từng NGƯỜI (ô "Long / Triển" là 2
+   người "Long", "Triển"); "nhom" = từng TEAM / phòng ban / chức vụ (ô "SOC, PM" là 2 nhóm "SOC", "PM"; "Phòng R & D"
+   là 1 nhóm).
 1. Mặc định cả dòng là MỘT việc. Chỉ tách thành nhiều việc khi các ý có người phụ trách khác nhau (chọn trong "nguoi")
    hoặc có hạn riêng ghi rõ trong ý. Ý nào ghi hạn riêng của chính nó thì liệt kê trong "han_rieng".
 2. "ten": tóm tắt việc tối đa 15 từ, bắt đầu bằng động từ, giữ tên đơn vị, khách hàng, sản phẩm; không chép nguyên câu.
@@ -691,7 +692,7 @@ Với mỗi dòng, lập đầu việc để theo dõi tiến độ:
    Liệt kê trong "chua_xu_ly" các yêu cầu mà KHÔNG ý nào của VIỆC CẦN LÀM xử lý, kể cả gián tiếp; đáp ứng một phần thì
    ghi phần còn thiếu vào "con_thieu". Yêu cầu đã được một hành động xử lý thì không liệt kê. Không tạo việc đã giao từ [Y..].
 Trả về đúng một JSON:
-{{"dong": [{{"ma": "R1", "nguoi": ["..."],
+{{"dong": [{{"ma": "R1", "nguoi": ["..."], "nhom": ["..."],
   "viec": [{{"ten": "...", "chi_tiet": ["..."], "y": [1, 2], "phu_trach": ["trong nguoi, chỉ khi ý ghi rõ ai làm"],
             "han": "YYYY-MM-DD chỉ khi ý ghi hạn riêng, không thì null"}}],
   "han_rieng": [{{"y": 3, "han": "YYYY-MM-DD", "ten": "tên việc của ý đó, tối đa 15 từ"}}],
@@ -845,13 +846,14 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
             return bool(key) and f' {key} ' in cell
 
         # The row's people as the model split the cell, each checked against it; else the table's own split.
-        people = []
-        for name in answer.get('nguoi') or []:
-            if in_cell(name) and str(name).strip() not in people:
-                people.append(str(name).strip())
-            elif not in_cell(name):
-                report['owners_rejected'] += 1
-        people = people or list(item['phu_trach'])
+        people, teams = [], []
+        for kind, names in (('nguoi', people), ('nhom', teams)):
+            for name in answer.get(kind) or []:
+                if in_cell(name) and str(name).strip() not in people + teams:
+                    names.append(str(name).strip())
+                elif not in_cell(name):
+                    report['owners_rejected'] += 1
+        people = people + teams or list(item['phu_trach'])
         by_key = {normalize_key(p): p for p in people}
         tasks, placed = [], set()
         misplaced: list[tuple[int, str]] = []  # (point, deadline written in it) the model gave to another task
@@ -994,7 +996,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                 report['titles_replaced'] += 1
             missing = str(raw.get('con_thieu') or '').strip()[:300]
             gaps.append({'ten': title, 'chi_tiet': [missing] if missing else [], 'trich_dan': source[:QUOTE_CHARS]})
-        return {'tasks': grouped, 'placed': placed, 'blocker': blocker, 'gaps': gaps, 'people': people}
+        return {'tasks': grouped, 'placed': placed, 'blocker': blocker, 'gaps': gaps, 'people': people, 'teams': teams}
 
     results: dict[str, dict] = {}
 
@@ -1048,6 +1050,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                     'vuong_mac': built['blocker'] or item['vuong_mac'],
                     'trich_dan': task['trich_dan'],
                     'khoa': f'{item["khoa"]}#{index}',
+                    'doi_nhom': [t for t in built.get('teams') or [] if t in task['phu_trach']],
                     'xac_minh': True,
                 }
             )
@@ -1070,6 +1073,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                     'hoan_thanh_luc': None,
                     'vuong_mac': None,
                     'chua_giao': not owners,
+                    'doi_nhom': [t for t in built.get('teams') or [] if t in owners],
                     'trich_dan': ' '.join(g['trich_dan'] for g in gaps)[:QUOTE_CHARS],
                     'khoa': f'{item["khoa"]}#yc',
                     'xac_minh': True,
@@ -1292,6 +1296,8 @@ def merge_into_state(state, items: list[dict], source: str, today: str, matches:
                 existing.tien_do = item['tien_do']
             existing.vuong_mac = item['vuong_mac'] or existing.vuong_mac
             existing.chi_tiet = details or existing.chi_tiet
+            if item.get('doi_nhom') is not None and item.get('khoa'):
+                existing.doi_nhom = [t for t in item.get('doi_nhom') or [] if t in existing.phu_trach]
             existing.nguon = _add_sources(existing.nguon, sources)
             existing.cap_nhat_luc = today
             updated += 1
@@ -1302,6 +1308,7 @@ def merge_into_state(state, items: list[dict], source: str, today: str, matches:
                 'ten': title,
                 'chi_tiet': details,
                 'chua_giao': bool(item.get('chua_giao')),
+                'doi_nhom': list(item.get('doi_nhom') or []),
                 'id': new_item_id(),
                 'nguon': sources,
                 'tao_luc': today,

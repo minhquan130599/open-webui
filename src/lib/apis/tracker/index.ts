@@ -13,6 +13,7 @@ export type TrackerWorkItem = {
 	chua_giao?: boolean; // asked for in a file but nobody has taken it on yet
 	nhom?: string | null; // role / team it was given to ("AM", "Cả nhóm")
 	ben_ngoai?: string[]; // owners outside the company (a customer, a partner)
+	doi_nhom?: string[]; // owners that are a team nobody is declared for yet ("AM", "SOC")
 	nguon: string[];
 	tao_luc?: string | null; // YYYY-MM-DD
 	cap_nhat_luc?: string | null;

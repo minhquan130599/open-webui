@@ -3,9 +3,11 @@
 The update model returns, per new item or owner change, `giao_cho`:
 
     ten       named or @tagged people ("@Tuấn Anh làm X", "@admin check hộ em") -> exactly them, admins included
-    chuc_vu   a role or team ("các AM", "team SOC") -> its people in the channel's role table, else unassigned
+    chuc_vu   a role or team ("các AM", "team SOC") -> its people in the channel's role table; while the channel has
+              not declared it, the team itself ("AM") is the owner, and its people replace it once declared
     ca_nhom   everyone ("mọi người", "toàn team") -> channel members except system admins, the channel owner and
-              managers, the sender and people marked "không nhận việc chung"
+              managers, the sender and people marked "không nhận việc chung"; called with an explicit @ ("@all",
+              "@mọi người") -> every member but the sender, admins and the owner included
     tu_nhan   the sender takes it on or reports their own work -> the sender
     khong_ro  nobody said -> unassigned
 
@@ -64,6 +66,7 @@ class Resolved:
     names: list[str] = field(default_factory=list)
     external: list[str] = field(default_factory=list)  # outside the company (a customer, "PH04")
     group: Optional[str] = None  # role / team the work was given to
+    teams: list[str] = field(default_factory=list)  # owners that are a team nobody is declared for yet
     unassigned: bool = False
     rejected: int = 0
 
@@ -123,9 +126,12 @@ def resolve(giao_cho: Optional[dict], names: list[str], sources: list[Source], c
         role = find_role(ctx.config, role_name) if role_name else None
         result.group = (role or {}).get('ten') or role_name or None
         result.names = [display_name(n) for n in (role or {}).get('nguoi') or []]
+        if not result.names and role_name:
+            # Not declared in the channel yet: the team owns it until the channel says who is in it.
+            result.names, result.teams = [role_name], [role_name]
     elif kind == 'ca_nhom':
         senders = {s.sender_id for s in sources if s.sender_id}
-        excluded = ctx.left_out() | senders
+        excluded = senders if giao_cho.get('goi_tat_ca') else ctx.left_out() | senders
         ids = ctx.member_ids or [p.id for p in ctx.people]
         result.group = 'Cả nhóm'
         result.names = [display_name(ctx.by_id[i].name) for i in ids if i not in excluded and i in ctx.by_id]

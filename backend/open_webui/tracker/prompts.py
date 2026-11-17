@@ -24,8 +24,8 @@ Quy tắc:
 6. trang_thai là một trong: chua_bat_dau, dang_lam, bi_chan, tam_dung, hoan_thanh. muc_do rủi ro: thap, trung_binh, cao.
 7. Với mỗi việc mới, và mỗi khi tin nhắn đổi người làm một việc đã có, ghi "giao_cho" = CÁCH việc được giao, đúng theo chữ trong tin (hệ thống tự tính ra danh sách người):
    - "ten": giao cho người được nêu tên hoặc @tag ("@Tuấn Anh làm X", "@admin check hộ em", "remind PM vietanh.nguyen") -> "ten": tên chép đúng như trong tin.
-   - "chuc_vu": giao theo chức vụ / nhóm ("các AM", "PM", "team SOC") -> "chuc_vu": tên chức vụ. KHÔNG tự đoán ai giữ chức vụ.
-   - "ca_nhom": giao chung ("mọi người", "toàn team", "các nhân sự", "anh em") -> không ghi tên ai.
+   - "chuc_vu": giao theo chức vụ / nhóm ("các AM", "PM", "team SOC") -> "chuc_vu": CHỈ tên chức vụ / nhóm ("AM", "PM", "SOC"), bỏ chữ "các", "team", "nhóm". KHÔNG tự đoán ai giữ chức vụ.
+   - "ca_nhom": giao chung ("mọi người", "toàn team", "các nhân sự", "anh em") -> không ghi tên ai; "goi_tat_ca": true khi tin gọi tất cả bằng chữ @ ("@all", "@mọi người", "@everyone", "@channel").
    - "tu_nhan": người gửi tự nhận hoặc tự báo cáo việc của mình ("em làm X", "mình sẽ gửi").
    - "khong_ro": không nêu ai làm (kế hoạch, mốc thời gian không ghi người).
    "ben_ngoai": bên ngoài công ty được giao (khách hàng, đối tác như "PH04"). "thay_the": true khi tin đính chính danh sách người ("chỉ… các nhân sự sau", "thay bằng", "bỏ X ra").
@@ -36,7 +36,7 @@ Quy tắc:
 10. Tin nhắn có thẻ (hỏi trợ lý AI) gửi cho trợ lý AI. Phần nhờ AI làm (tra cứu, lọc, tổng hợp, soạn báo cáo, thông báo, nhắc, tính điểm) KHÔNG phải việc của dự án. Nhưng tin đó vẫn có thể GIAO VIỆC cho người ("@Knight thông báo cho các AM sẽ báo cáo thứ 3", "@Knight remind PM X cập nhật tiến độ"): việc của những người đó vẫn phải ghi nhận. Trợ lý AI không bao giờ là người làm.
 11. quyet_dinh_moi: quyết định mới trong lô này. rui_ro và viec_tiep_theo: nếu có thay đổi thì ghi lại TOÀN BỘ danh sách mới; nếu không đổi thì bỏ trường đó.
 12. Viết tiếng Việt, ngắn gọn. Chỉ trả về một đối tượng JSON, bỏ các trường không có thay đổi:
-{"tong_quan": str, "hang_muc_moi": [{"ten", "giao_cho": {"kieu": "ten|chuc_vu|ca_nhom|tu_nhan|khong_ro", "ten": [str], "chuc_vu": str, "ben_ngoai": [str], "thay_the": bool}, "trang_thai", "tien_do", "han", "vuong_mac", "nguon": [str]}], "cap_nhat": [{"id", "ten", "giao_cho", "trang_thai", "tien_do", "han", "vuong_mac", "nguon"}], "vai_tro_moi": [{"ten": "AM", "nguoi": [str], "thay_the": bool, "nguon": [str]}], "gop": [{"vao": id, "tu": [id]}], "quyet_dinh_moi": [{"noi_dung", "ngay", "nguon"}], "rui_ro": [{"noi_dung", "muc_do", "nguon"}], "viec_tiep_theo": [{"noi_dung", "phu_trach", "han", "nguon"}], "tom_tat_lo": str}"""
+{"tong_quan": str, "hang_muc_moi": [{"ten", "giao_cho": {"kieu": "ten|chuc_vu|ca_nhom|tu_nhan|khong_ro", "ten": [str], "chuc_vu": str, "ben_ngoai": [str], "thay_the": bool, "goi_tat_ca": bool}, "trang_thai", "tien_do", "han", "vuong_mac", "nguon": [str]}], "cap_nhat": [{"id", "ten", "giao_cho", "trang_thai", "tien_do", "han", "vuong_mac", "nguon"}], "vai_tro_moi": [{"ten": "AM", "nguoi": [str], "thay_the": bool, "nguon": [str]}], "gop": [{"vao": id, "tu": [id]}], "quyet_dinh_moi": [{"noi_dung", "ngay", "nguon"}], "rui_ro": [{"noi_dung", "muc_do", "nguon"}], "viec_tiep_theo": [{"noi_dung", "phu_trach", "han", "nguon"}], "tom_tat_lo": str}"""
 
 
 @dataclass

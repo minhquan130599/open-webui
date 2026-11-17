@@ -156,3 +156,8 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   yêu cầu chưa giao) đều qua; pyflakes không báo tên chưa định nghĩa; svelte-check không lỗi mới. Chưa chạy trên app thật.
 - Còn lại T13 (phía server): deploy (build lại frontend), Tổng hợp lại kênh bd3_csc_proj_26, bd3_monthly_kpi_26,
   poc_cg1018526003_soc, av; chủ kênh kiểm "Thành viên & chức vụ", đánh dấu "không nhận việc chung", đặt người quản lý.
+- Nhóm 9 bổ sung: "@all" / "@mọi người" (model báo `goi_tat_ca`, kênh không có kiểu tag này) → mọi thành viên trừ người
+  gửi, có cả admin và chủ kênh; "mọi người" viết thường vẫn bỏ admin / chủ kênh / quản lý / người gửi / không nhận việc
+  chung. Chức vụ / team chưa khai báo trong kênh ("các AM", ô "SOC, PM" trong file) → người phụ trách là chính team
+  ("AM", "SOC"), nhãn "Nhóm chưa khai báo người", không còn "chưa gán"; khi kênh khai báo (tin "AM: @…" hoặc sửa tay)
+  các việc đó tự gán cho thành viên. Bỏ danh sách tiền tố cứng ("các", "team"…) khi tra chức vụ: model trả tên chức vụ.

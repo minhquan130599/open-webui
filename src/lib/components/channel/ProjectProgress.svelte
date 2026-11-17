@@ -91,6 +91,11 @@
 	const ownerNote = (item: TrackerWorkItem, name: string): { text: string; className: string } | null => {
 		if (item.ben_ngoai?.includes(name))
 			return { text: $i18n.t('External'), className: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300' };
+		if (item.doi_nhom?.includes(name))
+			return {
+				text: $i18n.t('Team, no members declared'),
+				className: 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
+			};
 		if (!team) return null;
 		const member = team.members.find((m) => key(m.name) === key(name));
 		if (member?.left)
@@ -108,7 +113,10 @@
 	const unlinkedName = (item: TrackerWorkItem | null): string | null => {
 		if (!item || !team) return null;
 		const names = item.phu_trach.filter(
-			(n) => !item.ben_ngoai?.includes(n) && !team?.members.some((m) => key(m.name) === key(n))
+			(n) =>
+				!item.ben_ngoai?.includes(n) &&
+				!item.doi_nhom?.includes(n) &&
+				!team?.members.some((m) => key(m.name) === key(n))
 		);
 		return names.length === 1 ? names[0] : null;
 	};

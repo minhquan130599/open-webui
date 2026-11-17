@@ -286,6 +286,7 @@ def _assign_owners(delta, ref_sources: dict, ctx, counts: dict) -> dict:
         )
         counts['ten_bi_loai'] = counts.get('ten_bi_loai', 0) + resolved.rejected
         new.phu_trach, new.nhom, new.ben_ngoai = resolved.names, resolved.group, resolved.external
+        new.doi_nhom = resolved.teams
         new.chua_giao = resolved.unassigned
         kept.append(new)
     delta.hang_muc_moi = kept
@@ -439,11 +440,14 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                 if item.id in changed_groups:
                     item.nhom = changed_groups[item.id].group
                     item.ben_ngoai = changed_groups[item.id].external
+                    item.doi_nhom = changed_groups[item.id].teams
             merged_away |= merged
             if delta.tom_tat_lo:
                 summaries.append(delta.tom_tat_lo)
 
         _drop_ai_tasks(state, old_state, candidates, await _ai_names(candidates))
+        # Teams declared in the channel ("AM: @…", now or before) replace the team names that owned items.
+        channel_config.apply_roles(state, ctx.config)
         link_owners(state, people, ctx.config.get('bi_danh'))
         stored = {**state.model_dump(), 'schema_version': SCHEMA_VERSION}
         _drop_sources(stored, {f'msg:{d.get("id")}' for d in deletions})

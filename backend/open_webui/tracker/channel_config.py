@@ -73,15 +73,33 @@ def role_key(name: str) -> str:
 
 
 def find_role(config: dict, name: str) -> Optional[dict]:
-    """A role or team by name, ignoring case, accents and a plural word in front ("các AM", "team SOC")."""
-    key = role_key(name)
-    roles = config.get('vai_tro') or {}
-    if key in roles:
-        return roles[key]
-    for prefix in ('cac ', 'nhung ', 'team ', 'nhom ', 'doi ', 'ben ', 'phong '):
-        if key.startswith(prefix) and key[len(prefix):] in roles:
-            return roles[key[len(prefix):]]
-    return None
+    """A role or team by its name, ignoring case and accents (the model gives the bare name: "AM", "SOC")."""
+    return (config.get('vai_tro') or {}).get(role_key(name or ''))
+
+
+def apply_roles(state, config: dict) -> bool:
+    """Items owned by a team the channel has now declared ("AM" -> its people) get those people; items given to a
+    role follow its current people. Returns True when something changed."""
+    changed = False
+    for item in state.hang_muc:
+        for team in list(item.doi_nhom):
+            role = find_role(config, team)
+            if not role or not role.get('nguoi'):
+                continue
+            owners = [o for o in item.phu_trach if o != team]
+            item.phu_trach = list(dict.fromkeys([*owners, *role['nguoi']]))
+            item.doi_nhom = [t for t in item.doi_nhom if t != team]
+            item.nhom = item.nhom or role['ten']
+            item.chua_giao = False
+            changed = True
+        # Given to a role: follows the role's current people. (Assigning by hand clears nhom, so it is kept.)
+        if item.nhom and item.nhom != 'Cả nhóm' and not item.doi_nhom:
+            role = find_role(config, item.nhom)
+            if role and role.get('nguoi') and item.phu_trach != role['nguoi']:
+                item.phu_trach = list(role['nguoi'])
+                item.chua_giao = False
+                changed = True
+    return changed
 
 
 def learn_roles(config: dict, learned: list[dict]) -> int:

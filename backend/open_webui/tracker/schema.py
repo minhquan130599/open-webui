@@ -105,6 +105,9 @@ class WorkItem(_Entry):
     nhom: Optional[str] = None
     # Owners outside the company (a customer, a partner "PH04"): shown as such, never linked to an account.
     ben_ngoai: list[str] = Field(default_factory=list)
+    # Owners that are a team or role ("AM", "SOC") nobody is declared for yet in the channel; they are replaced by its
+    # people once the channel declares them.
+    doi_nhom: list[str] = Field(default_factory=list)
     # YYYY-MM-DD in the tracker timezone: first seen, last changed, and when it reached hoan_thanh.
     tao_luc: Optional[str] = None
     cap_nhat_luc: Optional[str] = None
@@ -125,7 +128,7 @@ class WorkItem(_Entry):
     def _unassigned(cls, value):
         return bool(value)
 
-    @field_validator('ben_ngoai', mode='before')
+    @field_validator('ben_ngoai', 'doi_nhom', mode='before')
     @classmethod
     def _outside(cls, value):
         return _clean_list(value)
@@ -243,6 +246,8 @@ class Assignment(BaseModel):
     chuc_vu: Optional[str] = None
     ben_ngoai: list[str] = Field(default_factory=list)
     thay_the: bool = False
+    # The message calls everyone with an explicit @ ("@all", "@mọi người"): admins and the owner are included.
+    goi_tat_ca: bool = False
 
     @field_validator('kieu', mode='before')
     @classmethod
@@ -259,7 +264,7 @@ class Assignment(BaseModel):
     def _role(cls, value):
         return _clean_text(value)
 
-    @field_validator('thay_the', mode='before')
+    @field_validator('thay_the', 'goi_tat_ca', mode='before')
     @classmethod
     def _replace(cls, value):
         return bool(value)

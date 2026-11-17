@@ -223,8 +223,11 @@ def problem_of(entry) -> tuple[Optional[str], str]:
         return None, ''
     left = [o['name'] for o in entry.owners if o['status'] == 'left']
     outside = [o['name'] for o in entry.owners if o['status'] == 'outside']
+    teams = [o['name'] for o in entry.owners if o['status'] == 'team']
     if left:
         return 'left', ', '.join(left)
+    if teams and not entry.owner_ids:
+        return 'group', ', '.join(teams)
     if not entry.owner_ids and not entry.ben_ngoai:
         if entry.nhom and entry.nhom != 'Cả nhóm':
             return 'group', entry.nhom
