@@ -82,7 +82,13 @@ async def send_due_reminders(day_before: bool = True) -> int:
     emails: dict[str, list] = {}
     # Overdue items are not notified again every day; they ride along in the email of someone reminded today.
     overdue: dict[str, list] = {}
+    # Channel owners: every open item due soon or overdue in their channels, owner linked or not.
+    by_channel: dict[str, list] = {}
     for entry in await mywork.collect(channels):
+        if entry.bucket != 'done' and entry.channel_owner_id:
+            soon = kinds.get(entry.days_left)
+            if soon or entry.bucket == 'overdue':
+                by_channel.setdefault(entry.channel_id, []).append((soon or 'overdue', entry))
         if entry.bucket == 'overdue':
             for user_id in entry.owner_ids:
                 overdue.setdefault(user_id, []).append(('overdue', entry))
@@ -118,7 +124,54 @@ async def send_due_reminders(day_before: bool = True) -> int:
             await mailer.send_reminders(emails)
         except Exception:
             log.exception('Reminder emails failed')
+    try:
+        await _owner_digests(by_channel)
+    except Exception:
+        log.exception('Channel owner digests failed')
     return created
+
+
+async def _owner_digests(by_channel: dict[str, list]) -> None:
+    """Tell each channel owner, once a day per channel, what is due soon or overdue in the channels they own.
+    Only channels with something due today or tomorrow are reported; overdue items ride along."""
+    from open_webui.models.notifications import emit_changes, insert_notifications
+    from open_webui.tracker import mailer
+
+    day = mywork.today()
+    per_owner: dict[str, list[dict]] = {}
+    notified: set[str] = set()
+    for channel_id, items in by_channel.items():
+        due = [entry for kind, entry in items if kind != 'overdue']
+        if not due:
+            continue
+        first = items[0][1]
+        owner_id = first.channel_owner_id
+        message = (
+            f'Kênh "{first.channel_name}" có {len(due)} việc đến hạn hôm nay hoặc ngày mai'
+            + (f' và {len(items) - len(due)} việc quá hạn' if len(items) > len(due) else '')
+            + '.'
+        )
+        async with get_async_db() as db:
+            recipients = await insert_notifications(
+                recipients={owner_id: EVENT_TYPE},
+                event_key=f'{EVENT_TYPE}:owner:{channel_id}:{day}',
+                resource_type='channel',
+                resource_id=channel_id,
+                object_type='channel',
+                object_id=channel_id,
+                data={'message': message, 'kind': 'owner_digest'},
+                db=db,
+            )
+            await db.commit()
+        if owner_id in recipients:
+            notified.add(owner_id)
+            per_owner.setdefault(owner_id, []).append(
+                {'id': channel_id, 'name': first.channel_name, 'items': items}
+            )
+    if notified:
+        await emit_changes(notified)
+    if per_owner:
+        await mailer.send_owner_digests(per_owner)
 
 
 async def run_if_due(now: dt.datetime) -> bool:

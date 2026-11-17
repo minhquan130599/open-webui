@@ -42,6 +42,7 @@ SMTP_SECURITY_KEY = 'tracker.reminder.email.smtp_security'  # starttls | ssl | n
 SMTP_USERNAME_KEY = 'tracker.reminder.email.smtp_username'
 SMTP_PASSWORD_KEY = 'tracker.reminder.email.smtp_password'
 SMTP_VERIFY_KEY = 'tracker.reminder.email.smtp_verify_tls'
+OWNER_DIGEST_KEY = 'tracker.reminder.email.owner_digest'  # daily digest to channel owners
 KEYS = (
     ENABLE_KEY,
     METHOD_KEY,
@@ -56,6 +57,7 @@ KEYS = (
     SMTP_USERNAME_KEY,
     SMTP_PASSWORD_KEY,
     SMTP_VERIFY_KEY,
+    OWNER_DIGEST_KEY,
 )
 
 DEFAULTS = {
@@ -72,6 +74,7 @@ DEFAULTS = {
     SMTP_USERNAME_KEY: os.getenv('TRACKER_REMINDER_SMTP_USERNAME', ''),
     SMTP_PASSWORD_KEY: os.getenv('TRACKER_REMINDER_SMTP_PASSWORD', ''),
     SMTP_VERIFY_KEY: os.getenv('TRACKER_REMINDER_SMTP_VERIFY_TLS', 'True').lower() == 'true',
+    OWNER_DIGEST_KEY: True,
 }
 SMTP_TIMEOUT = 30
 
@@ -108,8 +111,10 @@ async def settings() -> dict:
     except (TypeError, ValueError):
         smtp_port = 587
     verify = pick(SMTP_VERIFY_KEY)
+    owner_digest = values.get(OWNER_DIGEST_KEY)
     return {
         'enable': bool(pick(ENABLE_KEY)),
+        'owner_digest': DEFAULTS[OWNER_DIGEST_KEY] if owner_digest in (None, '') else bool(owner_digest),
         'method': 'smtp' if str(pick(METHOD_KEY) or '').strip().lower() == 'smtp' else 'graph',
         'sender': (pick(SENDER_KEY) or '').strip(),
         'sender_name': (pick(SENDER_NAME_KEY) or '').strip(),
@@ -341,19 +346,31 @@ def _progress_bar(value: Optional[int], color: str) -> str:
     )
 
 
-def _item_html(kind: str, entry, name: str, accent: str, base: str) -> str:
+def _item_html(
+    kind: str, entry, name: str, accent: str, base: str, show_channel: bool = True, flag_unlinked: bool = False
+) -> str:
     esc = html.escape
-    channel = esc(entry.channel_name)
-    if base and entry.channel_id:
-        channel = (
-            f'<a href="{esc(base)}/channels/{esc(entry.channel_id)}" style="color:#344054;text-decoration:underline">'
-            f'#{channel}</a>'
-        )
-    else:
-        channel = f'#{channel}'
+    channel = ''
+    if show_channel:
+        channel = esc(entry.channel_name)
+        if base and entry.channel_id:
+            channel = (
+                f'<a href="{esc(base)}/channels/{esc(entry.channel_id)}" style="color:#344054;text-decoration:underline">'
+                f'#{channel}</a>'
+            )
+        else:
+            channel = f'#{channel}'
     meta = [channel, esc(STATUS_TEXT.get(entry.trang_thai, entry.trang_thai or ''))]
-    if entry.phu_trach:
-        meta.append('Phụ trách: ' + esc(', '.join(entry.phu_trach)))
+    owners = esc(', '.join(entry.phu_trach)) if entry.phu_trach else ''
+    if flag_unlinked:
+        if not entry.phu_trach:
+            meta.append('<b style="color:#b54708">Chưa có người phụ trách</b>')
+        elif not entry.owner_ids:
+            meta.append(f'Phụ trách: {owners} <b style="color:#b54708">(chưa gắn tài khoản)</b>')
+        else:
+            meta.append(f'Phụ trách: <b style="color:#101828">{owners}</b>')
+    elif owners:
+        meta.append(f'Phụ trách: {owners}')
     blocker = (
         '<div style="margin-top:8px;padding:6px 10px;background:#fef3f2;border-left:3px solid #d92d20;'
         f'color:#b42318;font-size:12.5px">Vướng mắc: {esc(entry.vuong_mac)}</div>'
@@ -445,10 +462,107 @@ def sample_reminders(day: str) -> list[tuple]:
     ]
 
 
-async def send_reminders(per_user: dict[str, list[tuple]]) -> dict:
-    """One email per person with all their reminders. Returns {'sent': n, 'skipped': n, 'failed': n}."""
+def owner_subject(channels: list[dict], day: str) -> str:
+    items = [pair for channel in channels for pair in channel['items']]
+    counts = {kind: sum(1 for k, _ in items if k == kind) for kind, *_ in REMINDER_GROUPS}
+    parts = [
+        f'{counts["overdue"]} quá hạn' if counts['overdue'] else '',
+        f'{counts["today"]} đến hạn hôm nay' if counts['today'] else '',
+        f'{counts["tomorrow"]} đến hạn ngày mai' if counts['tomorrow'] else '',
+    ]
+    where = f'kênh {channels[0]["name"]}' if len(channels) == 1 else f'{len(channels)} kênh bạn quản lý'
+    return f'[NCS AI] Tiến độ {where} {_date_vn(day)[:5]}: ' + ', '.join(p for p in parts if p)
+
+
+def owner_digest_html(name: str, channels: list[dict], link: str, base: str = '', day: str = '') -> str:
+    """Email to a channel owner: per channel they manage, the items overdue, due today and due tomorrow, with who
+    owns each one; items whose owner has no linked account (so nobody gets their reminder) are flagged."""
+    esc = html.escape
+    items = [pair for channel in channels for pair in channel['items']]
+    counts = {kind: sum(1 for k, _ in items if k == kind) for kind, *_ in REMINDER_GROUPS}
+    unlinked = sum(1 for _, e in items if not e.owner_ids)
+    chips = ''.join(
+        f'<td style="padding:0 6px 0 0"><span style="display:inline-block;padding:4px 10px;border-radius:999px;'
+        f'background:{soft};color:{accent};font-size:12.5px;font-weight:600">{counts[kind]} {heading.lower()}</span></td>'
+        for kind, heading, accent, soft in REMINDER_GROUPS
+        if counts[kind]
+    )
+    blocks = []
+    for channel in sorted(channels, key=lambda c: c['name']):
+        title = esc(channel['name'])
+        if base and channel.get('id'):
+            title = f'<a href="{esc(base)}/channels/{esc(channel["id"])}" style="color:#101828;text-decoration:none">#{title}</a>'
+        else:
+            title = f'#{title}'
+        per_kind = {kind: [e for k, e in channel['items'] if k == kind] for kind, *_ in REMINDER_GROUPS}
+        summary = ' · '.join(
+            f'<span style="color:{accent}">{len(per_kind[kind])} {heading.lower()}</span>'
+            for kind, heading, accent, _ in REMINDER_GROUPS
+            if per_kind[kind]
+        )
+        rows = []
+        for kind, heading, accent, _ in REMINDER_GROUPS:
+            for entry in sorted(per_kind[kind], key=lambda e: (e.han or '', e.ten)):
+                rows.append(_item_html(kind, entry, name, accent, base, show_channel=False, flag_unlinked=True))
+        blocks.append(
+            '<tr><td style="padding:18px 0 8px 0">'
+            f'<div style="font-size:15px;font-weight:700">{title}</div>'
+            f'<div style="font-size:12.5px;margin-top:2px">{summary}</div></td></tr>' + ''.join(rows)
+        )
+    button = (
+        '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0 4px 0"><tr>'
+        f'<td style="border-radius:8px;background:#101828"><a href="{esc(link)}" style="display:inline-block;'
+        'padding:10px 18px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none">Mở bảng tiến độ</a>'
+        '</td></tr></table>'
+        if link
+        else ''
+    )
+    warning = (
+        '<div style="margin-top:12px;padding:8px 12px;background:#fffaeb;border:1px solid #fedf89;border-radius:8px;'
+        f'font-size:12.5px;color:#93370d"><b>{unlinked} việc</b> chưa gắn được tài khoản người phụ trách nên người đó '
+        'không nhận được email nhắc. Hãy nhắc trực tiếp, hoặc ghi đúng tên thành viên kênh trong tin nhắn / file.</div>'
+        if unlinked
+        else ''
+    )
+    where = f'kênh <b>#{esc(channels[0]["name"])}</b>' if len(channels) == 1 else f'<b>{len(channels)} kênh</b> bạn quản lý'
+    preheader = ', '.join(f'{counts[kind]} {heading.lower()}' for kind, heading, *_ in REMINDER_GROUPS if counts[kind])
+    return f'''<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tiến độ kênh</title></head>
+<body style="margin:0;padding:0;background:#f2f4f7">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0">{esc(preheader)} – tiến độ các kênh bạn quản lý.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f4f7"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#101828">
+<tr><td style="padding:0 4px 12px 4px;font-size:13px;color:#475467"><b style="color:#101828">NCS AI</b> &nbsp;·&nbsp; Tiến độ kênh{f" ngày {esc(_date_vn(day))}" if day else ""}</td></tr>
+<tr><td style="background:#ffffff;border:1px solid #eaecf0;border-radius:12px;padding:22px 22px 18px 22px">
+<div style="font-size:18px;font-weight:700;margin-bottom:6px">Chào {esc(name)},</div>
+<div style="font-size:14px;color:#344054;line-height:1.5">{where} có <b>{len(items)}</b> công việc sắp hoặc đã quá hạn. Người phụ trách từng việc cũng nhận email nhắc riêng.</div>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:12px"><tr>{chips}</tr></table>
+{warning}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">{''.join(blocks)}</table>
+{button}
+</td></tr>
+<tr><td style="padding:14px 6px 0 6px;font-size:12px;color:#667085;line-height:1.5">Email tự động từ NCS AI (Knight), gửi cho chủ kênh dự án mỗi ngày có việc sắp đến hạn.
+Tắt email nhắc việc: Cài đặt → Thông báo.</td></tr>
+</table></td></tr></table></body></html>'''
+
+
+def sample_owner_digest(day: str) -> list[dict]:
+    """Made-up channels for the test email and previews."""
+    items = sample_reminders(day)
+    unlinked = items[2][1]
+    unlinked.owner_ids = []
+    for _, entry in items[:2]:
+        entry.owner_ids = ['x']
+    return [
+        {'id': '', 'name': 'du-an-soc-ngan-hang', 'items': [items[1], items[2]]},
+        {'id': '', 'name': 'cx-phan-hoi', 'items': [items[0]]},
+    ]
+
+
+async def _deliver(per_user: dict, build, label: str) -> dict:
+    """One email per user: build(user, payload, link, base, day) -> (subject, html). Respects the user's opt-out."""
     from open_webui.models.users import Users
     from open_webui.monitoring import recorder as perf
+    from open_webui.tracker.mywork import today as today_iso
 
     result = {'sent': 0, 'skipped': 0, 'failed': 0}
     s = await settings()
@@ -469,10 +583,8 @@ async def send_reminders(per_user: dict[str, list[tuple]]) -> dict:
         return {**result, 'failed': len(per_user)}
     base = ((await Config.get('webui.url')) or os.getenv('OPEN_WEBUI_PUBLIC_URL', '') or '').rstrip('/')
     link = f'{base}/my-work' if base else ''
-    from open_webui.tracker.mywork import today as today_iso
-
     day = today_iso()
-    for user_id, items in per_user.items():
+    for user_id, payload in per_user.items():
         user = await Users.get_user_by_id(user_id)
         if not user or not user.email or '@' not in user.email:
             result['skipped'] += 1
@@ -481,21 +593,45 @@ async def send_reminders(per_user: dict[str, list[tuple]]) -> dict:
         if ((user_settings or {}).get('ui') or {}).get(USER_OPT_OUT) is False:
             result['skipped'] += 1
             continue
-        subject = reminder_subject(items, day)
+        subject, body = build(user, payload, link, base, day)
         started = time.perf_counter()
         try:
-            await send(user.email, subject, reminder_html(user.name or user.email, items, link, base, day), s)
+            await send(user.email, subject, body, s)
             result['sent'] += 1
-            perf.record(
-                'tracker', name='email', user_id=user_id, count=len(items),
-                duration_ms=(time.perf_counter() - started) * 1000,
-            )
+            perf.record('tracker', name=label, user_id=user_id, duration_ms=(time.perf_counter() - started) * 1000)
         except Exception as e:
             result['failed'] += 1
-            log.warning('Reminder email to %s failed: %s', user.email, e)
+            log.warning('%s email to %s failed: %s', label, user.email, e)
             perf.record(
-                'tracker', name='email', user_id=user_id, status='error', error=str(e)[:400],
+                'tracker', name=label, user_id=user_id, status='error', error=str(e)[:400],
                 duration_ms=(time.perf_counter() - started) * 1000,
             )
-    log.info('Reminder emails: %s', result)
+    log.info('%s emails: %s', label, result)
     return result
+
+
+async def send_reminders(per_user: dict[str, list[tuple]]) -> dict:
+    """One email per person with all their reminders. Returns {'sent': n, 'skipped': n, 'failed': n}."""
+    return await _deliver(
+        per_user,
+        lambda user, items, link, base, day: (
+            reminder_subject(items, day),
+            reminder_html(user.name or user.email, items, link, base, day),
+        ),
+        'email',
+    )
+
+
+async def send_owner_digests(per_owner: dict[str, list[dict]]) -> dict:
+    """One email per channel owner with the due items of the channels they manage (when enabled)."""
+    if not (await settings()).get('owner_digest'):
+        return {'sent': 0, 'skipped': 0, 'failed': 0}
+    return await _deliver(
+        per_owner,
+        lambda user, channels, link, base, day: (
+            owner_subject(channels, day),
+            owner_digest_html(user.name or user.email, channels, f'{base}/my-work?mode=team' if base else link, base, day),
+        ),
+        'email_owner',
+    )
+

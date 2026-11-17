@@ -121,7 +121,10 @@
 		}
 	};
 	const saved = readView();
-	let mode: Mode = saved.mode === 'team' ? 'team' : 'mine';
+	// ?mode=team (link in the channel owners' email) opens the team view; else the last one used.
+	const urlMode =
+		typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('mode') : null;
+	let mode: Mode = (urlMode ?? saved.mode) === 'team' ? 'team' : 'mine';
 	let open: Record<string, boolean> = saved.open ?? {};
 	let openMember: Record<string, boolean> = saved.openMember ?? {};
 	$: try {

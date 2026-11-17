@@ -538,6 +538,7 @@ async def file_original(file_id: str, x_monitor_key: Optional[str] = Header(None
 class MailTestForm(BaseModel):
     to: str
     overrides: dict = {}
+    kind: str = 'assignee'  # assignee | owner
 
 
 @router.post('/mail/test')
@@ -571,16 +572,19 @@ async def mail_test(form: MailTestForm, x_monitor_key: Optional[str] = Header(No
 
     from open_webui.tracker.mailer import sample_reminders
 
-    sample = sample_reminders(today())
     base = ((await Config.get('webui.url')) or os.getenv('OPEN_WEBUI_PUBLIC_URL', '') or '').rstrip('/')
+    name = form.to.split('@')[0]
+    if form.kind == 'owner':
+        channels = mailer.sample_owner_digest(today())
+        subject = '[Email thử] ' + mailer.owner_subject(channels, today())
+        body = mailer.owner_digest_html(name, channels, f'{base}/my-work?mode=team' if base else '', '', today())
+    else:
+        sample = sample_reminders(today())
+        subject = '[Email thử] ' + mailer.reminder_subject(sample, today())
+        body = mailer.reminder_html(name, sample, f'{base}/my-work' if base else '', '', today())
     started = time.perf_counter()
     try:
-        await mailer.send(
-            form.to,
-            '[Email thử] ' + mailer.reminder_subject(sample, today()),
-            mailer.reminder_html(form.to.split('@')[0], sample, f'{base}/my-work' if base else '', '', today()),
-            current,
-        )
+        await mailer.send(form.to, subject, body, current)
     except mailer.MailError as e:
         return {'ok': False, 'error': str(e), 'sender': current['sender']}
     return {'ok': True, 'ms': round((time.perf_counter() - started) * 1000), 'sender': current['sender']}

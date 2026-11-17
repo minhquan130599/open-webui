@@ -148,6 +148,9 @@ SETTINGS: list[dict[str, Any]] = [
     # Due-reminder emails: Microsoft 365 (Microsoft Graph) or the company SMTP server
     {'key': 'tracker.reminder.email.enable', 'label': 'Gửi email nhắc việc đến hạn', 'type': 'bool', 'group': 'email',
      'help': 'Mỗi người nhận một email gom các việc đến hạn hôm nay/ngày mai, cùng lúc với thông báo nhắc việc trong NCS AI.'},
+    {'key': 'tracker.reminder.email.owner_digest', 'label': 'Gửi email tổng hợp cho chủ kênh', 'type': 'bool', 'group': 'email',
+     'default': True,
+     'help': 'Chủ kênh dự án nhận một email mỗi ngày có việc đến hạn: các việc quá hạn, đến hạn hôm nay/ngày mai trong kênh, ai phụ trách, việc chưa gắn được tài khoản người phụ trách.'},
     {'key': 'tracker.reminder.email.method', 'label': 'Cách gửi', 'type': 'select', 'group': 'email', 'default': 'graph',
      'options': [['graph', 'Microsoft 365 (Microsoft Graph)'], ['smtp', 'Máy chủ SMTP của công ty']]},
     {'key': 'tracker.reminder.email.sender', 'label': 'Địa chỉ gửi', 'type': 'text', 'group': 'email',
@@ -813,6 +816,7 @@ async def extraction_test(form: ExtractionTestForm, token: str = Depends(require
 class EmailTestForm(BaseModel):
     to: str
     values: dict[str, Any] = {}
+    kind: str = 'assignee'  # assignee | owner
 
 
 @router.post('/api/admin/email/test')
@@ -831,7 +835,8 @@ async def email_test(form: EmailTestForm, request: Request, token: str = Depends
         if setting['type'] == 'secret' and not value:
             continue
         overrides[key] = value
-    result = await webui('/mail/test', method='POST', timeout=60, json_body={'to': to, 'overrides': overrides})
+    kind = 'owner' if form.kind == 'owner' else 'assignee'
+    result = await webui('/mail/test', method='POST', timeout=60, json_body={'to': to, 'overrides': overrides, 'kind': kind})
     if result.get('error'):
         raise HTTPException(502, result['error'])
     log.info('Monitor admin: %s sent a test reminder email to %s', _client(request), to)
