@@ -33,7 +33,7 @@ Quy tắc:
    THÀNH VIÊN KÊNH chỉ để nhận ra tên viết thường / không dấu ("giao triển làm X" là giao cho Triển làm X), KHÔNG dùng để điền người. Tên người không thuộc tên công việc. Dòng bắt đầu bằng "↳" là tóm tắt tệp hoặc ảnh đính kèm của tin nhắn ngay trên, dùng như bằng chứng của tin nhắn đó; đầu việc liệt kê trong tệp cũng phải được ghi nhận.
    Khi tin nhắn phân công chức vụ / nhóm ("AM: @A, @B", "PM dự án là @C", "team SOC gồm @D, @E"), ghi vào "vai_tro_moi" (thay_the: true nếu là danh sách mới thay danh sách cũ).
 8. nguon: mã tin nhắn MỚI (m1, m2, ...) là bằng chứng cho thay đổi đó.
-9. tong_quan: 1-3 câu về tình hình chung, chỉ ghi khi cần cập nhật. tom_tat_lo: 1-3 câu tóm tắt riêng các tin nhắn mới.
+9. tong_quan: 1-3 câu về tình hình chung, chỉ ghi khi cần cập nhật. tom_tat_lo: 1-3 câu tóm tắt riêng các tin nhắn mới đối với dự án (ai giao / làm việc gì, tiến độ, quyết định, vướng mắc). KHÔNG nhắc tới quy tắc, hệ thống, trợ lý AI hay việc có tạo hạng mục hay không; tin chỉ hỏi trợ lý AI thì không cần tóm tắt.
 10. Tin nhắn có thẻ (hỏi trợ lý AI) gửi cho trợ lý AI. Phần nhờ AI làm (tra cứu, lọc, tổng hợp, soạn báo cáo, thông báo, nhắc, tính điểm) KHÔNG phải việc của dự án. Nhưng tin đó vẫn có thể GIAO VIỆC cho người ("@Knight thông báo cho các AM sẽ báo cáo thứ 3", "@Knight remind PM X cập nhật tiến độ"): việc của những người đó vẫn phải ghi nhận. Trợ lý AI không bao giờ là người làm.
 11. quyet_dinh_moi: quyết định mới trong lô này. rui_ro và viec_tiep_theo: nếu có thay đổi thì ghi lại TOÀN BỘ danh sách mới; nếu không đổi thì bỏ trường đó.
 12. Viết tiếng Việt, ngắn gọn. Chỉ trả về một đối tượng JSON, bỏ các trường không có thay đổi:

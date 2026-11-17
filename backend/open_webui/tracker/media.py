@@ -286,7 +286,10 @@ def _extraction_line(name: str, result: dict) -> str:
         )
     items = result.get('items') or []
     verified = [i for i in items if i.get('xac_minh')]
-    lines = [f'{len(verified)} đầu việc trích từ file đã được đưa vào hạng mục (nguồn: tin nhắn này).']
+    lines = [
+        f'Hệ thống đã tự thêm {len(verified)} đầu việc trích từ file này vào hạng mục (đã có trong TRẠNG THÁI HIỆN '
+        'TẠI): không tạo lại, chỉ cập nhật nếu tin nhắn nói thêm về chúng.'
+    ]
     unverified = [i for i in items if not i.get('xac_minh')]
     if unverified:
         lines.append('Việc trích được nhưng chưa khớp câu gốc (chỉ thêm nếu tin nhắn xác nhận):')

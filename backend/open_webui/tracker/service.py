@@ -354,6 +354,20 @@ def _retract(state, deleted: set[str], edited: list[Message]) -> list[str]:
     return removed
 
 
+def _file_summary(file_tasks: list[dict], retracted: list[str]) -> list[str]:
+    """The history line for what code did with files (the update model only sees the result, and must not be the one
+    describing it): "Thêm 12, cập nhật 3 đầu việc từ file X."."""
+    lines = []
+    for entry in file_tasks or []:
+        parts = [f'thêm {entry["added"]}' if entry.get('added') else '', f'cập nhật {entry["updated"]}' if entry.get('updated') else '']
+        parts = [p for p in parts if p]
+        if parts:
+            lines.append(f'{", ".join(parts).capitalize()} đầu việc từ file {entry.get("name") or "đính kèm"}.')
+    if retracted:
+        lines.append(f'Gỡ {len(retracted)} đầu việc do tin nhắn / file nguồn đã bị xóa.')
+    return lines
+
+
 def _drop_sources(state: dict, source_ids: set[str]) -> dict:
     for key in ('hang_muc', 'quyet_dinh', 'rui_ro', 'viec_tiep_theo'):
         for entry in state.get(key) or []:
@@ -503,7 +517,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             'source_ids': sources,
             'period_start': min([m.created_at for m in candidates] or [time.time_ns()]),
             'period_end': max([m.created_at for m in candidates] or [time.time_ns()]),
-            'summary': ' '.join(summaries),
+            'summary': ' '.join([*_file_summary(file_tasks, retracted), *summaries]),
             'data': {
                 'edited_ids': [m.id for m in edited],
                 'deleted_ids': [d.get('id') for d in deletions],
