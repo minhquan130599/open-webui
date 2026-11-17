@@ -26,7 +26,7 @@ from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 26
+EXTRACT_VERSION = 27
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 # Names this alike (trigrams) or sharing this share of the shorter name's words are shown to the model, which says
@@ -477,6 +477,8 @@ TABLE_PROMPT = """File bảng tính "{name}". Hôm nay là {today}.
 việc, dòng nào là tiêu đề (có thể nhiều tầng, hoặc bảng không có tiêu đề), thông tin đầu trang (phòng ban, người nhận,
 kỳ, dự án) áp dụng cho các dòng, và dòng nào là việc. Mỗi dòng ghi "dòng N" với các ô theo chữ cái cột.
 - Sheet chỉ là tổng hợp / biểu đồ / tra cứu / hướng dẫn / bảng giá / danh sách không giao việc: ghi vào "sheet_khong_doc".
+  Nhiều sheet có thể là các góc nhìn của CÙNG danh sách việc (danh sách chi tiết, tiến độ theo tuần / Gantt, tổng quan,
+  dashboard): chỉ đọc MỘT sheet gốc đầy đủ nhất, các sheet lặp lại ghi vào "sheet_khong_doc".
 - MỌI dòng của phần cần đọc phải có mặt đúng một chỗ: trong "viec" (theo "dong", hoặc "cac_dong" khi một việc ghi trên
   nhiều dòng liền nhau) hoặc trong "khong_phai_viec" (dòng tiêu đề, tiêu đề phụ, tiêu đề nhóm / mục, dòng tổng, chữ ký /
   người duyệt, ghi chú chung, phản hồi chỉ khen hoặc nhận xét không đòi hỏi gì, dòng không có nội dung việc).
@@ -546,7 +548,9 @@ Với mỗi sheet, cho biết sheet có phải là DANH SÁCH VIỆC không: m�
 chỉ tiêu hay phản hồi cần xử lý mà người ta giao và theo dõi (kế hoạch, tiến độ, phân công, KPI, việc cần làm). Bảng DỮ
 LIỆU thì không, kể cả khi có thể suy ra việc từ nó: danh sách thiết bị / máy / client / tài khoản / khách hàng / nhân sự,
 log, giao dịch, số liệu đo, bảng giá, xuất dữ liệu từ phần mềm, tra cứu, tổng hợp, biểu đồ, hướng dẫn. "doc": true chỉ với
-danh sách việc. Cho biết thêm dòng dữ liệu đầu tiên (dòng sau tiêu đề; các dòng phía trên nó là tiêu đề và thông tin đầu
+danh sách việc. Nhiều sheet có thể là các góc nhìn của CÙNG danh sách việc (danh sách chi tiết, tiến độ theo tuần / Gantt,
+tổng quan, dashboard): chỉ chọn MỘT sheet gốc đầy đủ nhất ("doc": true), các sheet lặp lại "doc": false. Cho biết thêm dòng
+dữ liệu đầu tiên (dòng sau tiêu đề; các dòng phía trên nó là tiêu đề và thông tin đầu
 trang, sẽ được gửi kèm mỗi phần để hiểu cột).
 Trả về đúng một JSON: {{"sheets": [{{"sheet": "...", "doc": true, "dong_du_lieu_dau": 2, "ly_do": "..."}}]}}"""
 
@@ -883,6 +887,25 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
     ][:60]
     report['sheets_skipped'] = skipped_sheets
     report['mode'] = 'whole' if parts and parts[0].get('whole') else 'parts'
+    # The same tasks read from two sheets (a list and its weekly view): the model says which pairs are one task, and
+    # the copy in the sheet with fewer tasks goes.
+    sheet_sizes = {}
+    for task in tasks:
+        sheet_sizes[task['sheet']] = sheet_sizes.get(task['sheet'], 0) + 1
+    if len(sheet_sizes) > 1:
+        main = max(sheet_sizes, key=sheet_sizes.get)
+        pairs = []
+        for task in tasks:
+            if task['sheet'] == main:
+                continue
+            best = max((t for t in tasks if t['sheet'] == main), key=lambda t: similarity(task['ten'], t['ten']), default=None)
+            if best and similarity(task['ten'], best['ten']) >= 0.5:
+                pairs.append((task, best))
+        if pairs:
+            same = await same_tasks([(a['ten'], b['ten']) for a, b in pairs])
+            dropped = [pairs[i][0] for i in same]
+            tasks[:] = [t for t in tasks if not any(t is d for d in dropped)]
+            report['cross_sheet_duplicates'] = len(dropped)
     items = _items_from(tasks, gaps, report)
     return {'kind': 'table', 'items': items, 'quyet_dinh': [], 'rui_ro': [], 'report': report}
 

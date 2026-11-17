@@ -360,3 +360,9 @@ Bỏ bước "mô tả bảng" (chọn sheet, dòng tiêu đề, vai trò cột)
   ở giới hạn token rồi phải đọc lại. Nay mỗi phần ≤ 20 dòng / 12.000 ký tự, đọc cả file một lượt chỉ khi ≤ 20 dòng
   (câu trả lời ~4-6k token, 1-2 phút). EXTRACT_VERSION 26. Khuyến nghị khi tổng hợp lại nhiều kênh: Tracker
   max_concurrency = 1, files.summary.concurrency = 2.
+- Dev (v26, model thật): av CX Feedback 9 việc + 3 đề xuất (đã có lại dashboard cho CEO), đúng người / hạn. test02 (kế
+  hoạch 50 việc) ra 100 việc: model đọc cả sheet "Danh sach cong viec" lẫn "Tien do 9 tuan" (biểu đồ tiến độ của cùng 50
+  việc) vì hướng dẫn "các sheet có thể là góc nhìn của cùng dữ liệu, chỉ chọn sheet gốc" bị bỏ khi bỏ bước mô tả bảng.
+  Sửa: thêm lại hướng dẫn đó ở bước xem tổng quan và khi đọc cả file; thêm lớp an toàn: việc ở sheet khác có tên gần
+  giống việc ở sheet có nhiều việc nhất được hỏi model có phải cùng một việc, nếu đúng thì bỏ bản ở sheet phụ.
+  EXTRACT_VERSION 27.
