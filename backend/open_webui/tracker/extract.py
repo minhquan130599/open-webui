@@ -32,7 +32,7 @@ from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 20
+EXTRACT_VERSION = 21
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 SIMILAR = 0.72  # trigram similarity above which two names are the same item
@@ -440,10 +440,11 @@ def table_signature(sheets: list[dict]) -> str:
     return hashlib.sha1('\n'.join(parts).encode('utf-8')).hexdigest()[:16]
 
 
-def describe_sheets(sheets: list[dict], data_rows: int = 3, sheet_chars: int = 6000, max_chars: int = 24_000) -> str:
-    """Each sheet for the model: the title rows, the guessed header row, a few data rows, and the values of
-    short columns with few distinct values (statuses, priorities, owners)."""
-    from open_webui.file_pipeline.tables import column_letter, detect_header, table_rows
+def describe_sheets(sheets: list[dict], first_rows: int = 15, sheet_chars: int = 6000, max_chars: int = 24_000) -> str:
+    """Each sheet for the model as it is: its first non-empty rows with their numbers (the model decides which one,
+    if any, is the header; no guess is shown, a wrong guess was followed), and the values of short columns with few
+    distinct values (statuses, priorities, owners)."""
+    from open_webui.file_pipeline.tables import column_letter
 
     def line(number: int, row: list[str], width: int) -> str:
         return f'dòng {number}: ' + ' | '.join(f'{column_letter(i)}={v[:width]}' for i, v in enumerate(row) if v)
@@ -451,17 +452,14 @@ def describe_sheets(sheets: list[dict], data_rows: int = 3, sheet_chars: int = 6
     blocks = []
     for sheet in sheets:
         rows = sheet['rows']
-        if not rows:
+        filled = [(n, row) for n, row in enumerate(rows, 1) if any(row)]
+        if not filled:
             continue
-        header = detect_header(rows)
-        _, data = table_rows(rows, header)
-        lines = [f'## Sheet "{sheet["name"]}": {len(rows)} dòng, đoán tiêu đề ở dòng {header + 1}, {len(data)} dòng dữ liệu']
-        lines += [line(n, row, 80) for n, row in enumerate(rows[:header], 1) if any(row)][-4:]
-        lines.append(line(header + 1, rows[header], 40) + '   <- tiêu đề (đoán)')
-        lines += [line(number, row, 50) for number, row in data[:data_rows]]
+        lines = [f'## Sheet "{sheet["name"]}": {len(rows)} dòng ({len(filled)} dòng có dữ liệu). Các dòng đầu:']
+        lines += [line(n, row, 60) for n, row in filled[:first_rows]]
         few = []
         for col in range(max((len(r) for r in rows), default=0)):
-            values = {row[col] for _, row in data[:500] if col < len(row) and row[col]}
+            values = {row[col] for _, row in filled[:500] if col < len(row) and row[col]}
             if 1 < len(values) <= 12 and sum(len(v) for v in values) / len(values) <= 40:
                 few.append(f'{column_letter(col)}: ' + ' / '.join(sorted(values)))
         if few:

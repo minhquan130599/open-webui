@@ -315,3 +315,7 @@ Làm lại:
   - Excel đảo ngày / tháng khi nhập (NganTT: "2/11" thành 11/02, hạn lệch 9 tháng): model được báo hiện tượng này; code
     nhận ngày model sửa chỉ khi đúng là ngày đó đảo ngày / tháng.
   EXTRACT_VERSION 20.
+- Lời nhắc mô tả bảng không còn ghi "đoán tiêu đề ở dòng N" (đoán bằng quy tắc của code; với bảng không tiêu đề nó chọn
+  dòng dữ liệu đầu và model làm theo): model nhận 15 dòng đầu nguyên trạng và tự quyết định. EXTRACT_VERSION 21.
+- Proxy RunPod trả 405 / 504 chập chờn (7/168 lượt khi chấm), mỗi lần làm cả lượt tổng hợp kênh hoặc đọc file thất bại:
+  nay hỏi lại cùng endpoint sau 3 rồi 10 giây với các mã 0 / 405 / 429 / 5xx trước khi báo lỗi.

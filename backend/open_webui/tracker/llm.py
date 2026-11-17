@@ -51,6 +51,9 @@ _NON_CHAT = re.compile(
 )
 # Failures worth trying another endpoint for: auth, missing model or route, rate limit, server errors.
 _FAILOVER_STATUSES = {401, 402, 403, 404, 408, 409, 429}
+# Answers of a proxy that passes after a few seconds, and the waits before asking the same endpoint again.
+_TRANSIENT_STATUSES = {0, 405, 429, 500, 502, 503, 504}
+_TRANSIENT_WAITS = (3, 10)
 
 
 @dataclass
@@ -198,16 +201,23 @@ async def _post(
         if endpoint.key:
             headers['Authorization'] = f'Bearer {endpoint.key}'
         timer = perf.Timer()
-        try:
-            async with session.post(
-                f'{endpoint.url}/chat/completions',
-                data=JSONCodec.dumps({**payload, 'model': model}),
-                headers=headers,
-            ) as response:
-                status = response.status
-                text = await _read_stream(response) if payload.get('stream') and status == 200 else await response.text()
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            status, text = 0, f'{type(e).__name__}: {e}'
+        # A proxy in front of the model (RunPod) answers 405 / 502 / 504 for a few seconds now and then: the same
+        # endpoint is asked again before the call fails or moves on.
+        for attempt in range(len(_TRANSIENT_WAITS) + 1):
+            try:
+                async with session.post(
+                    f'{endpoint.url}/chat/completions',
+                    data=JSONCodec.dumps({**payload, 'model': model}),
+                    headers=headers,
+                ) as response:
+                    status = response.status
+                    text = await _read_stream(response) if payload.get('stream') and status == 200 else await response.text()
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                status, text = 0, f'{type(e).__name__}: {e}'
+            if status not in _TRANSIENT_STATUSES or attempt == len(_TRANSIENT_WAITS):
+                break
+            log.warning('Tracker LLM %s answered %s; asking again in %ss', endpoint.name, status or 'nothing', _TRANSIENT_WAITS[attempt])
+            await asyncio.sleep(_TRANSIENT_WAITS[attempt])
         timer.stop()
         failed = status == 0 or status in _FAILOVER_STATUSES or status >= 500
         _record(endpoint, model, timer, status, text, failover=index > 0, failed=failed, purpose=purpose)
