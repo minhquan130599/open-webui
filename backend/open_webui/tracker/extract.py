@@ -29,7 +29,7 @@ from open_webui.tracker.schema import _STATUS_ALIASES, STATUSES, WorkItem, _clea
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 4
+EXTRACT_VERSION = 5
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 ROW_BATCH_CHARS = 10_000
@@ -614,6 +614,7 @@ TITLE_MAX = 160
 TITLE_WORDS = 15
 LONG_NAME_CHARS = 400
 MAX_IDEAS = 30
+MIN_IDEA_CHARS = 25
 MAX_CONTEXT_IDEAS = 20
 # Share of a summary's words that must come from the ideas it cites, else the first idea becomes its name.
 MIN_WORD_SUPPORT = 0.25
@@ -629,10 +630,13 @@ Với mỗi dòng, lập đầu việc để theo dõi tiến độ:
    trách của dòng) hoặc có hạn riêng ghi rõ trong ý.
 2. "ten": tóm tắt việc tối đa 15 từ, bắt đầu bằng động từ, giữ tên đơn vị, khách hàng, sản phẩm; không chép nguyên câu.
 3. "chi_tiet": các ý phụ chưa có trong tên, mỗi ý một câu ngắn (tối đa 4).
+   Ý phủ định hoặc kết luận KHÔNG làm ("không nên…", "không cần…") không phải việc: xếp vào "nhan_dinh", không đưa
+   vào tên việc.
 4. MỌI ý [n] phải được xếp vào đúng một chỗ: "y" của một việc, "vuong_mac" (hạn chế, khó khăn), hoặc "nhan_dinh" (chỉ là
    nhận định, đánh giá, không phải việc).
-5. Nếu dòng có [Y..]: liệt kê trong "chua_xu_ly" các yêu cầu CHƯA được ý nào của VIỆC CẦN LÀM đáp ứng (đáp ứng một phần
-   thì ghi phần còn thiếu vào "con_thieu"). Không tạo việc đã giao từ [Y..].
+5. Nếu dòng có [Y..]: xét TỪNG yêu cầu, kể cả yêu cầu về thời gian ("phải nhắc mới có", "chậm") và sự chủ động.
+   Liệt kê trong "chua_xu_ly" các yêu cầu mà KHÔNG ý nào của VIỆC CẦN LÀM xử lý, kể cả gián tiếp; đáp ứng một phần thì
+   ghi phần còn thiếu vào "con_thieu". Yêu cầu đã được một hành động xử lý thì không liệt kê. Không tạo việc đã giao từ [Y..].
 Trả về đúng một JSON:
 {{"dong": [{{"ma": "R1",
   "viec": [{{"ten": "...", "chi_tiet": ["..."], "y": [1, 2], "phu_trach": ["chỉ khi ý ghi rõ ai làm"],
@@ -646,18 +650,16 @@ _DATE_IN_TEXT_RE = re.compile(r'\b(\d{4})-(\d{1,2})-(\d{1,2})\b|\b(\d{1,2})[/.-]
 
 
 def segment_ideas(text: str, limit: int = MAX_IDEAS) -> list[str]:
-    """The separate points of a cell: its lines (bullets removed), long lines cut at sentence ends."""
+    """The separate points of a cell: its lines (bullets removed), cut at sentence ends so that a deadline or a
+    statement inside a line is a point of its own. Very short pieces stay with the previous one."""
     ideas = []
     for line in (text or '').splitlines():
         line = line.strip().lstrip('•▪◦-*+').strip()
         if not line:
             continue
-        if len(line) <= 300:
-            ideas.append(line)
-            continue
         current = ''
         for sentence in _IDEA_SPLIT_RE.split(line):
-            if current and len(current) + len(sentence) > 300:
+            if current and (len(current) + len(sentence) > 300 or len(sentence) >= MIN_IDEA_CHARS):
                 ideas.append(current)
                 current = ''
             current = f'{current} {sentence}'.strip()
@@ -672,7 +674,8 @@ def short_title(text: str, limit: int = 120) -> str:
     """Last resort when no model summary: the first sentence of the first line, cut at a word."""
     first = (text or '').strip().splitlines()[0] if (text or '').strip() else ''
     first = first.strip().lstrip('•▪◦-*+').strip()
-    first = re.split(r'(?<=[.!?;:])\s', first, maxsplit=1)[0].strip()
+    first = re.split(r'(?<=[.!?;:])\s', first, maxsplit=1)[0].strip().rstrip('.;')
+    first = first[:1].upper() + first[1:]
     if len(first) <= limit:
         return first
     return first[:limit].rsplit(' ', 1)[0] + '…'
@@ -704,6 +707,22 @@ def dates_in(text: str, year: int) -> set[str]:
         except ValueError:
             continue
     return found
+
+
+_DEADLINE_RE = re.compile(
+    r'(trước|hạn|deadline|chậm nhất|đến ngày|vào|cuối tuần|cuối ngày|by)\s*(ngày\s*)?'
+    r'(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?)',
+    re.IGNORECASE,
+)
+
+
+def deadline_in(text: str, year: int) -> Optional[str]:
+    """A deadline written in a point ("trước 20/11", "cập nhật vào cuối tuần 13/11/2026"), not any date in it."""
+    match = _DEADLINE_RE.search(text or '')
+    if not match:
+        return None
+    found = dates_in(match.group(3), year)
+    return min(found) if found else None
 
 
 def _title(text: str) -> str:
@@ -828,9 +847,28 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                 twin['trich_dan'] = ' '.join(ideas[i - 1] for i in twin['y'])[:QUOTE_CHARS]
             else:
                 grouped.append(task)
+        for task in list(grouped):
+            if len(task['y']) < 2:
+                continue
+            for point in list(task['y']):
+                due = deadline_in(ideas[point - 1], year)
+                if due and due != task['han']:
+                    task['y'].remove(point)
+                    task['trich_dan'] = ' '.join(ideas[i - 1] for i in task['y'])[:QUOTE_CHARS]
+                    grouped.append(
+                        {
+                            'ten': short_title(ideas[point - 1]), 'chi_tiet': [], 'y': [point],
+                            'phu_trach': list(task['phu_trach']), 'han': due, 'trich_dan': ideas[point - 1][:QUOTE_CHARS],
+                        }
+                    )
+                    report['due_split'] = report.get('due_split', 0) + 1
+                    if len(task['y']) < 2:
+                        break
         blocker = None
         raw_blocker = answer.get('vuong_mac') if isinstance(answer.get('vuong_mac'), dict) else {}
-        blocker_ideas = numbers(raw_blocker.get('y') or [], len(ideas))
+        # A point the tasks already use is an action, not a blocker.
+        task_points = {i for task in grouped for i in task['y']}
+        blocker_ideas = [i for i in numbers(raw_blocker.get('y') or [], len(ideas)) if i not in task_points]
         if blocker_ideas:
             source = ' '.join(ideas[i - 1] for i in blocker_ideas)
             text = str(raw_blocker.get('noi_dung') or '').strip()
