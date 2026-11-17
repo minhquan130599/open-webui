@@ -29,7 +29,7 @@ from open_webui.tracker.schema import _STATUS_ALIASES, STATUSES, WorkItem, norma
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 2
+EXTRACT_VERSION = 3
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 ROW_BATCH_CHARS = 10_000
@@ -88,14 +88,18 @@ Hãy mô tả cách đọc danh sách công việc từ file này. Nhiều sheet
 (tổng quan, tra cứu, xuất dữ liệu): chọn MỘT sheet gốc đầy đủ nhất, mỗi dòng là một việc. Trả về đúng một JSON:
 {{"loai": "bang_viec (mỗi dòng một việc) | tu_do (việc nằm rải rác, không theo dòng) | khong_co_viec",
  "sheet": "tên sheet", "dong_tieu_de": số dòng tiêu đề (bắt đầu từ 1),
- "cot": {{"ma": "cột mã/ID của việc hoặc null", "ten": ["các cột ghép thành tên việc, cột chính trước"],
+ "cot": {{"ma": "cột mã/ID của việc hoặc null",
+          "ten": ["CHỈ cột ghi việc phải làm / hành động (vd Next step, Action, Công việc, Nhiệm vụ)"],
+          "ngu_canh": ["cột mô tả vấn đề, bối cảnh (vd nội dung phản hồi, mô tả lỗi, yêu cầu của khách) hoặc []"],
           "phu_trach": "cột hoặc null", "han": "cột hoặc null", "trang_thai": "cột hoặc null",
           "tien_do": "cột hoặc null", "vuong_mac": "cột hoặc null"}},
  "trang_thai": {{"giá trị trong file": "chua_bat_dau|dang_lam|bi_chan|tam_dung|hoan_thanh"}},
  "tach_phu_trach": "ký tự ngăn cách nhiều người phụ trách trong một ô, vd \\",\\" hoặc null",
  "ngay": "dmy hoặc mdy (thứ tự ngày tháng của các ô ngày dạng chữ)",
  "ly_do": "một câu: vì sao chọn sheet và các cột này"}}
-Cột ghi bằng chữ cái (A, B, AA). Ánh xạ trang_thai cho mọi giá trị trạng thái đang có trong file."""
+Cột ghi bằng chữ cái (A, B, AA). Ánh xạ trang_thai cho mọi giá trị trạng thái đang có trong file.
+Không đưa cột mô tả vấn đề, nội dung phản hồi hay ghi chú dài vào "ten": tên việc sẽ được tóm tắt từ cột hành động,
+cột bối cảnh chỉ giúp hiểu việc."""
 
 FIX_PROMPT = """Bản mô tả dưới đây đọc file bảng tính "{name}" chưa tốt.
 Bản mô tả: {spec}
@@ -109,20 +113,23 @@ Thông tin các sheet:
 {sheets}
 </tai_lieu>
 Sửa bản mô tả cho đúng và trả về đúng một JSON cùng định dạng (đủ các khóa loai, sheet, dong_tieu_de, cot, trang_thai,
-tach_phu_trach, ngay, ly_do)."""
+tach_phu_trach, ngay, ly_do). "cot.ten" chỉ gồm cột hành động; cột mô tả vấn đề, bối cảnh đưa vào "cot.ngu_canh"."""
 
-SPLIT_PROMPT = """Mỗi mục dưới đây là ô việc cần làm của một dòng trong bảng "{name}", kèm người phụ trách và hạn của dòng.
-Hôm nay là {today}.
+SPLIT_PROMPT = """Mỗi mục dưới đây là một dòng của bảng công việc "{name}": phần VIỆC CẦN LÀM, người phụ trách, hạn,
+và có thể có BỐI CẢNH (vấn đề dẫn tới việc, chỉ để hiểu). Hôm nay là {today}.
 <tai_lieu>
 {rows}
 </tai_lieu>
 
-Tách mỗi ô thành các đầu việc riêng: mỗi hành động cụ thể (ai đó sẽ làm gì) là một việc. Câu chỉ là nhận định, đánh giá,
-hạn chế hay khó khăn thì KHÔNG phải việc: ghi vào vuong_mac của dòng. Trả về đúng một JSON:
-{{"dong": [{{"ma": "mã trong ngoặc vuông", "viec": [{{"ten": "tên việc ngắn gọn, giữ tên đơn vị, khách hàng, sản phẩm",
+Lập danh sách đầu việc để theo dõi tiến độ: mỗi hành động cụ thể trong VIỆC CẦN LÀM là một việc.
+- "ten": TÓM TẮT việc trong tối đa 15 từ, bắt đầu bằng động từ, giữ tên đơn vị, khách hàng, sản phẩm. KHÔNG chép nguyên câu.
+- Câu chỉ là nhận định, đánh giá, hạn chế, khó khăn thì KHÔNG phải việc: tóm tắt vào "vuong_mac" của dòng.
+- Không tạo việc từ BỐI CẢNH; bối cảnh chỉ giúp đặt tên việc cho rõ.
+Trả về đúng một JSON:
+{{"dong": [{{"ma": "mã trong ngoặc vuông", "viec": [{{"ten": "...",
   "phu_trach": ["chỉ khi đoạn gốc nêu rõ ai làm; chọn trong người phụ trách của dòng"],
   "han": "YYYY-MM-DD nếu đoạn gốc nêu hạn riêng cho việc này, không thì null",
-  "trich_dan": "đoạn gốc chép nguyên văn (tối đa 200 ký tự)"}}], "vuong_mac": "hạn chế, khó khăn hoặc null"}}]}}"""
+  "trich_dan": "vài từ đầu của đoạn gốc trong VIỆC CẦN LÀM, chép nguyên văn"}}], "vuong_mac": "tóm tắt hạn chế, khó khăn hoặc null"}}]}}"""
 
 SAME_PROMPT = """Các cặp đầu việc dưới đây có tên gần giống nhau. Với mỗi cặp, cho biết có phải CÙNG MỘT việc không
 (cùng nội dung công việc, chỉ khác cách viết hoặc đã cập nhật thêm).
@@ -427,6 +434,9 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
     name_cols = columns.get('ten') or []
     name_cols = [name_cols] if isinstance(name_cols, str) else name_cols
     name_idx = [i for i in (_column(c, names) for c in name_cols) if i is not None]
+    context_cols = columns.get('ngu_canh') or []
+    context_cols = [context_cols] if isinstance(context_cols, str) else context_cols
+    context_idx = [i for i in (_column(c, names) for c in context_cols) if i is not None and i not in name_idx]
     idx = {key: _column(columns.get(key), names) for key in ('ma', 'phu_trach', 'han', 'trang_thai', 'tien_do', 'vuong_mac')}
     status_map = {normalize_key(k): v for k, v in (spec.get('trang_thai') or {}).items() if v in STATUSES}
     separator = spec.get('tach_phu_trach') or None
@@ -479,6 +489,7 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
                 'dong': number,
                 'khoa': f'table:{sheet["name"]}:{code or number}',
                 'xac_minh': True,
+                'ngu_canh': ' | '.join(_unbullet(cell(row, i)).replace('\n', '; ') for i in context_idx if cell(row, i))[:1500],
             }
         )
     rows = len(data)
@@ -493,6 +504,12 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
         issues.append('giá trị trạng thái chưa ánh xạ: ' + ', '.join(f'"{k}"' for k in list(unmapped)[:10]))
     if not rows:
         issues.append('sheet không có dòng dữ liệu dưới dòng tiêu đề')
+    average = sum(len(i['ten']) for i in items) / len(items) if items else 0
+    if len(name_idx) > 1 and average > LONG_NAME_CHARS:
+        issues.append(
+            f'tên việc ghép {len(name_idx)} cột, dài trung bình {int(average)} ký tự: chỉ để cột hành động trong "ten", '
+            'đưa cột mô tả vấn đề vào "ngu_canh"'
+        )
     return {
         'items': items,
         'stats': {'sheet': sheet['name'], 'rows': rows, 'named': named, 'dates': date_filled, 'dates_ok': date_ok},
@@ -547,64 +564,64 @@ async def _rows_by_model(name: str, sheet: dict, header: int, today: str, concur
     return dedupe_items([item for batch in results for item in batch])
 
 
-SPLIT_MIN_CHARS = 80
-SPLIT_BATCH_CHARS = 8000
+SPLIT_BATCH_ROWS = 4
+SPLIT_BATCH_CHARS = 6000
+TITLE_MAX = 160
+LONG_NAME_CHARS = 400
+
+
+def short_title(text: str, limit: int = 120) -> str:
+    """Last resort when no model summary: the first sentence of the first line, cut at a word."""
+    first = (text or '').strip().splitlines()[0] if (text or '').strip() else ''
+    first = re.split(r'(?<=[.!?;:])\s', first, maxsplit=1)[0].strip()
+    if len(first) <= limit:
+        return first
+    return first[:limit].rsplit(' ', 1)[0] + '…'
 
 
 async def split_actions(name: str, items: list[dict], today: str, concurrency: int = 4) -> tuple[list[dict], dict]:
-    """Rows whose task cell holds several actions (bullets, lines) become one item per action, each checked
-    against the cell text, keeping the row key with a suffix (table:<sheet>:<code>#2) so the row stays traceable.
-    Statements, limits and difficulties go to vuong_mac. A row the model cannot split stays as one item."""
-    long = [i for i in items if '\n' in i['ten'] or ';' in i['ten'] or len(i['ten']) > SPLIT_MIN_CHARS]
-    report = {'rows': len(long), 'tasks': 0, 'dropped': 0}
-    if not long:
+    """Every row of a task table becomes short, summarized task names (several when its cell holds several
+    actions), each checked against the cell text, keeping the row key with a suffix (table:<sheet>:<code>#2).
+    Statements, limits and difficulties go to vuong_mac. Rows the model did not answer are asked again one by one;
+    a row still without an answer keeps a shortened first sentence, never the whole cell."""
+    report = {'rows': len(items), 'tasks': 0, 'dropped': 0, 'retried': 0, 'unsummarized': 0}
+    if not items:
         return items, report
-    batches, current = [], []
-    for item in long:
-        if current and sum(len(i['ten']) for i in current) + len(item['ten']) > SPLIT_BATCH_CHARS:
-            batches.append(current)
-            current = []
-        current.append(item)
-    batches.append(current)
     semaphore = asyncio.Semaphore(max(concurrency, 1))
-
     # Rows are labelled R1, R2... in the prompt: a model shortens long keys ("table:<sheet>:PH-000001" comes back
     # as "PH-000001"), so the answer is matched by label, or failing that by the row code it ends with.
-    labels = {f'R{n}': item for n, item in enumerate(long, 1)}
+    labels = {f'R{n}': item for n, item in enumerate(items, 1)}
     label_of = {id(item): label for label, item in labels.items()}
+    by_code = {item['khoa'].split(':', 2)[-1].upper(): label for label, item in labels.items()}
+
+    def batches_of(rows: list[dict], size: int) -> list[list[dict]]:
+        batches, current = [], []
+        for item in rows:
+            if current and (len(current) >= size or sum(len(i['ten']) for i in current) + len(item['ten']) > SPLIT_BATCH_CHARS):
+                batches.append(current)
+                current = []
+            current.append(item)
+        return batches + ([current] if current else [])
 
     async def run(batch: list[dict]) -> dict:
         rows = '\n\n'.join(
-            f'[{label_of[id(i)]}] phụ trách: {", ".join(i["phu_trach"]) or "-"}; hạn: {i["han"] or "-"}\n{i["ten"]}'
+            f'[{label_of[id(i)]}] phụ trách: {", ".join(i["phu_trach"]) or "-"}; hạn: {i["han"] or "-"}\n'
+            + (f'BỐI CẢNH: {i["ngu_canh"]}\n' if i.get('ngu_canh') else '')
+            + f'VIỆC CẦN LÀM: {i["ten"]}'
             for i in batch
         )
         async with semaphore:
-            return await _ask_json(SPLIT_PROMPT.format(name=name, today=today, rows=rows))
+            try:
+                return await _ask_json(SPLIT_PROMPT.format(name=name, today=today, rows=rows))
+            except llm.TrackerLLMError:
+                raise
+            except Exception as error:
+                log.warning('Tracker: task summary batch failed (%s)', error)
+                return {}
 
-    answers = await asyncio.gather(*(run(b) for b in batches))
-    by_code = {item['khoa'].split(':', 2)[-1]: label for label, item in labels.items()}
-    by_key = {}
-    for answer in answers:
-        for row in answer.get('dong') or []:
-            if not isinstance(row, dict) or not row.get('ma'):
-                continue
-            code = str(row['ma']).strip('[] ').upper()
-            label = code if code in labels else by_code.get(code) or by_code.get(code.split(':')[-1])
-            if label:
-                by_key[labels[label]['khoa']] = row
-    report['matched'] = len(by_key)
-    def whole(item: dict, blocker=None) -> dict:
-        # Not split: the whole cell on one line, nothing dropped.
-        return {**item, 'ten': '; '.join(item['ten'].splitlines())[:600], 'vuong_mac': blocker or item['vuong_mac']}
-
-    result = []
-    for item in items:
-        row = by_key.get(item['khoa']) if item in long else None
-        if not row:
-            result.append(whole(item) if item in long else item)
-            continue
+    def subtasks(item: dict, row: dict) -> list[dict]:
         owners = {normalize_key(o): o for o in item['phu_trach']}
-        blocker = str(row.get('vuong_mac') or '').strip() or None
+        blocker = str(row.get('vuong_mac') or '').strip()[:300] or None
         subs = []
         for raw in row.get('viec') or []:
             sub = _clean_item(raw)
@@ -615,7 +632,7 @@ async def split_actions(name: str, items: list[dict], today: str, concurrency: i
             subs.append(
                 {
                     **item,
-                    'ten': sub['ten'][:300],
+                    'ten': sub['ten'][:TITLE_MAX],
                     'phu_trach': named or item['phu_trach'],
                     'han': sub['han'] or item['han'],
                     'vuong_mac': blocker or item['vuong_mac'],
@@ -624,11 +641,40 @@ async def split_actions(name: str, items: list[dict], today: str, concurrency: i
                     'xac_minh': True,
                 }
             )
+        return subs
+
+    done: dict[str, list[dict]] = {}
+
+    async def ask(rows: list[dict], size: int) -> None:
+        answers = await asyncio.gather(*(run(b) for b in batches_of(rows, size)))
+        for answer in answers:
+            for row in answer.get('dong') or []:
+                if not isinstance(row, dict) or not row.get('ma'):
+                    continue
+                code = str(row['ma']).strip('[] ').upper()
+                label = code if code in labels else by_code.get(code) or by_code.get(code.split(':')[-1])
+                if label and label not in done:
+                    subs = subtasks(labels[label], row)
+                    if subs:
+                        done[label] = subs
+
+    await ask(items, SPLIT_BATCH_ROWS)
+    missing = [item for item in items if label_of[id(item)] not in done]
+    if missing:
+        report['retried'] = len(missing)
+        await ask(missing, 1)
+
+    result = []
+    for item in items:
+        subs = done.get(label_of[id(item)])
         if subs:
             result += subs
             report['tasks'] += len(subs)
         else:
-            result.append(whole(item, blocker))
+            report['unsummarized'] += 1
+            result.append({**item, 'ten': short_title(item['ten'])})
+    for item in result:
+        item.pop('ngu_canh', None)
     return result, report
 
 
@@ -752,6 +798,10 @@ async def match_state(items: list[dict], state_items: list) -> dict[int, str]:
         if item.get('khoa') and item['khoa'] in by_source:
             matches[index] = by_source[item['khoa']]
             continue
+        # The first task of a row replaces the item that row made before rows were split (key without "#n").
+        if item.get('khoa', '').endswith('#1') and item['khoa'][:-2] in by_source:
+            matches[index] = by_source[item['khoa'][:-2]]
+            continue
         if normalize_key(item['ten']) in by_key:
             matches[index] = by_key[normalize_key(item['ten'])]
             continue
@@ -814,6 +864,8 @@ def merge_into_state(state, items: list[dict], source: str, today: str, matches:
                         'nguon_moi': sources,
                     }
                 )
+            if len(existing.ten) > TITLE_MAX and item.get('khoa'):
+                existing.ten = item['ten']  # an item made from a whole cell gets its summarized name
             existing.han = item['han'] or existing.han
             existing.phu_trach = item['phu_trach'] or existing.phu_trach
             _set_status(existing, item['trang_thai'], today)
@@ -827,6 +879,7 @@ def merge_into_state(state, items: list[dict], source: str, today: str, matches:
         new = WorkItem.model_validate(
             {
                 **{k: item[k] for k in ('ten', 'phu_trach', 'trang_thai', 'tien_do', 'han', 'vuong_mac')},
+                'ten': item['ten'] if len(item['ten']) <= TITLE_MAX else short_title(item['ten'], TITLE_MAX),
                 'id': new_item_id(),
                 'nguon': sources,
                 'tao_luc': today,
