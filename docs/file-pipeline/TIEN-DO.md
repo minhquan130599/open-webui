@@ -161,3 +161,7 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   chung. Chức vụ / team chưa khai báo trong kênh ("các AM", ô "SOC, PM" trong file) → người phụ trách là chính team
   ("AM", "SOC"), nhãn "Nhóm chưa khai báo người", không còn "chưa gán"; khi kênh khai báo (tin "AM: @…" hoặc sửa tay)
   các việc đó tự gán cho thành viên. Bỏ danh sách tiền tố cứng ("các", "team"…) khi tra chức vụ: model trả tên chức vụ.
+- Nhóm 9 bổ sung: trùng tên trong kênh (2 "Nguyễn Trà My"): việc lưu tài khoản cố định cho từng người phụ trách
+  (`phu_trach_links`) khi biết chắc (tag, gán tay, chức vụ), không suy lại từ tên; tên trùng hiện kèm phòng ban; tin không
+  tag mà tên trùng thì không gán (chủ kênh chọn); không tạo bí danh cho tên trùng. Đã test: tag My Sales / My SYS gắn đúng
+  từng người, "chị Trà My" không tag → không gán, cập nhật và tổng hợp lại vẫn giữ đúng tài khoản.

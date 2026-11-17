@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-from open_webui.tracker.people import Person, match_person
+from open_webui.tracker.people import Person
 from open_webui.tracker.schema import normalize_key
 
 _USER_TAG_RE = re.compile(r'<@U:([^|>]+)(?:\|([^>]+))?>')
@@ -67,6 +67,7 @@ class Resolved:
     external: list[str] = field(default_factory=list)  # outside the company (a customer, "PH04")
     group: Optional[str] = None  # role / team the work was given to
     teams: list[str] = field(default_factory=list)  # owners that are a team nobody is declared for yet
+    links: dict[str, str] = field(default_factory=dict)  # owner name -> account, when known for sure
     unassigned: bool = False
     rejected: int = 0
 
@@ -79,34 +80,71 @@ def _words(text: str) -> str:
     return f' {normalize_key(text)} '
 
 
-def verify_person(name: str, sources: list[Source], ctx: Context, current: Optional[list[str]] = None) -> Optional[str]:
-    """The display name of the person meant, when the source messages contain them (or, for an update, they already
-    own the item); else None."""
+def shown_name(person: Person, people: list[Person]) -> str:
+    """The name an item shows: without the department, unless another person here has the same name
+    ("Nguyễn Trà My (HN.NCS.SALES-03)" next to "Nguyễn Trà My (NCS.HN.SYS)")."""
+    base = display_name(person.name)
+    same = [p for p in people if normalize_key(display_name(p.name)) == normalize_key(base)]
+    return person.name.strip() if len(same) > 1 else base
+
+
+def _matching(name: str, ctx: Context) -> list[Person]:
+    """People a written name can mean: the full account name, the name without department, else the end of the
+    name ("Trà My", "Nghĩa"), without "anh/chị"."""
+    from open_webui.tracker.people import _name_key
+
+    tokens = _name_key(name)
+    key = ' '.join(tokens)
+    if not key:
+        return []
+    exact = [p for p in ctx.people if normalize_key(p.name) == normalize_key(name) or normalize_key(display_name(p.name)) == key]
+    if exact:
+        return exact
+    return [p for p in ctx.people if normalize_key(display_name(p.name)).split()[-len(tokens):] == tokens]
+
+
+def verify_person(
+    name: str, sources: list[Source], ctx: Context, current: Optional[list[str]] = None
+) -> Optional[tuple[str, Optional[str]]]:
+    """(name to show, account id or None) of the person meant, when the source messages contain them (or, for an
+    update, they already own the item); else None.
+
+    An @tag names an account exactly, so it settles a name two people share. Without a tag, a name two people share
+    is not guessed: it is rejected (or kept as written for an owner the item already has)."""
     text = ' '.join(s.text for s in sources)
     words = _words(text)
     tagged = set().union(*(s.tagged for s in sources)) if sources else set()
     key = normalize_key(name)
+    already = bool(current) and key in {normalize_key(c) for c in current or []}
+    candidates = _matching(name, ctx)
+    tagged_ones = [p for p in candidates if p.id in tagged]
+    if len(tagged_ones) == 1:
+        return shown_name(tagged_ones[0], ctx.people), tagged_ones[0].id
     alias = (ctx.config.get('bi_danh') or {}).get(key)
-    person_id = alias or match_person(name, ctx.people)
-    person = ctx.by_id.get(person_id) if person_id else None
-    if person and person.id in tagged:
-        return display_name(person.name)
-    if key and f' {key} ' in words:
-        return display_name(person.name) if person else name.strip()
-    if person:
-        given = normalize_key(display_name(person.name)).split()
-        email = normalize_key((person.email or '').split('@')[0])
-        # "PM Việt Anh" for Nguyễn Việt Anh, "vietanh.nguyen" for his e-mail name.
-        if (len(given) >= 2 and f' {" ".join(given[-2:])} ' in words) or (email and f' {email} ' in words):
-            return display_name(person.name)
-        # "anh Nghĩa" for Vy Trung Nghĩa, when nobody else in the channel is called Nghĩa.
-        same_name = [p for p in ctx.people if normalize_key(display_name(p.name)).split()[-1:] == given[-1:]]
-        if given and len(same_name) == 1 and f' {given[-1]} ' in words:
-            return display_name(person.name)
-        if current and key in {normalize_key(c) for c in current}:
-            return display_name(person.name)
-    elif current and key in {normalize_key(c) for c in current}:
-        return name.strip()  # an owner the item already has (e.g. a team or someone outside the channel)
+    if alias in ctx.by_id and len(candidates) <= 1:
+        candidates = [ctx.by_id[alias]]
+    if not candidates:
+        compact = key.replace(' ', '')
+        candidates = [p for p in ctx.people if p.email and normalize_key(p.email.split('@')[0]).replace(' ', '') == compact]
+    if len(candidates) > 1:
+        return (name.strip(), None) if already else None
+    person = candidates[0] if candidates else None
+    if not person:
+        if (key and f' {key} ' in words) or already:
+            return name.strip(), None  # someone outside the channel ("Duy"), shown as written
+        return None
+    found = (shown_name(person, ctx.people), person.id)
+    if person.id in tagged or (key and f' {key} ' in words) or already:
+        return found
+    given = normalize_key(display_name(person.name)).split()
+    email = normalize_key((person.email or '').split('@')[0])
+    # "PM Việt Anh" for Nguyễn Việt Anh, "vietanh.nguyen" for his e-mail name.
+    if (len(given) >= 2 and f' {" ".join(given[-2:])} ' in words) or (email and f' {email} ' in words):
+        return found
+    # "anh Nghĩa" for Vy Trung Nghĩa, when nobody else in the channel is called Nghĩa.
+    same_name = [p for p in ctx.people if normalize_key(display_name(p.name)).split()[-1:] == given[-1:]]
+    if given and len(same_name) == 1 and f' {given[-1]} ' in words:
+        return found
     return None
 
 
@@ -129,8 +167,10 @@ def resolve(
         result.group = str(giao_cho.get('chuc_vu') or '').strip() or None
         for name in proposed:
             person = verify_person(name, sources, ctx, current)
-            if person and person not in result.names:
-                result.names.append(person)
+            if person and person[0] not in result.names:
+                result.names.append(person[0])
+                if person[1]:
+                    result.links[person[0]] = person[1]
             elif not person and name not in result.external:
                 result.rejected += 1
     elif kind == 'chuc_vu':
@@ -139,7 +179,8 @@ def resolve(
         role_name = str(giao_cho.get('chuc_vu') or '').strip()
         role = find_role(ctx.config, role_name) if role_name else None
         result.group = (role or {}).get('ten') or role_name or None
-        result.names = [display_name(n) for n in (role or {}).get('nguoi') or []]
+        result.names = list((role or {}).get('nguoi') or [])
+        result.links = dict((role or {}).get('lien_ket') or {})
         if not result.names and role_name:
             # Not declared in the channel yet: the team owns it until the channel says who is in it.
             result.names, result.teams = [role_name], [role_name]
@@ -148,11 +189,16 @@ def resolve(
         excluded = senders if giao_cho.get('goi_tat_ca') else ctx.left_out() | senders
         ids = ctx.member_ids or [p.id for p in ctx.people]
         result.group = 'Cả nhóm'
-        result.names = [display_name(ctx.by_id[i].name) for i in ids if i not in excluded and i in ctx.by_id]
+        for i in ids:
+            if i not in excluded and i in ctx.by_id:
+                shown = shown_name(ctx.by_id[i], ctx.people)
+                result.names.append(shown)
+                result.links[shown] = i
     elif kind == 'tu_nhan':
         sender = next((s.sender_id for s in sources if s.sender_id in ctx.by_id), None)
         if sender:
-            result.names = [display_name(ctx.by_id[sender].name)]
+            shown = shown_name(ctx.by_id[sender], ctx.people)
+            result.names, result.links = [shown], {shown: sender}
 
     result.names += [e for e in result.external if e not in result.names]
     result.unassigned = not result.names
@@ -161,8 +207,6 @@ def resolve(
 
 def learned_roles(updates: list, ref_sources: dict[str, Source], ref_map: dict[str, str], ctx: Context) -> list[dict]:
     """Roles the model read from messages ("AM: @Tuấn Anh, AM @Nghĩa"), each person checked like an owner."""
-    from open_webui.tracker.people import match_person as match
-
     roles = []
     for update in updates or []:
         name = str(getattr(update, 'ten', '') or '').strip()
@@ -170,15 +214,14 @@ def learned_roles(updates: list, ref_sources: dict[str, Source], ref_map: dict[s
         if not name or not refs:
             continue
         sources = [ref_sources[r] for r in refs]
-        people, ids = [], []
+        people, links = [], {}
         for person in getattr(update, 'nguoi', []) or []:
             verified = verify_person(person, sources, ctx)
-            if verified and verified not in people:
-                people.append(verified)
-                person_id = match(verified, ctx.people)
-                if person_id:
-                    ids.append(person_id)
+            if verified and verified[0] not in people:
+                people.append(verified[0])
+                if verified[1]:
+                    links[verified[0]] = verified[1]
         if people:
-            roles.append({'ten': name, 'nguoi': people, 'ids': ids, 'thay_the': bool(getattr(update, 'thay_the', False)),
-                          'nguon': [ref_map[r] for r in refs]})
+            roles.append({'ten': name, 'nguoi': people, 'ids': list(links.values()), 'lien_ket': links,
+                          'thay_the': bool(getattr(update, 'thay_the', False)), 'nguon': [ref_map[r] for r in refs]})
     return roles

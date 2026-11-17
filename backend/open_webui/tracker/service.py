@@ -287,6 +287,7 @@ def _assign_owners(delta, ref_sources: dict, ctx, counts: dict, state=None) -> d
         counts['ten_bi_loai'] = counts.get('ten_bi_loai', 0) + resolved.rejected
         new.phu_trach, new.nhom, new.ben_ngoai = resolved.names, resolved.group, resolved.external
         new.doi_nhom = resolved.teams
+        new.phu_trach_links = resolved.links
         new.chua_giao = resolved.unassigned
         kept.append(new)
     delta.hang_muc_moi = kept
@@ -443,6 +444,8 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                     item.nhom = changed_groups[item.id].group
                     item.ben_ngoai = changed_groups[item.id].external
                     item.doi_nhom = changed_groups[item.id].teams
+                    kept = {n: i for n, i in item.phu_trach_links.items() if n in item.phu_trach}
+                    item.phu_trach_links = {**kept, **changed_groups[item.id].links}
             merged_away |= merged
             if delta.tom_tat_lo:
                 summaries.append(delta.tom_tat_lo)

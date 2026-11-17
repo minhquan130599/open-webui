@@ -96,6 +96,12 @@
 				text: $i18n.t('Team, no members declared'),
 				className: 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
 			};
+		if (item.phu_trach_links?.[name]) {
+			const linked = team?.members.find((m) => m.id === item.phu_trach_links?.[name]);
+			return linked?.left
+				? { text: $i18n.t('Left'), className: 'bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300' }
+				: null;
+		}
 		if (!team) return null;
 		const member = team.members.find((m) => key(m.name) === key(name));
 		if (member?.left)
@@ -121,6 +127,16 @@
 		return names.length === 1 ? names[0] : null;
 	};
 
+	// Two members share this name ("Trà My"): remembering it as one of them would mix them up later.
+	const sharedName = (name: string | null): boolean => {
+		if (!name || !team) return false;
+		const tokens = key(name).split(' ');
+		return (
+			team.members.filter((m) => key(m.name).split(' ').slice(-tokens.length).join(' ') === tokens.join(' '))
+				.length > 1
+		);
+	};
+
 	const openAssign = (item: TrackerWorkItem) => {
 		menuFor = null;
 		assignFor = item;
@@ -132,7 +148,8 @@
 		if (!assignFor?.id || !assignIds.length) return;
 		busy = true;
 		try {
-			const remember = assignRemember && assignIds.length === 1 ? unlinkedName(assignFor) : null;
+			const name = unlinkedName(assignFor);
+			const remember = assignRemember && assignIds.length === 1 && !sharedName(name) ? name : null;
 			await assignTrackerItem(localStorage.token, channel.id, assignFor.id, assignIds, remember);
 			toast.success($i18n.t('Assigned'));
 			assignFor = null;
@@ -1247,10 +1264,11 @@
 									: assignIds.filter((i) => i !== member.id))}
 						/>
 						<span class="text-gray-800 dark:text-gray-200">{member.name}</span>
+						<span class="truncate text-[0.6875rem] text-gray-400">{member.email}</span>
 					</label>
 				{/each}
 			</div>
-			{#if unlinkedName(assignFor) && assignIds.length === 1}
+			{#if unlinkedName(assignFor) && assignIds.length === 1 && !sharedName(unlinkedName(assignFor))}
 				<label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
 					<input type="checkbox" bind:checked={assignRemember} />
 					{$i18n.t('From now on, "{{name}}" in this channel means this person', {

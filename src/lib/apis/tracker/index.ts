@@ -5,6 +5,7 @@ export type TrackerWorkItem = {
 	ten: string;
 	phu_trach: string[];
 	phu_trach_ids?: string[]; // owner accounts, when the name matched exactly one person
+	phu_trach_links?: Record<string, string>; // owner name -> account, fixed by an @tag or a hand assignment
 	trang_thai: 'chua_bat_dau' | 'dang_lam' | 'bi_chan' | 'tam_dung' | 'hoan_thanh';
 	tien_do: number | null;
 	han: string | null;

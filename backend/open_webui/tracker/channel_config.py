@@ -88,6 +88,7 @@ def apply_roles(state, config: dict) -> bool:
                 continue
             owners = [o for o in item.phu_trach if o != team]
             item.phu_trach = list(dict.fromkeys([*owners, *role['nguoi']]))
+            item.phu_trach_links = {**item.phu_trach_links, **(role.get('lien_ket') or {})}
             item.doi_nhom = [t for t in item.doi_nhom if t != team]
             item.nhom = item.nhom or role['ten']
             item.chua_giao = False
@@ -97,6 +98,7 @@ def apply_roles(state, config: dict) -> bool:
             role = find_role(config, item.nhom)
             if role and role.get('nguoi') and item.phu_trach != role['nguoi']:
                 item.phu_trach = list(role['nguoi'])
+                item.phu_trach_links = dict(role.get('lien_ket') or {})
                 item.chua_giao = False
                 changed = True
     return changed
@@ -115,10 +117,11 @@ def learn_roles(config: dict, learned: list[dict]) -> int:
             continue
         if current and not role.get('thay_the'):
             names = list(dict.fromkeys([*current.get('nguoi', []), *role['nguoi']]))
-            ids = list(dict.fromkeys([*current.get('ids', []), *role.get('ids', [])]))
+            links = {**(current.get('lien_ket') or {}), **(role.get('lien_ket') or {})}
         else:
-            names, ids = list(dict.fromkeys(role['nguoi'])), list(dict.fromkeys(role.get('ids', [])))
-        new = {'ten': role['ten'], 'nguoi': names, 'ids': ids, 'sua_tay': False,
+            names, links = list(dict.fromkeys(role['nguoi'])), dict(role.get('lien_ket') or {})
+        links = {n: i for n, i in links.items() if n in names}
+        new = {'ten': role['ten'], 'nguoi': names, 'ids': list(dict.fromkeys(links.values())), 'lien_ket': links, 'sua_tay': False,
                'nguon': list(dict.fromkeys([*(current or {}).get('nguon', []), *role.get('nguon', [])]))[-5:]}
         if new != current:
             config['vai_tro'][key] = new

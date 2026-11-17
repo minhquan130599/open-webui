@@ -95,7 +95,7 @@ def link_owners(state: ProjectState, people: list[Person], aliases: Optional[dic
         for name in item.phu_trach:
             if name in item.ben_ngoai or name in item.doi_nhom:
                 continue
-            user_id = aliases.get(normalize_key(name)) or match_person(name, people)
+            user_id = item.phu_trach_links.get(name) or aliases.get(normalize_key(name)) or match_person(name, people)
             if user_id and user_id not in ids:
                 ids.append(user_id)
         item.phu_trach_ids = ids

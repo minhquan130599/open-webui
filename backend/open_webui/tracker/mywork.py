@@ -112,7 +112,8 @@ async def collect(channels: list) -> list[WorkEntry]:
                 if name in teams:
                     owners.append({'name': name, 'id': None, 'status': 'team'})
                     continue
-                user_id = aliases.get(normalize_key(name)) or match_person(name, people)
+                links = item.get('phu_trach_links') if isinstance(item.get('phu_trach_links'), dict) else {}
+                user_id = links.get(name) or aliases.get(normalize_key(name)) or match_person(name, people)
                 if user_id and user_id not in owner_ids:
                     owner_ids.append(user_id)
                 owners.append({'name': name, 'id': user_id, 'status': 'linked' if user_id else 'outside'})

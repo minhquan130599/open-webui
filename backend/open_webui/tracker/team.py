@@ -20,7 +20,7 @@ from open_webui.models.users import Users
 from open_webui.tracker import channel_config
 from open_webui.tracker.assign import display_name
 from open_webui.tracker.models import Trackers
-from open_webui.tracker.schema import load_state, normalize_key
+from open_webui.tracker.schema import normalize_key
 
 log = logging.getLogger(__name__)
 
@@ -75,13 +75,19 @@ async def team(channel) -> dict:
     config = await channel_config.get(channel.id)
     managers = {m.user_id for m in active if m.role == 'manager'}
     left_out = set(config['khong_nhan_chung'])
+    shared: dict[str, int] = {}
+    for user in users.values():
+        key = normalize_key(display_name(user.name))
+        shared[key] = shared.get(key, 0) + 1
     people = []
     for user_id in ids:
         user = users.get(user_id)
         people.append(
             {
                 'id': user_id,
-                'name': display_name(user.name) if user else '(tài khoản đã xóa)',
+                'name': (user.name.strip() if shared.get(normalize_key(display_name(user.name)), 0) > 1 else display_name(user.name))
+                if user
+                else '(tài khoản đã xóa)',
                 'email': user.email if user else '',
                 'is_owner': user_id == channel.user_id,
                 'is_manager': user_id in managers,
@@ -106,21 +112,53 @@ def people_name(user_id: str, users: dict) -> str:
     return display_name(user.name) if user else ''
 
 
-async def _names(user_ids: list[str]) -> dict[str, str]:
+async def _channel_people(channel_id: str) -> list:
+    from open_webui.tracker.people import Person
+
+    async with get_async_db_context() as db:
+        ids = [
+            r[0]
+            for r in (
+                await db.execute(
+                    select(ChannelMember.user_id).where(
+                        ChannelMember.channel_id == channel_id, ChannelMember.user_id.is_not(None)
+                    )
+                )
+            ).all()
+        ]
+        channel = await db.get(Channel, channel_id)
+    if channel and channel.user_id:
+        ids.append(channel.user_id)
+    users = await Users.get_users_by_user_ids(list(dict.fromkeys(ids))) if ids else []
+    return [Person(id=u.id, name=u.name or '', email=u.email or '', role=u.role or '') for u in users]
+
+
+async def _names(user_ids: list[str], channel_id: Optional[str] = None) -> dict[str, str]:
+    """Names to show for these accounts: with the department when another member has the same name."""
+    from open_webui.tracker.assign import shown_name
+
+    people = await _channel_people(channel_id) if channel_id else []
     users = await Users.get_users_by_user_ids(list(dict.fromkeys(user_ids))) if user_ids else []
-    return {u.id: display_name(u.name) for u in users}
+    from open_webui.tracker.people import Person
+
+    known = {p.id: p for p in people}
+    return {
+        u.id: shown_name(known.get(u.id) or Person(id=u.id, name=u.name or ''), people or [Person(id=u.id, name=u.name or '')])
+        for u in users
+    }
 
 
 async def set_roles(channel_id: str, roles: list[dict]) -> dict:
     """Replace the role table by hand ([{'ten', 'ids'}]); open items given to a role follow its new people."""
-    names = await _names([i for r in roles for i in r.get('ids') or []])
+    names = await _names([i for r in roles for i in r.get('ids') or []], channel_id)
     table = {}
     for role in roles:
         title = str(role.get('ten') or '').strip()
         ids = [i for i in role.get('ids') or [] if i in names]
         if title:
             table[channel_config.role_key(title)] = {
-                'ten': title, 'ids': ids, 'nguoi': [names[i] for i in ids], 'sua_tay': True, 'nguon': []
+                'ten': title, 'ids': ids, 'nguoi': [names[i] for i in ids], 'lien_ket': {names[i]: i for i in ids},
+                'sua_tay': True, 'nguon': [],
             }
 
     def change(config):
@@ -134,6 +172,7 @@ async def set_roles(channel_id: str, roles: list[dict]) -> dict:
             role = channel_config.find_role(config, item.nhom) if item.nhom and item.nhom != 'Cả nhóm' else None
             if role is not None and not item.doi_nhom and item.phu_trach != role['nguoi']:
                 item.phu_trach, item.phu_trach_ids = list(role['nguoi']), list(role['ids'])
+                item.phu_trach_links = dict(role.get('lien_ket') or {})
                 item.chua_giao = not item.phu_trach
                 changed = True
         return changed
@@ -152,7 +191,7 @@ async def set_left_out(channel_id: str, user_ids: list[str]) -> dict:
 async def assign_item(channel_id: str, item_id: str, user_ids: list[str], remember: Optional[str]) -> bool:
     """Give an item to accounts chosen by hand. With remember (the unlinked name it had, "Duy") and one account,
     that name means this account in the channel from now on."""
-    names = await _names(user_ids)
+    names = await _names(user_ids, channel_id)
     chosen = [i for i in user_ids if i in names]
     if not chosen:
         return False
@@ -162,6 +201,7 @@ async def assign_item(channel_id: str, item_id: str, user_ids: list[str], rememb
             if item.id == item_id:
                 item.phu_trach = [names[i] for i in chosen]
                 item.phu_trach_ids = chosen
+                item.phu_trach_links = {names[i]: i for i in chosen}
                 item.chua_giao = False
                 item.nhom = None
                 item.ben_ngoai = []
@@ -170,13 +210,22 @@ async def assign_item(channel_id: str, item_id: str, user_ids: list[str], rememb
 
     if not await Trackers.edit_state(channel_id, change):
         return False
-    if remember and len(chosen) == 1 and normalize_key(remember):
+    # Remembered only for a name nobody in the channel shares: "Trà My" when two members are called Trà My would
+    # send every later "Trà My" to one of them.
+    if remember and len(chosen) == 1 and normalize_key(remember) and not await _shared_name(channel_id, remember):
 
         def alias(config):
             config['bi_danh'][normalize_key(remember)] = chosen[0]
 
         await channel_config.update(channel_id, alias)
     return True
+
+
+async def _shared_name(channel_id: str, name: str) -> bool:
+    tokens = normalize_key(name).split()
+    people = await _channel_people(channel_id)
+    same = [p for p in people if normalize_key(display_name(p.name)).split()[-len(tokens):] == tokens] if tokens else []
+    return len(same) > 1
 
 
 async def remove_alias(channel_id: str, name: str) -> None:

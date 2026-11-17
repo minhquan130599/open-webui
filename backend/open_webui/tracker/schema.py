@@ -93,6 +93,9 @@ class WorkItem(_Entry):
     phu_trach: list[str] = Field(default_factory=list)
     # User ids resolved from phu_trach against the channel's people; [] when unknown or ambiguous.
     phu_trach_ids: list[str] = Field(default_factory=list)
+    # Owner name -> account, fixed when the account is known for sure (an @tag, a hand assignment, a role): never
+    # matched again by name, so two people with the same name are never mixed up.
+    phu_trach_links: dict[str, str] = Field(default_factory=dict)
     trang_thai: Literal['chua_bat_dau', 'dang_lam', 'bi_chan', 'tam_dung', 'hoan_thanh'] = 'dang_lam'
     tien_do: Optional[int] = None
     han: Optional[str] = None
@@ -117,6 +120,11 @@ class WorkItem(_Entry):
     @classmethod
     def _owner_ids(cls, value):
         return _clean_list(value)
+
+    @field_validator('phu_trach_links', mode='before')
+    @classmethod
+    def _owner_links(cls, value):
+        return {str(k): str(v) for k, v in (value or {}).items() if k and v} if isinstance(value, dict) else {}
 
     @field_validator('chi_tiet', mode='before')
     @classmethod
