@@ -32,7 +32,7 @@ from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 18
+EXTRACT_VERSION = 19
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 SIMILAR = 0.72  # trigram similarity above which two names are the same item
@@ -112,7 +112,7 @@ và các giá trị khác nhau của những cột ít giá trị.
 Hãy mô tả cách đọc danh sách công việc từ file này. Nhiều sheet có thể là các góc nhìn của cùng một dữ liệu
 (tổng quan, tra cứu, xuất dữ liệu): chọn MỘT sheet gốc đầy đủ nhất, mỗi dòng là một việc. Trả về đúng một JSON:
 {{"loai": "bang_viec (mỗi dòng một việc) | tu_do (việc nằm rải rác, không theo dòng) | khong_co_viec",
- "sheet": "tên sheet", "dong_tieu_de": số dòng tiêu đề (bắt đầu từ 1),
+ "sheet": "tên sheet", "dong_tieu_de": số dòng tiêu đề (bắt đầu từ 1); 0 nếu bảng KHÔNG có dòng tiêu đề (dòng đầu đã là dữ liệu),
  "cot": {{"ma": "cột mã/ID của việc hoặc null",
           "ten": ["CHỈ cột ghi việc phải làm / hành động (vd Next step, Action, Công việc, Nhiệm vụ)"],
           "mo_ta": ["cột mô tả chi tiết CHÍNH việc đó: các bước, phạm vi cần làm (vd Mô tả chi tiết, Nội dung công việc) hoặc []"],
@@ -520,11 +520,11 @@ def _header_names(row: list[str]) -> list[str]:
     return names
 
 
-def _data_rows(rows: list[list[str]], header: int) -> list[tuple[int, list[str]]]:
+def _data_rows(rows: list[list[str]], header: int) -> list[tuple[int, list[str]]]:  # header -1: no header row
     """(1-based sheet row number, cells) of every row under the header that has text. Rows of numbers or flags only
     (templates pre-filled with formulas) say nothing to read, nor a row repeating the header (a header merged over
     two rows)."""
-    titles = rows[header] if header < len(rows) else []
+    titles = rows[header] if 0 <= header < len(rows) else []
 
     def repeats_header(row: list[str]) -> bool:
         filled = [(i, v) for i, v in enumerate(row) if v]
@@ -543,12 +543,14 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
     sheet = _find_sheet(sheets, spec.get('sheet'))
     if not sheet:
         return {'rows': [], 'stats': {}, 'issues': [f'không có sheet "{spec.get("sheet")}"'], 'bad_rows': []}
+    # dong_tieu_de 0: no header row, every row is data and columns are named by their letters.
     try:
-        header = max(int(spec.get('dong_tieu_de') or 1) - 1, 0)
+        header = max(int(spec.get('dong_tieu_de') if spec.get('dong_tieu_de') is not None else 1) - 1, -1)
     except (TypeError, ValueError):
         header = 0
     raw = sheet['rows']
-    names = _header_names(raw[header] if header < len(raw) else [])
+    width = max((len(r) for r in raw), default=0)
+    names = _header_names(raw[header] if 0 <= header < len(raw) else [''] * width)
     data = _data_rows(raw, header)
     columns = spec.get('cot') or {}
 
@@ -589,11 +591,11 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
         )
     intro = [
         ' | '.join(v.strip() for v in row if v and v.strip())
-        for row in raw[:header]
+        for row in raw[: max(header, 0)]
         if any(v and v.strip() for v in row)
     ][-8:]
     issues = []
-    if sum(1 for v in (raw[header] if header < len(raw) else []) if _is_text(v)) < 2:
+    if header >= 0 and sum(1 for v in (raw[header] if header < len(raw) else []) if _is_text(v)) < 2:
         issues.append(f'dòng tiêu đề {header + 1} không có tên cột')
     if not rows:
         issues.append('sheet không có dòng dữ liệu dưới dòng tiêu đề')
