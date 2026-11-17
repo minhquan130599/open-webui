@@ -286,6 +286,7 @@ async def extract_document(name: str, content: str, structure: dict, today: str,
         items = [i for i in (_clean_item(r) for r in data.get('hang_muc') or []) if i]
         signals = task_signals(content[start:end])
         rechecked = added = 0
+        confirmed = False
         if signals >= RECHECK_MIN_SIGNALS and len(items) < signals * RECHECK_RATIO:
             listed = '\n'.join(f'- {i["ten"]}' for i in items) or '(không có)'
             async with semaphore:
@@ -294,6 +295,7 @@ async def extract_document(name: str, content: str, structure: dict, today: str,
             before = len(items)
             items = dedupe_items(items + extra)
             rechecked, added = 1, len(items) - before
+            confirmed = added == 0
             data.setdefault('quyet_dinh', []).extend(more.get('quyet_dinh') or [])
             data.setdefault('rui_ro', []).extend(more.get('rui_ro') or [])
         for item in items:
@@ -310,6 +312,7 @@ async def extract_document(name: str, content: str, structure: dict, today: str,
             'items': items,
             'rechecked': rechecked,
             'added': added,
+            'confirmed': confirmed,
             'quyet_dinh': _entries(data.get('quyet_dinh'), 'noi_dung'),
             'rui_ro': _entries(data.get('rui_ro'), 'noi_dung'),
         }
@@ -331,7 +334,9 @@ async def extract_document(name: str, content: str, structure: dict, today: str,
             'suspect': [
                 {'part': p['part'], 'pages': p['pages'], 'signals': p['signals'], 'items': len(p['items'])}
                 for p in parts
-                if p['signals'] >= RECHECK_MIN_SIGNALS and len(p['items']) < p['signals'] * RECHECK_RATIO
+                if p['signals'] >= RECHECK_MIN_SIGNALS
+                and len(p['items']) < p['signals'] * RECHECK_RATIO
+                and not p['confirmed']
             ],
         },
     }
@@ -615,6 +620,21 @@ async def split_actions(name: str, items: list[dict], today: str, concurrency: i
     return result, report
 
 
+def _normalize_spec(spec: dict) -> dict:
+    """The model may copy the choice with its explanation ("bang_viec (mỗi dòng một việc)")."""
+    if not isinstance(spec, dict):
+        return {}
+    kind = normalize_key(str(spec.get('loai') or '')).replace(' ', '_')
+    for value in ('bang_viec', 'tu_do', 'khong_co_viec'):
+        if value in kind:
+            spec['loai'] = value
+            break
+    else:
+        # No kind but columns given: a task table.
+        spec['loai'] = 'bang_viec' if (spec.get('cot') or {}).get('ten') else 'tu_do'
+    return spec
+
+
 async def table_spec(name: str, sheets: list[dict], cached: Optional[dict] = None) -> tuple[dict, list[str]]:
     """The table description to use: the cached one when given, else the model's (corrected once if poor).
     Returns (spec, notes about how it was made)."""
@@ -622,8 +642,8 @@ async def table_spec(name: str, sheets: list[dict], cached: Optional[dict] = Non
     if cached:
         return cached, ['dùng lại bản mô tả đã lưu']
     described = describe_sheets(sheets)
-    spec = await _ask_json(SPEC_PROMPT.format(name=name, sheets=described), max_tokens=3000)
-    notes.append('model mô tả bảng')
+    spec = _normalize_spec(await _ask_json(SPEC_PROMPT.format(name=name, sheets=described), max_tokens=3000))
+    notes.append('model mô tả bảng' if spec else 'model không trả được bản mô tả')
     if spec.get('loai') == 'bang_viec':
         result = apply_spec(sheets, spec)
         if result['issues']:
@@ -637,6 +657,7 @@ async def table_spec(name: str, sheets: list[dict], cached: Optional[dict] = Non
                 ),
                 max_tokens=3000,
             )
+            fixed = _normalize_spec(fixed)
             if fixed.get('sheet'):
                 better = apply_spec(sheets, fixed)
                 if len(better['issues']) <= len(result['issues']) and len(better['items']) >= len(result['items']):
@@ -649,6 +670,7 @@ async def extract_table(
     name: str, sheets: list[dict], today: str, cached_spec: Optional[dict] = None, concurrency: int = 4
 ) -> dict:
     spec, notes = await table_spec(name, sheets, cached_spec)
+    spec = _normalize_spec(spec)
     kind = spec.get('loai')
     report = {'spec': spec, 'notes': notes, 'signature': table_signature(sheets)}
     if kind == 'khong_co_viec':

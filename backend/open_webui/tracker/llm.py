@@ -325,6 +325,8 @@ async def generate_state_update(messages: list[dict]) -> StateDelta:
     async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
         for attempt in range(2):
             payload = _payload(conversation, TRACKER_MAX_TOKENS)
+            # Streamed so a proxy waiting for the first byte (nginx 504 after ~60 s) does not cut a long update.
+            payload.update(stream=True, stream_options={'include_usage': True})
             if _guided_json_supported:
                 payload['response_format'] = {
                     'type': 'json_schema',
