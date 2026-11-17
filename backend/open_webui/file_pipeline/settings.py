@@ -14,6 +14,8 @@ FILE_SETTINGS: list[dict] = [
     {'key': 'files.pipeline.enable', 'label': 'Xử lý nâng cao sau khi tải file lên', 'type': 'bool',
      'default': True,
      'help': 'Chạy nền: chấm điểm OCR từng trang, sửa trang lỗi bằng model vision, lập chỉ mục theo Điều/mục, tóm tắt sẵn.'},
+    {'key': 'files.routing_skill', 'label': 'Skill chọn nguồn luôn nạp sẵn', 'type': 'text', 'default': 'chon-nguon',
+     'help': 'ID skill hướng dẫn model chọn nguồn (file / báo cáo dự án / bảng tính). Sửa nội dung trong Workspace → Skills. Trống = tắt.'},
     {'key': 'files.pipeline.concurrency', 'label': 'Số file xử lý nền cùng lúc', 'type': 'int', 'min': 1, 'max': 8,
      'default': 2},
     {'key': 'files.wait_seconds', 'label': 'Chờ sửa OCR xong trước khi trả lời (giây)', 'type': 'int', 'min': 0,

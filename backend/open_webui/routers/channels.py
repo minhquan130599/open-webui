@@ -1614,11 +1614,14 @@ async def model_response_handler(request, channel, message, user, db=None):
                 inline_ids = choose_inline(
                     attachment_infos, pointed_ids, budget=(await file_settings())['files.attach.inline_max_chars']
                 )
+                from open_webui.tracker.config import ENABLE_PROJECT_TRACKER
+
                 attachment_block = format_attachment_block(
                     attachment_infos,
                     inline_ids,
                     terminal=bool(terminal_id),
                     vision=(model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('vision', True),
+                    project=ENABLE_PROJECT_TRACKER,
                 )
                 log_attachments(f'channel:{channel.id}', attachment_infos, inline_ids, f'terminal={bool(terminal_id)}')
 

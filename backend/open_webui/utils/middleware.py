@@ -2620,6 +2620,15 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     skill_ids = sorted(activated_skill_ids | set(model.get('info', {}).get('meta', {}).get('skillIds', [])))
     if payload_tools is None and await Config.get('skills.lazy_loading.enable', False):
         activated_skill_ids = mentioned_skill_ids
+    # The source-choosing skill is loaded in every chat (editable in Workspace > Skills), so the model picks
+    # file reading, the project report or a table query before calling tools.
+    if payload_tools is None and not getattr(request.state, 'internal', False):
+        from open_webui.file_pipeline.settings import file_settings
+
+        routing_skill = (await file_settings())['files.routing_skill'].strip()
+        if routing_skill:
+            activated_skill_ids = set(activated_skill_ids) | {routing_skill}
+            skill_ids = sorted(set(skill_ids) | {routing_skill})
     available_skills = []
     terminal_skills = []
 
@@ -3012,12 +3021,6 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
         await filter_user_terminal_tools(request, user, tools_dict, metadata, extra_params)
 
-        from open_webui.utils.attachments import PROJECT_TOOLS, asks_only_about_files
-
-        if asks_only_about_files(get_last_user_message(form_data.get('messages', [])) or ''):
-            # A question about the attached files: keep project-report tools out of this answer.
-            for name in PROJECT_TOOLS & set(tools_dict):
-                tools_dict.pop(name)
 
         if metadata.get('files'):
             # Attached files live in chat storage, so say which terminal tools cannot see them.

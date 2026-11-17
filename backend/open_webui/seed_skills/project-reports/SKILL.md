@@ -13,8 +13,10 @@ Không tự sửa skill này và không tạo công cụ mới khi làm báo cá
 "báo cáo ngày/tuần/tháng", "báo cáo tổng hợp", "tình hình dự án", "tiến độ kênh", "việc của Long",
 "đánh giá hiệu suất từng thành viên", "ai đang quá hạn", "xuất báo cáo PDF/Word/Excel", "tiếp" (phần tiếp theo).
 
-Khi người dùng đính kèm file và yêu cầu đọc, làm theo quy tắc trong file hoặc phân tích dữ liệu của file đó,
-hãy đọc file trước (theo khối `<attached_files>`); chỉ dùng skill này cho phần cần dữ liệu tiến độ của kênh.
+Câu hỏi về việc theo thời hạn ("việc hạn tháng 12", "việc đến hạn tuần sau") dùng skill này với `due_from`/`due_to`,
+kể cả khi người dùng nhắc tới bảng công việc họ đã gửi: bảng công việc trong kênh được nhập từng dòng vào dữ liệu dự án.
+Kết quả ghi file nào **chưa được tổng hợp**; câu hỏi về file đó, hoặc về nội dung chi tiết của file (đoạn văn, cột khác),
+thì đọc file (`query_table` với bảng tính).
 
 ## Procedure
 
@@ -22,6 +24,9 @@ hãy đọc file trước (theo khối `<attached_files>`); chỉ dùng skill n�
    - `project`: tên hoặc ID kênh; để trống khi hỏi về mọi dự án.
    - `period`: `day`, `week` (mặc định), `month`, `quarter`, `all` hoặc số ngày ("3 ngày qua" → `3`).
    - `person`: khi chỉ hỏi về một người.
+   - `due_from` / `due_to`: chỉ lấy việc có hạn trong khoảng (YYYY-MM-DD, DD/MM/YYYY hoặc MM/YYYY; "tháng 12" →
+     `due_from="12/2026"`, `due_to="12/2026"`). Chỉ cần danh sách việc theo hạn thì `get_project_status` với hai
+     tham số này nhanh hơn.
    - `include_closed=true`: khi đánh giá hiệu suất, xem lịch sử hoặc việc đã đóng/hủy.
    - `purpose="analysis"`: khi câu hỏi không cần liệt kê từng việc (thống kê, xếp hạng, đánh giá);
      mặc định `report` thì câu trả lời phải nhắc tới mọi hạng mục.

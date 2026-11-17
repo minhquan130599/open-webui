@@ -47,6 +47,17 @@ def _file_names(message: Message) -> list[str]:
     return [str(f.get('name') or f.get('filename') or 'tệp') for f in files if isinstance(f, dict)]
 
 
+async def unprocessed_files(channel_id: str) -> list[str]:
+    """Files posted after the last tracker update ("name (gửi HH:MM dd/mm)"): not in the project status yet."""
+    row = await Trackers.get_state(channel_id)
+    watermark = row.watermark if row else 0
+    lines = []
+    for message in await Trackers.get_tail_messages(channel_id, watermark, TRACKER_TAIL_LIMIT):
+        if is_tracked_message(message):
+            lines += [f'{name} (gửi {format_time(message.created_at, TZ)})' for name in _file_names(message)]
+    return lines
+
+
 async def _to_prompt_messages(messages: list[Message], edited_ids: set[str]) -> list[PromptMessage]:
     user_ids = list({m.user_id for m in messages if m.user_id})
     names = {u.id: u.name for u in await Users.get_users_by_user_ids(user_ids)} if user_ids else {}

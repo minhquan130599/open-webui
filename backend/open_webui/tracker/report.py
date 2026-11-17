@@ -92,6 +92,31 @@ def get_report(report_id: str) -> Optional[Report]:
     return _reports.get(report_id)
 
 
+def due_bound(value: Optional[str], end: bool = False) -> Optional[str]:
+    """A due-date filter bound as YYYY-MM-DD from "2026-12-01", "01/12/2026", "12/2026" or "2026-12".
+
+    A month alone means its first day (start bound) or its last day (end bound).
+    """
+    text = (value or '').strip()
+    if not text or text.lower() in ('none', 'null'):
+        return None
+    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y'):
+        try:
+            return dt.datetime.strptime(text, fmt).date().isoformat()
+        except ValueError:
+            pass
+    for fmt in ('%m/%Y', '%Y-%m', '%m-%Y'):
+        try:
+            first = dt.datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+        if not end:
+            return first.isoformat()
+        following = (first.replace(day=28) + dt.timedelta(days=4)).replace(day=1)
+        return (following - dt.timedelta(days=1)).isoformat()
+    raise ValueError(f'Không hiểu ngày "{value}" (dùng YYYY-MM-DD, DD/MM/YYYY hoặc MM/YYYY)')
+
+
 def _owner_matches(person_key: str, names: list[str]) -> bool:
     tokens = person_key.split()
     for name in names:
@@ -101,7 +126,15 @@ def _owner_matches(person_key: str, names: list[str]) -> bool:
     return False
 
 
-async def _project_data(channel, days: Optional[int], include_closed: bool, person: Optional[str], counter: list):
+async def _project_data(
+    channel,
+    days: Optional[int],
+    include_closed: bool,
+    person: Optional[str],
+    counter: list,
+    due_from: Optional[str] = None,
+    due_to: Optional[str] = None,
+):
     row = await Trackers.get_state(channel.id)
     state = load_state(row.state if row else None) if row else ProjectState()
     archive = (row.archive or []) if row else []
@@ -130,6 +163,13 @@ async def _project_data(channel, days: Optional[int], include_closed: bool, pers
     if person:
         person_key = ' '.join(normalize_key(person).split())
         sources = [(s, a) for s, a in sources if _owner_matches(person_key, s.get('phu_trach') or [])]
+    if due_from or due_to:
+        # Only items with a due date inside the range; items without a due date cannot match.
+        sources = [
+            (s, a)
+            for s, a in sources
+            if s.get('han') and (not due_from or s['han'] >= due_from) and (not due_to or s['han'] <= due_to)
+        ]
     items = [make(source, archived) for source, archived in sources]
 
     timeline: list[tuple[str, str]] = []
@@ -163,7 +203,13 @@ async def _project_data(channel, days: Optional[int], include_closed: bool, pers
 
 
 async def build_report(
-    channels: list, period: str, include_closed: bool, person: Optional[str], report_id: str
+    channels: list,
+    period: str,
+    include_closed: bool,
+    person: Optional[str],
+    report_id: str,
+    due_from: Optional[str] = None,
+    due_to: Optional[str] = None,
 ) -> Report:
     period_key = (period or 'week').strip().lower()
     if period_key.isdigit():
@@ -172,11 +218,16 @@ async def build_report(
         days = PERIOD_DAYS.get(period_key, None if period_key in ('all', 'overall', 'tong_hop') else 7)
     today = format_time(time.time_ns(), TZ)[:10]
     counter = [0]
-    projects = [await _project_data(channel, days, include_closed, person, counter) for channel in channels]
+    projects = [
+        await _project_data(channel, days, include_closed, person, counter, due_from, due_to) for channel in channels
+    ]
+    period_label = f'{days} ngày gần nhất (đến {today})' if days else f'toàn bộ dự án (đến {today})'
+    if due_from or due_to:
+        period_label += f'; chỉ hạng mục có hạn {"từ " + due_from if due_from else ""}{" đến " + due_to if due_to else ""}'
     report = Report(
         id=report_id,
         title=', '.join(p.name for p in projects),
-        period_label=f'{days} ngày gần nhất (đến {today})' if days else f'toàn bộ dự án (đến {today})',
+        period_label=period_label,
         today=today,
         projects=projects,
         person=person,

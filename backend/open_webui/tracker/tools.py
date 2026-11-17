@@ -29,8 +29,32 @@ async def _accessible_channels(user_id: str, chat_id: Optional[str] = None) -> l
     return [c for c in await Channels.get_channels_by_user_id(user_id) if c.type != 'dm']
 
 
+async def freshness_note(channel_ids: list[str]) -> str:
+    """Which files this data does not include yet, and where file contents are read instead."""
+    from open_webui.tracker.service import unprocessed_files
+
+    pending = []
+    for channel_id in channel_ids:
+        pending += await unprocessed_files(channel_id)
+    note = (
+        'Gợi ý: dữ liệu này là danh sách việc và tiến độ đã tổng hợp từ tin nhắn và file của kênh (mỗi hạng mục có '
+        'nguồn). Nội dung chi tiết của một file (điều khoản, đoạn văn, các cột khác của bảng) không có ở đây: đọc '
+        'file bằng view_file / query_chat_files, hoặc query_table với bảng tính.'
+    )
+    if pending:
+        note = (
+            'CHƯA có trong dữ liệu này (gửi sau lần tổng hợp gần nhất): '
+            + '; '.join(pending[:10])
+            + '. Câu hỏi liên quan các file này phải đọc file trực tiếp.\n'
+            + note
+        )
+    return note
+
+
 async def get_project_status(
     project: str,
+    due_from: Optional[str] = None,
+    due_to: Optional[str] = None,
     __request__: Request = None,
     __user__: dict = None,
     __chat_id__: str = None,
@@ -38,8 +62,12 @@ async def get_project_status(
     """
     Get the current status of a project (one channel = one project): summary, work items with owner,
     progress, due date and blockers, decisions, risks, next steps, plus messages not yet summarized.
+    With due_from / due_to, only the work items due in that range are listed (e.g. "việc hạn tháng 12":
+    due_from="12/2026", due_to="12/2026").
 
     :param project: Channel ID or channel name of the project
+    :param due_from: Optional first due date to include: YYYY-MM-DD, DD/MM/YYYY or MM/YYYY (start of that month)
+    :param due_to: Optional last due date to include: YYYY-MM-DD, DD/MM/YYYY or MM/YYYY (end of that month)
     :return: The project status as text
     """
     if not __user__:
@@ -49,7 +77,31 @@ async def get_project_status(
         match, error = await _resolve_project(project, __user__.get('id'), __chat_id__)
         if error:
             return error
-        return f'Dự án: {match.name} (id: {match.id})\n\n' + await build_channel_context(match.id)
+        if (due_from or '').strip() or (due_to or '').strip():
+            import uuid
+
+            from open_webui.tracker import report as reports
+
+            data = await reports.build_report(
+                [match],
+                'all',
+                False,
+                None,
+                uuid.uuid4().hex[:10],
+                reports.due_bound(due_from),
+                reports.due_bound(due_to, end=True),
+            )
+            text = '\n\n'.join(part for part, _ in reports.render_parts(data))
+            return (
+                f'Dự án: {match.name} (id: {match.id}) | {data.period_label}\n\n{text}\n\n'
+                + await freshness_note([match.id])
+            )
+        return (
+            f'Dự án: {match.name} (id: {match.id})\n\n'
+            + await build_channel_context(match.id)
+            + '\n\n'
+            + await freshness_note([match.id])
+        )
     except Exception as e:
         log.exception(f'get_project_status error: {e}')
         return JSONCodec.dumps({'error': str(e)})
@@ -246,6 +298,8 @@ async def build_project_report(
     project: str = '',
     period: str = 'week',
     person: str = '',
+    due_from: str = '',
+    due_to: str = '',
     include_closed: bool = False,
     purpose: str = 'report',
     part: int = 1,
@@ -266,6 +320,8 @@ async def build_project_report(
     :param project: Channel ID or name of the project; empty for every project the user can access
     :param period: day, week, month, quarter, all, or a number of days, for the activity timeline
     :param person: Optional owner name to limit the report to that person's work
+    :param due_from: Optional first due date to include (YYYY-MM-DD, DD/MM/YYYY or MM/YYYY); only items due in range
+    :param due_to: Optional last due date to include (YYYY-MM-DD, DD/MM/YYYY or MM/YYYY = end of that month)
     :param include_closed: Also include closed/cancelled items (use for performance evaluation and history)
     :param purpose: "report" when writing a report that must mention every work item; "analysis" for evaluations, statistics or questions that do not list items
     :param part: Part number when a large report is delivered in several parts (answer "tiếp" with the next part)
@@ -293,7 +349,13 @@ async def build_project_report(
             if not channels:
                 return JSONCodec.dumps({'error': 'No accessible projects'})
             data = await reports.build_report(
-                channels, period, bool(include_closed), (person or '').strip() or None, uuid.uuid4().hex[:10]
+                channels,
+                period,
+                bool(include_closed),
+                (person or '').strip() or None,
+                uuid.uuid4().hex[:10],
+                reports.due_bound(due_from),
+                reports.due_bound(due_to, end=True),
             )
 
         parts = reports.render_parts(data)
@@ -316,7 +378,7 @@ async def build_project_report(
                 )
             else:
                 guide += ' (phần cuối).'
-        return f'{header}\n\n{text}\n\n{guide}'
+        return f'{header}\n\n{text}\n\n{guide}\n\n' + await freshness_note([p.id for p in data.projects])
     except Exception as e:
         log.exception(f'build_project_report error: {e}')
         return JSONCodec.dumps({'error': str(e)})

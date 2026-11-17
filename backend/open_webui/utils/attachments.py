@@ -106,6 +106,7 @@ def format_attachment_block(
     terminal: bool = False,
     vision: bool = False,
     file_tools: bool = True,
+    project: bool = False,
 ) -> str:
     """The <attached_files> block, the included file texts, and how to read the rest."""
     if not infos:
@@ -176,6 +177,12 @@ def format_attachment_block(
         '[tr.12, Điều 5], when there is one), quote numbers and dates exactly as written, and say plainly when '
         'the files do not contain the answer instead of guessing.'
     )
+    if project:
+        guide.append(
+            'This channel is a project: questions about its work items, owners, due dates or progress (for example '
+            '"việc hạn tháng 12") are answered from the project data with get_project_status / build_project_report '
+            '(due_from / due_to), which also includes task tables posted here; it says which files are not in it yet.'
+        )
     if terminal:
         guide.append(
             'To work on a file with code (spreadsheet cells and sheets, pandas, filling a report template), '
@@ -197,32 +204,3 @@ def log_attachments(where: str, infos: list[dict], inline_ids: set, extra: str =
         f' | {extra}' if extra else '',
     )
 
-
-PROJECT_TOOLS = frozenset(
-    {
-        'build_project_report',
-        'export_project_report',
-        'get_project_status',
-        'get_project_timeline',
-        'list_my_projects',
-        'search_project_evidence',
-    }
-)
-_PROJECT_WORDS = re.compile(
-    r'dự án|tiến độ|báo cáo (?:tuần|ngày|tháng|quý|tổng hợp|dự án|tiến độ)|quá hạn|hạng mục|việc của|'
-    r'ai đang|người phụ trách|deadline|project|sprint',
-    re.IGNORECASE,
-)
-_FILE_TEXT_RE = re.compile(r'<file_content\b.*?</file_content>|<attached_files>.*?</attached_files>', re.DOTALL)
-
-
-def asks_only_about_files(user_text: str) -> bool:
-    """The newest message brings attached files and its own words say nothing about project progress.
-
-    Then project-report tools are left out for that answer: models otherwise read "tóm tắt" in a project
-    channel as a progress report and never open the files.
-    """
-    if '<attached_files>' not in (user_text or ''):
-        return False
-    own_words = _FILE_TEXT_RE.sub(' ', user_text)
-    return not _PROJECT_WORDS.search(own_words)

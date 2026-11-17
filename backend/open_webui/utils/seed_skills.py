@@ -29,6 +29,7 @@ _EARLIER_RELEASES = {
     'project-reports': {
         'd621350b83fdbe49ef8524c3d6f85a57233ce0a0b268c7beee4066e4270c4e79',
         '48db0d0ff58fbe5f18ace8975d017fd9a52f1ac4981c86295cbc472240715d1e',
+        'd7c15511b4a4ccd40ec80e70631d6b885c7c1bd7da46bb840532fd9659849132',
     },
 }
 PUBLIC_READ_GRANT = {'principal_type': 'user', 'principal_id': '*', 'permission': 'read'}

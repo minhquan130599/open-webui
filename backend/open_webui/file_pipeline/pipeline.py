@@ -25,6 +25,7 @@ from open_webui.utils.file_structure import (
     document_profile,
     get_structure,
     is_pdf,
+    is_spreadsheet,
     render_pdf_page,
     score_pages,
 )
@@ -412,7 +413,13 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
             job.stats['index_ms'] = _ms(started)
 
         # 5. summary: optional, the chat tool can still summarize on demand, so a failure does not fail the job.
-        if settings['files.summary.precompute'] and len(content) >= settings['files.summary.precompute_min_chars']:
+        # Spreadsheets get no prose summary: rows flattened into text make a slow, useless one; they are read
+        # with query_table and their task tables go to the tracker row by row.
+        if (
+            settings['files.summary.precompute']
+            and len(content) >= settings['files.summary.precompute_min_chars']
+            and not is_spreadsheet(file.filename, (file.meta or {}).get('content_type'))
+        ):
             started = time.perf_counter()
             await job.stage('summary', 0, 'Tóm tắt sẵn')
             try:

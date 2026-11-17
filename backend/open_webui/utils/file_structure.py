@@ -29,6 +29,16 @@ def is_pdf(filename: str, content_type: Optional[str]) -> bool:
     return (content_type or '').lower() == 'application/pdf' or (filename or '').lower().endswith('.pdf')
 
 
+SPREADSHEET_EXTENSIONS = ('.xlsx', '.xlsm', '.xls', '.ods', '.csv', '.tsv')
+
+
+def is_spreadsheet(filename: str, content_type: Optional[str] = None) -> bool:
+    content_type = (content_type or '').lower()
+    return (filename or '').lower().endswith(SPREADSHEET_EXTENSIONS) or any(
+        key in content_type for key in ('spreadsheet', 'ms-excel', 'text/csv')
+    )
+
+
 def _doc_page(metadata: dict) -> Optional[int]:
     """1-based page number of a loader document, if the loader recorded one."""
     page = metadata.get('page')
