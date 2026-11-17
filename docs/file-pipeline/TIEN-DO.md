@@ -9,10 +9,10 @@ Trạng thái: ⬜ chưa làm · 🔄 đang làm · ✅ xong (đã test) · ⚠�
 - ⚠️ 1d. Báo cáo ghi rõ file chưa được tổng hợp
 
 ## Nhóm 2. Tóm tắt file theo độ dài linh hoạt
-- ⬜ 2a. Lưu tóm tắt 3 tầng (phần, chương, toàn file)
-- ⬜ 2b. Độ dài mục tiêu tỉ lệ với file (cấu hình được)
-- ⬜ 2c. Tham số detail (ngắn/thường/đầy đủ) và section
-- ⬜ 2d. Trả theo nhiều phần + "tiếp"
+- ✅ 2a. Lưu tóm tắt 3 tầng (phần, chương, toàn file)
+- ✅ 2b. Độ dài mục tiêu tỉ lệ với file (cấu hình được)
+- ✅ 2c. Tham số detail (ngắn/thường/đầy đủ) và section
+- ✅ 2d. Trả theo nhiều phần + "tiếp"
 
 ## Nhóm 3. Tracker trích đầu việc từ văn bản sạch của pipeline
 - ⬜ 3a. Dùng văn bản sạch của pipeline thay cho tóm tắt riêng 40 phần
@@ -53,3 +53,9 @@ Trạng thái: ⬜ chưa làm · 🔄 đang làm · ✅ xong (đã test) · ⚠�
   bảng tính sang `query_table`, terminal chỉ để tạo file/điền mẫu; output terminal > 12.000 ký tự được cắt giữ đầu và cuối.
   Đã test trên NCS_CX_Feedback_Hub_MaKH_test.xlsx: 6 sheet đọc trong 2 s, lọc hạn tháng 11 ra 9 việc, đếm theo Owner đúng.
   6d còn thiếu: tham số "chờ kết quả" của run_command chưa xác minh được (cần xem /openapi.json của open-terminal).
+- Nhóm 2: `summary.py` giữ 3 tầng (từng phần / từng chương / toàn file), độ dài toàn file = `files.summary.ratio_pct`
+  (8%) số ký tự file, trong khoảng `min_chars` (3.000) – `max_chars` (60.000); tool `summarize_chat_file` có `detail`
+  (brief/normal/full), `section` ("Chương II", "trang 12") và `part`; kết quả dài hơn `files.summary.page_chars` (12.000)
+  trả làm nhiều phần kèm gợi ý gõ "tiếp". Bản tóm tắt cũ đã lưu (chưa có tầng) vẫn trả được. Vòng gộp tối đa 6 lần.
+  Đã test với mô hình giả: file 109k ký tự, 5 chương → 5 phần, 5 chương, toàn file 7k; normal chia 2 phần; tìm chương
+  sai báo danh sách chương. File đã tóm tắt trước bản này cần chạy lại tóm tắt (monitor) để có đủ 3 tầng.

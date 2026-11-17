@@ -3239,6 +3239,9 @@ async def _summary_completion(request: Request, user: UserModel, model_id: str, 
 async def summarize_chat_file(
     file_id: str,
     focus: Optional[str] = None,
+    detail: str = 'normal',
+    section: Optional[str] = None,
+    part: int = 1,
     __request__: Request = None,
     __user__: dict = None,
     __metadata__: dict = None,
@@ -3246,14 +3249,18 @@ async def summarize_chat_file(
 ) -> str:
     """
     Summarize a whole attached file without leaving parts out. The server reads the file part by part
-    (pages with unreliable OCR are read from their images when the model supports vision) and returns one
-    structured summary with page references, plus the sections and pages it covered. Use it for long files;
-    files whose full text is already in the message can be read directly. The result is complete: answer
-    from it without re-reading the file.
+    (pages with unreliable OCR are read from their images when the model supports vision) and keeps three
+    levels with page references: brief (whole file), normal (per chapter/section) and full (per part).
+    Use it for long files; files whose full text is already in the message can be read directly. The result
+    is complete: answer from it without re-reading the file. A long result comes in parts: answer from the
+    part you got and invite the user to type "tiếp" for the next one.
 
     :param file_id: The ID of the file to summarize
     :param focus: Optional topic or question the summary should concentrate on
-    :return: JSON with the summary, the covered sections and pages, and the number of parts read
+    :param detail: brief (short overview), normal (per chapter, default) or full (most detailed)
+    :param section: Optional chapter/section title or page ("Chương II", "trang 12") to summarize only that part
+    :param part: Part number of a long result (1 first; then 2, 3... when the user types "tiếp")
+    :return: JSON with the summary (this part), part/parts_total, the covered sections and pages
     """
     if __request__ is None or not __user__:
         return JSONCodec.dumps({'error': 'Request and user context required'})
@@ -3269,11 +3276,42 @@ async def summarize_chat_file(
             return JSONCodec.dumps({'error': 'File not found'})
         if not ((file.data or {}).get('content') or '').strip():
             return JSONCodec.dumps({'error': 'The file has no extracted text'})
+        settings = await file_settings()
+
+        def deliver(result: dict, cached: bool) -> str:
+            from open_webui.file_pipeline.summary import paginate, select_view
+
+            pages = paginate(select_view(result, detail, section), settings['files.summary.page_chars'])
+            index = min(max(int(part or 1), 1), len(pages))
+            answer = {
+                'id': result.get('id'),
+                'filename': result.get('filename'),
+                'detail': detail,
+                **({'section': section} if section else {}),
+                'part': index,
+                'parts_total': len(pages),
+                'parts_read': result.get('parts_read'),
+                **({'pages': result['pages']} if result.get('pages') else {}),
+                'coverage': result.get('coverage'),
+                **({'cached': True} if cached else {}),
+                'summary': pages[index - 1],
+                'note': (
+                    'This summary covers every part of the file in order, with page references [tr.N]. Answer from '
+                    'it now; do not read the file again to check it.'
+                    + (
+                        f' This is part {index}/{len(pages)}: answer from it and invite the user to type "tiếp" for '
+                        f'part {index + 1} (then call summarize_chat_file again with part={index + 1} and the same '
+                        'detail/section).'
+                        if index < len(pages)
+                        else ''
+                    )
+                ),
+            }
+            return JSONCodec.dumps(answer, ensure_ascii=False)
+
         cached = cached_summary(file, focus)
         if cached:
-            return JSONCodec.dumps({**cached, 'cached': True}, ensure_ascii=False)
-
-        settings = await file_settings()
+            return deliver(cached, True)
 
         async def emit(description: str, finished: bool = False):
             if __event_emitter__:
@@ -3298,7 +3336,7 @@ async def summarize_chat_file(
                 cached = cached_summary(file, None)
                 if cached:
                     await emit(f'Đã có bản tóm tắt {file.filename}', True)
-                    return JSONCodec.dumps({**cached, 'cached': True}, ensure_ascii=False)
+                    return deliver(cached, True)
         models = __request__.app.state.MODELS
         chat_model = settings['files.summary.chat_model']
         model_id = chat_model if chat_model in models else (__metadata__ or {}).get('model_id')
@@ -3325,6 +3363,8 @@ async def summarize_chat_file(
             segment_chars=settings['files.summary.segment_chars'],
             concurrency=settings['files.summary.concurrency'],
             max_chars=settings['files.summary.max_chars'],
+            ratio_pct=settings['files.summary.ratio_pct'],
+            min_chars=settings['files.summary.min_chars'],
             image_max_side=settings['files.page_image_max_side'],
             pdf_path=pdf_path,
             image_pages=low_pages,
@@ -3332,7 +3372,7 @@ async def summarize_chat_file(
         )
         await store_summary(file, focus, result)
         await emit(f'Đã tóm tắt xong {file.filename}', True)
-        return JSONCodec.dumps(result, ensure_ascii=False)
+        return deliver(result, False)
     except Exception as e:
         log.exception(f'summarize_chat_file error: {e}')
         return JSONCodec.dumps({'error': str(e)})

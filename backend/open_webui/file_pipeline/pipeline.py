@@ -345,6 +345,8 @@ async def _summarize(job: Job, file, structure: dict, settings: dict) -> bool:
         segment_chars=settings['files.summary.segment_chars'],
         concurrency=settings['files.summary.concurrency'],
         max_chars=settings['files.summary.max_chars'],
+        ratio_pct=settings['files.summary.ratio_pct'],
+        min_chars=settings['files.summary.min_chars'],
         emit=emit,
     )
     await store_summary(file, None, result)

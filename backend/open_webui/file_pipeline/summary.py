@@ -1,8 +1,15 @@
 """Whole-file summaries by map-reduce, shared by the summarize_chat_file tool and the background pipeline.
 
 The file is cut at section, sheet and page starts; each part is summarized on its own (with the page images of
-parts whose OCR is still unreliable), then neighbouring summaries are merged until the result fits. Results are
-cached on the file by content and focus, so the chat tool returns a summary the pipeline already made.
+parts whose OCR is still unreliable). Nothing is thrown away: three levels are kept,
+
+  parts     one summary per part (most detail)
+  sections  one per top-level section (chapter...), merged from its parts only when they are long
+  overall   the whole file, merged until it fits a length that grows with the file
+
+so a question picks the level it needs ("tóm tắt ngắn", "đầy đủ", "Chương II") and long results are delivered
+part by part. Results are cached on the file by content and focus, so the chat tool returns what the pipeline
+already made.
 """
 
 import asyncio
@@ -27,10 +34,10 @@ like [tr.12]. Do not add anything that is not in the text and do not comment on 
 {text}
 </part>"""
 
-MERGE_PROMPT = """Below are consecutive partial summaries of the document "{name}".
-Merge them into one summary in the language of the document, keeping the document order, every heading, number,
-date, deadline, obligation and exception, and the page references like [tr.12]; only remove repetition and
-shorten wording.{focus}
+MERGE_PROMPT = """Below are consecutive partial summaries of the document "{name}"{scope}.
+Merge them into one summary of at most about {target} characters, in the language of the document, keeping the
+document order, every heading, number, date, deadline, obligation and exception, and the page references like
+[tr.12]; only remove repetition and shorten wording.{focus}
 
 {text}"""
 
@@ -57,11 +64,32 @@ async def store_summary(file, focus: Optional[str], result: dict) -> None:
     await Files.update_file_data_by_id(file.id, {'summaries': summaries})
 
 
-def _section_label(outline: dict, start: int, end: int) -> str:
-    titles = [item['title'] for item in outline.get('headings', []) if start <= item['offset'] < end and item['level'] <= 2]
-    if not titles:
+def target_chars(content_chars: int, ratio_pct: int, min_chars: int, max_chars: int) -> int:
+    """Length of the whole-file summary: a share of the file, within bounds."""
+    return max(min_chars, min(max_chars, content_chars * max(ratio_pct, 1) // 100))
+
+
+def _page_label(pages: list[int]) -> str:
+    if not pages:
         return ''
-    return f', covering {titles[0]}' + (f' … {titles[-1]}' if len(titles) > 1 else '')
+    return f'tr.{pages[0]}' if len(pages) == 1 else f'tr.{pages[0]}-{pages[-1]}'
+
+
+def _sections(outline: dict, length: int, segments: list[tuple[int, int]]) -> list[tuple[str, int, int]]:
+    """(title, start, end) of top-level sections; without headings, groups of about four parts."""
+    headings = outline.get('headings') or []
+    if headings:
+        top = min(h['level'] for h in headings)
+        starts = [(h['title'], h['offset']) for h in headings if h['level'] == top]
+        if len(starts) >= 2:
+            if starts[0][1] > 0:
+                starts.insert(0, ('Phần đầu', 0))
+            return [
+                (title, start, starts[i + 1][1] if i + 1 < len(starts) else length)
+                for i, (title, start) in enumerate(starts)
+            ]
+    groups = [segments[i : i + 4] for i in range(0, len(segments), 4)]
+    return [(f'Phần {i + 1}', group[0][0], group[-1][1]) for i, group in enumerate(groups)]
 
 
 async def summarize_file(
@@ -73,12 +101,14 @@ async def summarize_file(
     segment_chars: int,
     concurrency: int,
     max_chars: int,
+    ratio_pct: int = 8,
+    min_chars: int = 3000,
     image_max_side: int = 1600,
     pdf_path: Optional[str] = None,
     image_pages: Optional[set] = None,
     emit: Optional[Callable[[str, bool], Awaitable[None]]] = None,
 ) -> dict:
-    """Summary of the whole file text: {'summary', 'coverage', 'parts_read', 'pages'?}.
+    """Three-level summary of the whole file text: see the module docstring for the levels.
 
     image_pages are pages whose text is unreliable; with pdf_path their images go with their part (2 at most).
     """
@@ -89,23 +119,30 @@ async def summarize_file(
     image_pages = image_pages or set()
     focus_line = f'\nPay special attention to: {focus}' if focus else ''
     semaphore = asyncio.Semaphore(max(concurrency, 1))
+    overall_target = target_chars(len(content), ratio_pct, min_chars, max_chars)
     done = 0
 
     async def notify(text: str, finished: bool = False):
         if emit:
             await emit(text, finished)
 
-    async def part(index: int, start: int, end: int) -> str:
+    async def ask(message) -> str:
+        async with semaphore:
+            return THINK_RE.sub('', await complete(message) or '').strip()
+
+    async def part(index: int, start: int, end: int) -> dict:
         nonlocal done
         pages = pages_between(structure, start, end)
         page_label = f' (pages {pages[0]}-{pages[-1]})' if len(pages) > 1 else (f' (page {pages[0]})' if pages else '')
+        titles = [h['title'] for h in outline.get('headings', []) if start <= h['offset'] < end and h['level'] <= 2]
+        section = f', covering {titles[0]}' + (f' … {titles[-1]}' if len(titles) > 1 else '') if titles else ''
         with_images = [page for page in pages if page in image_pages][:2] if pdf_path else []
         prompt = PART_PROMPT.format(
             index=index,
             total=total,
             name=file.filename,
             pages=page_label,
-            section=_section_label(outline, start, end),
+            section=section,
             focus=focus_line,
             images=(
                 f'\nThe OCR text of page(s) {", ".join(map(str, with_images))} is unreliable; the page images are '
@@ -125,36 +162,72 @@ async def summarize_file(
                 except Exception as error:
                     log.warning('summary: page %s of %s not rendered (%s)', page, file.id, error)
             message = [{'type': 'text', 'text': prompt}, *images]
-        async with semaphore:
-            summary = THINK_RE.sub('', await complete(message) or '').strip()
+        summary = await ask(message)
         done += 1
         await notify(f'Đã đọc {done}/{total} phần của {file.filename}')
-        return f'### Part {index}/{total}{page_label}\n{summary or "(no summary returned)"}'
+        return {
+            'label': f'Phần {index}/{total}' + (f' – {titles[0]}' if titles else ''),
+            'pages': _page_label(pages),
+            'start': start,
+            'text': summary or '(no summary returned)',
+        }
+
+    async def merge(texts: list[str], target: int, scope: str) -> str:
+        """Merge texts in document order, in groups that fit one call, until the result fits target."""
+        rounds = 0
+        while (len(texts) > 1 or (texts and len(texts[0]) > target * 1.3)) and rounds < 6:
+            rounds += 1
+            groups, current = [], []
+            for text in texts:
+                if current and sum(len(t) for t in current) + len(text) > segment_chars:
+                    groups.append(current)
+                    current = []
+                current.append(text)
+            groups.append(current)
+            if len(groups) == len(texts) and len(texts) > 1:
+                groups = [texts[i : i + 2] for i in range(0, len(texts), 2)]
+            share = max(target // max(len(groups), 1), 1500)
+            merged = await asyncio.gather(
+                *(
+                    ask(MERGE_PROMPT.format(name=file.filename, scope=scope, target=share, focus=focus_line, text='\n\n'.join(group)))
+                    if len(group) > 1 or len(group[0]) > target * 1.3
+                    else asyncio.sleep(0, group[0])
+                    for group in groups
+                )
+            )
+            if len(merged) == len(texts) and all(a == b for a, b in zip(merged, texts)):
+                break
+            texts = list(merged)
+            if len(texts) == 1:
+                break
+        return texts[0] if texts else ''
 
     await notify(f'Đang đọc {file.filename} ({total} phần)')
     parts = list(await asyncio.gather(*(part(i + 1, s, e) for i, (s, e) in enumerate(segments))))
 
-    # Merge neighbouring summaries until the result fits, keeping document order.
-    while sum(len(p) for p in parts) > max_chars and len(parts) > 1:
-        groups, current = [], []
-        for item in parts:
-            if current and sum(len(p) for p in current) + len(item) > segment_chars:
-                groups.append(current)
-                current = []
-            current.append(item)
-        groups.append(current)
-        if len(groups) == len(parts):
-            groups = [parts[i : i + 2] for i in range(0, len(parts), 2)]
-        await notify(f'Đang gộp tóm tắt {file.filename}')
+    # Sections: their parts as they are when short, merged when long.
+    section_ranges = _sections(outline, len(content), segments)
+    section_cap = max(4000, overall_target * 2 // max(len(section_ranges), 1))
+    sections = []
+    await notify(f'Đang gộp tóm tắt {file.filename}')
+    for title, start, end in section_ranges:
+        members = [p for p in parts if start <= p['start'] < end]
+        if not members:
+            continue
+        texts = [f'### {p["label"]} ({p["pages"]})\n{p["text"]}' if p['pages'] else f'### {p["label"]}\n{p["text"]}' for p in members]
+        joined = '\n\n'.join(texts)
+        pages = [p['pages'] for p in members if p['pages']]
+        page_range = ''
+        if pages:
+            first = pages[0].removeprefix('tr.').split('-')[0]
+            last = pages[-1].removeprefix('tr.').split('-')[-1]
+            page_range = f'tr.{first}' if first == last else f'tr.{first}-{last}'
+        text = joined if len(joined) <= section_cap else await merge(texts, section_cap, f', section "{title}"')
+        sections.append({'title': title, 'pages': page_range, 'text': text})
 
-        async def merge(group: list[str]) -> str:
-            if len(group) == 1:
-                return group[0]
-            async with semaphore:
-                merged = await complete(MERGE_PROMPT.format(name=file.filename, focus=focus_line, text='\n\n'.join(group)))
-            return THINK_RE.sub('', merged or '').strip()
-
-        parts = list(await asyncio.gather(*(merge(group) for group in groups)))
+    section_texts = [f'## {s["title"]}' + (f' ({s["pages"]})' if s['pages'] else '') + f'\n{s["text"]}' for s in sections]
+    joined = '\n\n'.join(section_texts)
+    overall = joined if len(joined) <= overall_target * 1.3 else await merge(section_texts, overall_target, '')
 
     return {
         'id': file.id,
@@ -165,10 +238,74 @@ async def summarize_file(
             item['title'] + (f' (tr.{item["page"]})' if item.get('page') else '') for item in outline.get('headings', [])
         ],
         **({'focus': focus} if focus else {}),
-        'summary': '\n\n'.join(parts),
-        'note': (
-            'This summary already covers every part of the file, in order, with page references [tr.N]. Answer '
-            'from it now; do not read the file again to check it. Open a specific page only if the user asks for '
-            'the exact wording of one part.'
-        ),
+        'summary': overall,
+        'tiers': {
+            'parts': [{k: p[k] for k in ('label', 'pages', 'text')} for p in parts],
+            'sections': sections,
+            'overall': overall,
+        },
     }
+
+
+def _normalize(text: str) -> str:
+    import unicodedata
+
+    text = unicodedata.normalize('NFD', (text or '').lower())
+    return ''.join(c for c in text if not unicodedata.combining(c)).replace('đ', 'd')
+
+
+def select_view(result: dict, detail: str = 'normal', section: Optional[str] = None) -> list[str]:
+    """Blocks of the summary for a detail level (brief | normal | full), optionally one section."""
+    tiers = result.get('tiers') or {}
+    if not tiers:  # summaries cached before levels existed
+        return [result.get('summary') or '']
+    detail = (detail or 'normal').strip().lower()
+    if section:
+        key = _normalize(section)
+        page = re.search(r'(\d+)', key) if re.search(r'\b(tr|trang|page)\b', key) else None
+        if page:
+            number = int(page.group(1))
+
+            def covers(pages: str) -> bool:
+                bounds = [int(x) for x in re.findall(r'\d+', pages or '')]
+                return bool(bounds) and bounds[0] <= number <= bounds[-1]
+
+            hits = [p for p in tiers['parts'] if covers(p['pages'])]
+        else:
+            hits = [p for p in tiers['parts'] if key in _normalize(p['label'])]
+            matching_sections = [s for s in tiers['sections'] if key in _normalize(s['title'])]
+            if matching_sections and detail != 'full':
+                return [_block('##', s['title'], s['pages'], s['text']) for s in matching_sections]
+        if hits:
+            return [_block('###', p['label'], p['pages'], p['text']) for p in hits]
+        return [f'(Không tìm thấy phần "{section}"; các phần: ' + '; '.join(s['title'] for s in tiers['sections']) + ')']
+    if detail in ('brief', 'short', 'ngan'):
+        return [tiers['overall']]
+    if detail in ('full', 'day_du', 'detail'):
+        return [_block('###', p['label'], p['pages'], p['text']) for p in tiers['parts']]
+    return [_block('##', s['title'], s['pages'], s['text']) for s in tiers['sections']]
+
+
+def _block(level: str, title: str, pages: str, text: str) -> str:
+    return f'{level} {title}' + (f' ({pages})' if pages else '') + f'\n{text}'
+
+
+def paginate(blocks: list[str], page_chars: int) -> list[str]:
+    """Group blocks into pages of about page_chars (a block longer than a page is cut on line breaks)."""
+    pages, current = [], ''
+    for block in blocks:
+        while len(block) > page_chars:
+            cut = block.rfind('\n', 0, page_chars)
+            cut = cut if cut > page_chars // 2 else page_chars
+            if current:
+                pages.append(current)
+                current = ''
+            pages.append(block[:cut])
+            block = block[cut:].lstrip('\n')
+        if current and len(current) + len(block) + 2 > page_chars:
+            pages.append(current)
+            current = ''
+        current = f'{current}\n\n{block}' if current else block
+    if current:
+        pages.append(current)
+    return pages or ['']
