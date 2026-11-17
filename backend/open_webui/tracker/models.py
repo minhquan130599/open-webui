@@ -530,6 +530,17 @@ class TrackerTable:
             )
             return [TrackerItemModel.model_validate(row) for row in result.scalars().all()]
 
+    async def extend_lease(self, channel_id: str, lease_id: str, lease_ns: int, db: Optional[AsyncSession] = None) -> bool:
+        """Push back the lease of a run still working (reading a long file); False when the lease is no longer ours."""
+        async with get_async_db_context(db) as db:
+            result = await db.execute(
+                update(TrackerState)
+                .where(TrackerState.channel_id == channel_id, TrackerState.lease_id == lease_id)
+                .values(lease_until=time.time_ns() + lease_ns)
+            )
+            await db.commit()
+            return bool(result.rowcount)
+
     async def fail(self, channel_id: str, lease_id: str, error: str, db: Optional[AsyncSession] = None) -> None:
         now = time.time_ns()
         async with get_async_db_context(db) as db:

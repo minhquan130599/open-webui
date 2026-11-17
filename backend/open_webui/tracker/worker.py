@@ -19,6 +19,27 @@ from open_webui.tracker.models import Trackers
 from open_webui.tracker.service import process_channel
 
 log = logging.getLogger(__name__)
+# A run keeps its lease while it works: reading a long spreadsheet can take longer than one lease, and a lease that
+# runs out hands the channel to another run that starts over (the first one's result is then dropped).
+LEASE_RENEW_SECONDS = 60
+
+
+async def _keep_lease(channel_id: str, lease_id: str) -> None:
+    while True:
+        await asyncio.sleep(LEASE_RENEW_SECONDS)
+        try:
+            if not await Trackers.extend_lease(channel_id, lease_id, TRACKER_LEASE_SECONDS * 1_000_000_000):
+                return
+        except Exception:
+            log.exception('Tracker: could not renew the lease of channel %s', channel_id)
+
+
+async def _run(channel_id: str, lease_id: str) -> None:
+    keeper = asyncio.create_task(_keep_lease(channel_id, lease_id))
+    try:
+        await process_channel(channel_id, lease_id)
+    finally:
+        keeper.cancel()
 
 
 async def tracker_worker_loop() -> None:
@@ -37,7 +58,7 @@ async def tracker_worker_loop() -> None:
                 max_active=settings['max_concurrency'],
             )
             for channel_id, lease_id in claimed:
-                task = asyncio.create_task(process_channel(channel_id, lease_id))
+                task = asyncio.create_task(_run(channel_id, lease_id))
                 running.add(task)
                 task.add_done_callback(running.discard)
         except asyncio.CancelledError:

@@ -1105,7 +1105,7 @@
       </div>
       ${card('Theo kết nối và model', table([
         { label: 'Kết nối', render: (r) => `<b>${esc(r.endpoint)}</b><div class="muted">${esc(r.url || '')}</div>` },
-        { label: 'Model', key: 'model_id' }, ...statCols,
+        { label: 'Model', key: 'model_id' }, { label: 'Việc', render: (r) => esc(r.purpose || '') }, ...statCols,
         { label: 'Token vào/ra', num: true, render: (r) => `${tok(r.input_tokens)} / ${tok(r.output_tokens)}` },
         { label: 'Chuyển kết nối', num: true, render: (r) => n(r.failovers) },
       ], d.endpoints, 'Tracker chưa gọi model trong khoảng này.'))}

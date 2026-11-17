@@ -288,3 +288,8 @@ Làm lại:
   không chép ngược chúng vào chi tiết; người phụ trách là người được giao, không phải người góp ý / yêu cầu / duyệt; ô
   nhiều tên được tách; chức vụ là "nhom"; phản hồi chỉ khen là không phải việc. Code bỏ đề xuất trùng tên việc của dòng.
   Monitor ghi các cột phân loại và số đề xuất trùng bị bỏ. EXTRACT_VERSION 17.
+- Kênh "đang chạy" rất lâu trên dev (test-kpi, tiến-độ-dự-án-x) khi tổng hợp lại tất cả: mỗi lượt giữ kênh 15 phút
+  (TRACKER_LEASE_SECONDS) không gia hạn; đọc file lớn theo cách mới (mỗi lượt gọi trả về dài hơn) có thể quá 15 phút,
+  khi đó lượt khác nhận lại kênh và làm lại từ đầu, kết quả lượt đầu bị bỏ; chỉ 2 kênh chạy cùng lúc nên các kênh khác
+  chờ. Nay lượt đang chạy tự gia hạn mỗi 60 giây (dừng gia hạn khi xong hoặc khi không còn giữ kênh). Monitor tab Tracker
+  hiện cả lượt gọi model để đọc file (cột "Việc": tổng hợp tin nhắn / đọc file), trước đây không thấy nên trông như treo.

@@ -704,27 +704,31 @@ async def knowledge(range: str = '24h'):
     }
 
 
+TRACKER_KINDS = "(kind = 'tracker' OR (kind = 'file_llm' AND meta->>'purpose' = 'tracker_extract'))"
+
+
 @app.get('/api/tracker', dependencies=[Depends(require_login)])
 async def tracker(range: str = '24h'):
     start, _, bucket = window(range)
     per_endpoint = await rows(
-        f"""SELECT name AS endpoint, model_id, {STATS},
+        f"""SELECT name AS endpoint, model_id,
+                CASE WHEN kind = 'tracker' THEN 'tổng hợp tin nhắn' ELSE 'đọc file' END AS purpose, {STATS},
                 sum(coalesce(input_tokens, 0)) AS input_tokens, sum(coalesce(output_tokens, 0)) AS output_tokens,
                 sum(CASE WHEN (meta->>'failover')::boolean THEN 1 ELSE 0 END) AS failovers,
                 max(meta->>'url') AS url
-            FROM perf_event WHERE kind = 'tracker' AND ts >= :start GROUP BY name, model_id ORDER BY count(*) DESC""",
+            FROM perf_event WHERE {TRACKER_KINDS} AND ts >= :start GROUP BY name, model_id, 3 ORDER BY count(*) DESC""",
         start=start,
     )
     series = await rows(
-        """SELECT (ts / :bucket) * :bucket AS t, count(*) AS calls, avg(duration_ms) AS avg_ms,
+        f"""SELECT (ts / :bucket) * :bucket AS t, count(*) AS calls, avg(duration_ms) AS avg_ms,
                 sum(CASE WHEN status <> 'ok' THEN 1 ELSE 0 END) AS errors
-            FROM perf_event WHERE kind = 'tracker' AND ts >= :start GROUP BY 1 ORDER BY 1""",
+            FROM perf_event WHERE {TRACKER_KINDS} AND ts >= :start GROUP BY 1 ORDER BY 1""",
         start=start,
         bucket=bucket,
     )
     errors = await rows(
-        """SELECT ts, name AS endpoint, model_id, meta->>'http_status' AS http_status, meta->>'error' AS error
-            FROM perf_event WHERE kind = 'tracker' AND status <> 'ok' AND ts >= :start ORDER BY ts DESC LIMIT 20""",
+        f"""SELECT ts, name AS endpoint, model_id, meta->>'http_status' AS http_status, meta->>'error' AS error
+            FROM perf_event WHERE {TRACKER_KINDS} AND status <> 'ok' AND ts >= :start ORDER BY ts DESC LIMIT 20""",
         start=start,
     )
     try:
