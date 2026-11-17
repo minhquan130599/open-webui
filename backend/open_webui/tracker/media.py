@@ -337,7 +337,7 @@ async def _image_extraction(channel_id: str, file, name: str, content_hash: str)
             log.warning('Tracker: no text read from image %s (%s)', file.id, error)
             return None
         text = (text or '').strip()
-        if len(text) < extract.IMAGE_MIN_TEXT or '(không có chữ)' in text[:30]:
+        if not text or '(không có chữ)' in text[:30]:
             result = {'kind': 'image', 'items': [], 'quyet_dinh': [], 'rui_ro': [], 'report': {'text_chars': len(text)}}
         else:
             concurrency = (await file_settings())['files.summary.concurrency']

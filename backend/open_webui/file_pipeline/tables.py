@@ -151,15 +151,20 @@ def table_rows(rows: list[list[str]], header_index: int) -> tuple[list[str], lis
         name = value or f'Cột {column_letter(i)}'
         seen[name] = seen.get(name, 0) + 1
         names.append(name if seen[name] == 1 else f'{name} ({seen[name]})')
-    # Templates pre-fill hundreds of rows with formulas (FALSE, 0, "Không"): a data row has its first column
-    # filled, or at least half of its cells.
-    half = max(1, sum(1 for v in header if v) // 2)
+    # A data row has text in some cell, or its first column filled. Templates pre-fill hundreds of rows with formulas
+    # (FALSE, 0): rows of numbers and flags only, with an empty first column, are not rows of the table. A table
+    # that starts in column B, or rows with few cells filled, are kept.
     data = [
         (header_index + 2 + offset, row)
         for offset, row in enumerate(rows[header_index + 1 :])
-        if (row and row[0]) or sum(1 for v in row if v) >= half
+        if (row and row[0]) or any(_has_text(v) for v in row)
     ]
     return names, data
+
+
+def _has_text(value: str) -> bool:
+    value = (value or '').strip()
+    return bool(value) and value.upper() not in ('TRUE', 'FALSE') and parse_number(value.rstrip('%')) is None
 
 
 def sheet_profile(sheet: dict, sample: int = 3) -> dict:

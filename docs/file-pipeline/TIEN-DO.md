@@ -319,3 +319,15 @@ Làm lại:
   dòng dữ liệu đầu và model làm theo): model nhận 15 dòng đầu nguyên trạng và tự quyết định. EXTRACT_VERSION 21.
 - Proxy RunPod trả 405 / 504 chập chờn (7/168 lượt khi chấm), mỗi lần làm cả lượt tổng hợp kênh hoặc đọc file thất bại:
   nay hỏi lại cùng endpoint sau 3 rồi 10 giây với các mã 0 / 405 / 429 / 5xx trước khi báo lỗi.
+- Rà quy tắc cứng còn lại trong xử lý file, chuyển sang model quyết định:
+  - Ghép việc từ file vào danh sách kênh: không còn tự gộp khi tên giống ≥72%; mọi cặp tên chỉ giống nhau đều do model
+    xác nhận (theo lô 40 cặp, không bỏ cặp nào); chỉ tên giống hệt mới gộp ngay. Dòng khác của cùng bảng không bao giờ
+    được ghép theo tên (9 OPP cùng tên bước; trước đây có thể gộp lẫn).
+  - Bỏ trùng trong một văn bản: không còn tự bỏ khi tên giống ≥90% ("Lắp switch tầng 1 / tầng 2"); tên giống hệt mới
+    gộp, tên gần giống do model xác nhận.
+  - Ảnh: bỏ ngưỡng 40 ký tự (ghi chú ngắn trong ảnh bị coi là không có chữ); chỉ khi model trả "(không có chữ)".
+  - Đọc bảng tự do không có bản mô tả: không đoán dòng tiêu đề, đọc mọi dòng.
+  - Công cụ tra bảng của Knight (query_table): bỏ quy tắc "cột đầu trống và chưa điền nửa số ô thì không phải dòng" (làm
+    Knight đếm thiếu dòng, vd phiếu KPI bắt đầu từ cột B); dòng có chữ ở bất kỳ ô nào là dòng.
+  Giữ lại (kiểm tra, không đoán nghĩa): người / ngày / % phải có trong dòng hoặc văn bản, chi tiết lấy từ chữ của dòng,
+  ô bị bỏ sót được chép lại, đọc định dạng ngày / số chuẩn, bỏ dòng chỉ toàn số / TRUE-FALSE. EXTRACT_VERSION 22.
