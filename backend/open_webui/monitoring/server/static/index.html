@@ -1195,7 +1195,7 @@
         <textarea id="tx-spec" spellcheck="false" style="width:100%;min-height:260px;font-family:var(--mono, monospace);font-size:12px">${esc(tx.draft || JSON.stringify(editing.data.spec || {}, null, 2))}</textarea>
         <div style="display:flex;gap:6px;margin-top:6px"><button class="btn primary" type="button" data-tx-spec-save="${esc(tx.editing)}">Lưu bản mô tả</button><button class="btn" type="button" data-tx-spec-close>Đóng</button></div></div>` : '';
     return `${card('Đầu việc trích từ file', `
-        <p class="muted" style="font-size:12.5px;margin:-4px 0 10px">Tracker đọc hết mọi phần của file (văn bản sạch sau sửa OCR) và trích từng đầu việc kèm câu gốc, trang. Phần có nhiều dòng giống đầu việc mà trích được ít được đọc lại lần 2. Việc có câu gốc khớp văn bản được đưa thẳng vào trạng thái dự án; việc chưa khớp chỉ đưa cho model tổng hợp cân nhắc. Bảng Excel: model mô tả bảng một lần, code đọc mọi dòng theo bản mô tả.</p>
+        <p class="muted" style="font-size:12.5px;margin:-4px 0 10px">Tracker đọc hết mọi phần của file (văn bản sạch sau sửa OCR) và trích từng đầu việc kèm câu gốc, trang. Phần mà model đếm được nhiều việc hơn số đã liệt kê được đọc lại lần 2. Việc có câu gốc khớp văn bản được đưa thẳng vào trạng thái dự án; việc chưa khớp chỉ đưa cho model tổng hợp cân nhắc. Bảng Excel: model mô tả bảng một lần, code đọc mọi dòng theo bản mô tả.</p>
         ${tx.note ? `<div class="notice info" style="margin-bottom:8px">${esc(tx.note)}</div>` : ''}
         ${items}<div id="tx-view">${txViewHtml()}</div>`)}
       <div class="cols">
@@ -1219,7 +1219,7 @@
       { label: 'Vị trí', render: (i) => esc([i.trang ? `tr.${i.trang}` : i.dong ? `dòng ${i.dong}` : '', i.khoa ? i.khoa.split(':').slice(2).join(':') : ''].filter(Boolean).join(' · ') || '—') },
       { label: 'Câu gốc', render: (i) => `${i.xac_minh ? '<span class="pill ok">khớp</span>' : '<span class="pill warn">chưa khớp</span>'} <span class="muted" style="font-size:11.5px">${esc(i.trich_dan || '')}</span>` },
     ], data.items || [], 'Không trích được đầu việc nào.');
-    const suspect = (rep.suspect || []).map((p) => `phần ${p.part}${p.pages ? ` (${esc(p.pages)})` : ''}: ${p.signals} dòng giống đầu việc, trích được ${p.items}`).join('; ');
+    const suspect = (rep.suspect || []).map((p) => `phần ${p.part}${p.pages ? ` (${esc(p.pages)})` : ''}: model đếm ${p.expected} việc, mới trích được ${p.items}`).join('; ');
     const tableInfo = data.kind === 'table' ? `<div class="muted" style="font-size:12px;margin-bottom:6px">${esc((rep.notes || []).join(' · '))}${rep.stats ? ` · sheet ${esc(rep.stats.sheet || '')}: ${n(rep.stats.named ?? 0)}/${n(rep.stats.rows ?? 0)} dòng có tên việc, ${n(rep.stats.dates_ok ?? 0)}/${n(rep.stats.dates ?? 0)} ô hạn đọc được` : ''}${(rep.issues || []).length ? ` · <span style="color:var(--red)">${esc(rep.issues.join('; '))}</span>` : ''}</div>` : '';
     return `<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b>${esc(data.name || '')}</b> <button class="btn" type="button" data-tx-close>Đóng</button></div>

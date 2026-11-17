@@ -29,13 +29,10 @@ from open_webui.tracker.schema import _STATUS_ALIASES, STATUSES, WorkItem, _clea
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 5
+EXTRACT_VERSION = 6
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 ROW_BATCH_CHARS = 10_000
-# A part is read again when it has at least this many task-like lines and items cover less than this share.
-RECHECK_MIN_SIGNALS = 4
-RECHECK_RATIO = 0.4
 # Spec quality: share of data rows that must yield a name, and of filled date cells that must parse.
 MIN_NAMED_RATIO = 0.8
 MIN_DATE_RATIO = 0.8
@@ -61,7 +58,8 @@ ITEM_FORMAT = """{{"hang_muc": [{{"ten": "tên việc ngắn gọn, đủ nghĩa
   "vuong_mac": "khó khăn hoặc null", "chi_tiet": ["ý phụ ngắn, tối đa 3"],
   "trich_dan": "câu gốc chép nguyên văn (tối đa 200 ký tự)", "trang": số trang hoặc null}}],
  "quyet_dinh": [{{"noi_dung": "...", "ngay": "YYYY-MM-DD hoặc null", "trich_dan": "..."}}],
- "rui_ro": [{{"noi_dung": "...", "muc_do": "thap|trung_binh|cao", "trich_dan": "..."}}]}}"""
+ "rui_ro": [{{"noi_dung": "...", "muc_do": "thap|trung_binh|cao", "trich_dan": "..."}}],
+ "tong_so_viec": tổng số đầu việc CÓ TRONG phần này (đếm cả việc chưa kịp liệt kê ở trên)}}"""
 
 DOC_PROMPT = """Tài liệu "{name}", phần {index}/{total}{pages}. Hôm nay là {today}.
 <tai_lieu>
@@ -81,11 +79,11 @@ RECHECK_PROMPT = """Tài liệu "{name}", phần {index}/{total}{pages}. Hôm na
 {text}
 </tai_lieu>
 
-Lần đọc trước chỉ trích được {found} đầu việc từ phần này:
+Lần đọc trước ước tính phần này có {expected} đầu việc nhưng mới liệt kê {found}:
 {items}
 
-Phần này có nhiều dòng giống đầu việc (có ngày, hạn, người phụ trách). Đọc lại từ đầu đến cuối và chỉ liệt kê các
-đầu việc CÒN THIẾU, không lặp lại việc đã có. Trả về đúng một JSON cùng định dạng:
+Đọc lại từ đầu đến cuối và chỉ liệt kê các đầu việc CÒN THIẾU, không lặp lại việc đã có; "tong_so_viec" là tổng số đầu
+việc của cả phần sau khi đọc lại. Trả về đúng một JSON cùng định dạng:
 """ + ITEM_FORMAT
 
 SPEC_PROMPT = """File bảng tính "{name}". Dưới đây là các sheet: số dòng, vài dòng đầu (cột theo chữ cái A, B, C...),
@@ -131,12 +129,6 @@ SAME_PROMPT = """Các cặp đầu việc dưới đây có tên gần giống n
 {pairs}
 Trả về đúng một JSON: {{"cung_viec": [số thứ tự các cặp là cùng một việc]}}"""
 
-_SIGNAL_RE = re.compile(
-    r'\b\d{1,2}[/.-]\d{1,2}([/.-]\d{2,4})?\b|\b(hạn|thời hạn|deadline|phụ trách|chịu trách nhiệm|giao cho|đầu mối|'
-    r'chủ trì|thực hiện|hoàn thành|triển khai|owner|due|assignee|trước ngày)\b',
-    re.IGNORECASE,
-)
-_LIST_LINE_RE = re.compile(r'^\s*([-*•+]|\d+[.)]|[a-zđ][.)]|\|)')
 
 
 # ---------------------------------------------------------------- helpers
@@ -158,9 +150,11 @@ async def _ask_json(prompt: str, max_tokens: int = 6000) -> dict:
     return {}
 
 
-def task_signals(text: str) -> int:
-    """Lines that look like a task: a list or table line with a date or a task word."""
-    return sum(1 for line in text.splitlines() if line.strip() and _LIST_LINE_RE.match(line) and _SIGNAL_RE.search(line))
+def _count(value) -> int:
+    try:
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _trigrams(text: str) -> set[str]:
@@ -308,19 +302,22 @@ async def extract_document(name: str, content: str, structure: dict, today: str,
         async with semaphore:
             data = await _ask_json(DOC_PROMPT.format(**args))
         items = [i for i in (_clean_item(r) for r in data.get('hang_muc') or []) if i]
-        signals = task_signals(content[start:end])
+        # The model says how many tasks the part holds; fewer listed (a long list cut short) means a second read.
+        expected = _count(data.get('tong_so_viec'))
+        remaining = expected
         rechecked = added = 0
-        confirmed = False
         rejected: dict[str, int] = {}
-        if signals >= RECHECK_MIN_SIGNALS and len(items) < signals * RECHECK_RATIO:
+        if not data or len(items) < expected:
             listed = '\n'.join(f'- {i["ten"]}' for i in items) or '(không có)'
             async with semaphore:
-                more = await _ask_json(RECHECK_PROMPT.format(**args, found=len(items), items=listed))
+                more = await _ask_json(
+                    RECHECK_PROMPT.format(**args, expected=expected or 'một số', found=len(items), items=listed)
+                )
             extra = [i for i in (_clean_item(r) for r in more.get('hang_muc') or []) if i]
             before = len(items)
             items = dedupe_items(items + extra)
             rechecked, added = 1, len(items) - before
-            confirmed = added == 0
+            remaining = _count(more.get('tong_so_viec')) or expected
             data.setdefault('quyet_dinh', []).extend(more.get('quyet_dinh') or [])
             data.setdefault('rui_ro', []).extend(more.get('rui_ro') or [])
         for item in items:
@@ -336,11 +333,10 @@ async def extract_document(name: str, content: str, structure: dict, today: str,
         return {
             'part': index,
             'pages': label.strip(' ()'),
-            'signals': signals,
+            'expected': remaining,
             'items': items,
             'rechecked': rechecked,
             'added': added,
-            'confirmed': confirmed,
             'rejected': rejected,
             'quyet_dinh': _entries(data.get('quyet_dinh'), 'noi_dung'),
             'rui_ro': _entries(data.get('rui_ro'), 'noi_dung'),
@@ -355,7 +351,7 @@ async def extract_document(name: str, content: str, structure: dict, today: str,
         'rui_ro': [e for part in parts for e in part['rui_ro']],
         'report': {
             'parts': total,
-            'signals': sum(p['signals'] for p in parts),
+            'expected': sum(p['expected'] for p in parts),
             'rechecked': sum(p['rechecked'] for p in parts),
             'added_by_recheck': sum(p['added'] for p in parts),
             'unverified': sum(1 for i in items if not i['xac_minh']),
@@ -363,13 +359,11 @@ async def extract_document(name: str, content: str, structure: dict, today: str,
             'rejected': {
                 key: sum(p['rejected'].get(key, 0) for p in parts) for key in ('phu_trach', 'han', 'tien_do')
             },
-            # Parts that still look short of items after the second read, for a look on the monitor.
+            # Parts where the model, after reading twice, still counts more tasks than it listed.
             'suspect': [
-                {'part': p['part'], 'pages': p['pages'], 'signals': p['signals'], 'items': len(p['items'])}
+                {'part': p['part'], 'pages': p['pages'], 'expected': p['expected'], 'items': len(p['items'])}
                 for p in parts
-                if p['signals'] >= RECHECK_MIN_SIGNALS
-                and len(p['items']) < p['signals'] * RECHECK_RATIO
-                and not p['confirmed']
+                if len(p['items']) < p['expected']
             ],
         },
     }
@@ -444,22 +438,11 @@ def _unbullet(text: str) -> str:
     return '\n'.join(line.strip().lstrip('•▪◦-*+').strip() for line in text.splitlines() if line.strip())
 
 
-# Separators of several owners in one cell. A bare "/" is not one ("PM/BA" is one team), " / " with spaces is.
-_OWNER_SPLIT_RE = re.compile(r'\s*(?:[,;\n]|\s/\s|\s&\s|\s\+\s)\s*')
-
-
 def split_owners(text: str, separator: Optional[str] = None) -> list[str]:
-    """Owners in one cell: split on the table's own separator and on the usual ones (, ; newline " / " " & " " + ")."""
-    parts = [text or '']
-    if separator and separator.strip():
-        parts = [piece for part in parts for piece in part.split(separator)]
-    owners = []
-    for part in parts:
-        for owner in _OWNER_SPLIT_RE.split(part):
-            owner = owner.strip()
-            if owner and owner not in owners:
-                owners.append(owner)
-    return owners
+    """Owners in one cell, split only on the separator the table description gives; the row summary then lets the
+    model name each person (checked against the cell)."""
+    parts = (text or '').split(separator) if separator and separator.strip() else [text or '']
+    return list(dict.fromkeys(part.strip() for part in parts if part.strip()))
 
 
 def apply_spec(sheets: list[dict], spec: dict) -> dict:
@@ -542,6 +525,7 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
                 'ten': title,
                 'phu_trach': owners,
                 'hoan_thanh_luc': finished if status == 'hoan_thanh' else None,
+                'phu_trach_o': owners_text,
                 'ket_qua': cell(row, idx['ket_qua'])[:600] or None,
                 'trang_thai': status or ('chua_bat_dau' if not status_text else 'dang_lam'),
                 'tien_do': int(progress) if progress is not None and 0 <= progress <= 100 else None,
@@ -637,15 +621,17 @@ MAX_CONTEXT_IDEAS = 20
 # Share of a summary's words that must come from the ideas it cites, else the first idea becomes its name.
 MIN_WORD_SUPPORT = 0.25
 
-ROW_PROMPT = """Bảng công việc "{name}". Hôm nay là {today}. Mỗi mục là một dòng: người phụ trách và hạn của dòng, các ý
-của VIỆC CẦN LÀM đánh số [1], [2]..., và có thể có YÊU CẦU / BỐI CẢNH đánh số [Y1], [Y2]...
+ROW_PROMPT = """Bảng công việc "{name}". Hôm nay là {today}. Mỗi mục là một dòng: ô người phụ trách (nguyên văn), hạn của
+dòng, các ý của VIỆC CẦN LÀM đánh số [1], [2]..., và có thể có YÊU CẦU / BỐI CẢNH đánh số [Y1], [Y2]...
 <tai_lieu>
 {rows}
 </tai_lieu>
 
 Với mỗi dòng, lập đầu việc để theo dõi tiến độ:
-1. Mặc định cả dòng là MỘT việc. Chỉ tách thành nhiều việc khi các ý có người phụ trách khác nhau (chọn trong người phụ
-   trách của dòng) hoặc có hạn riêng ghi rõ trong ý.
+0. "nguoi": tách ô người phụ trách thành từng người hoặc đơn vị, chép đúng chữ trong ô (ô "Long / Triển" là 2 người
+   "Long", "Triển"; ô "Phòng R & D" là 1 đơn vị). Không thêm ai ngoài ô.
+1. Mặc định cả dòng là MỘT việc. Chỉ tách thành nhiều việc khi các ý có người phụ trách khác nhau (chọn trong "nguoi")
+   hoặc có hạn riêng ghi rõ trong ý. Ý nào ghi hạn riêng của chính nó thì liệt kê trong "han_rieng".
 2. "ten": tóm tắt việc tối đa 15 từ, bắt đầu bằng động từ, giữ tên đơn vị, khách hàng, sản phẩm; không chép nguyên câu.
 3. "chi_tiet": các ý phụ chưa có trong tên, mỗi ý một câu ngắn (tối đa 4).
    Ý phủ định hoặc kết luận KHÔNG làm ("không nên…", "không cần…") không phải việc: xếp vào "nhan_dinh", không đưa
@@ -656,9 +642,10 @@ Với mỗi dòng, lập đầu việc để theo dõi tiến độ:
    Liệt kê trong "chua_xu_ly" các yêu cầu mà KHÔNG ý nào của VIỆC CẦN LÀM xử lý, kể cả gián tiếp; đáp ứng một phần thì
    ghi phần còn thiếu vào "con_thieu". Yêu cầu đã được một hành động xử lý thì không liệt kê. Không tạo việc đã giao từ [Y..].
 Trả về đúng một JSON:
-{{"dong": [{{"ma": "R1",
-  "viec": [{{"ten": "...", "chi_tiet": ["..."], "y": [1, 2], "phu_trach": ["chỉ khi ý ghi rõ ai làm"],
+{{"dong": [{{"ma": "R1", "nguoi": ["..."],
+  "viec": [{{"ten": "...", "chi_tiet": ["..."], "y": [1, 2], "phu_trach": ["trong nguoi, chỉ khi ý ghi rõ ai làm"],
             "han": "YYYY-MM-DD chỉ khi ý ghi hạn riêng, không thì null"}}],
+  "han_rieng": [{{"y": 3, "han": "YYYY-MM-DD", "ten": "tên việc của ý đó, tối đa 15 từ"}}],
   "vuong_mac": {{"noi_dung": "tóm tắt hoặc null", "y": [3]}},
   "nhan_dinh": [4],
   "chua_xu_ly": [{{"ten": "tóm tắt yêu cầu tối đa 15 từ", "y": ["Y2"], "con_thieu": "phần chưa đáp ứng hoặc null"}}]}}]}}"""
@@ -727,22 +714,6 @@ def dates_in(text: str, year: int) -> set[str]:
     return found
 
 
-_DEADLINE_RE = re.compile(
-    r'(trước|hạn|deadline|chậm nhất|đến ngày|vào|cuối tuần|cuối ngày|by)\s*(ngày\s*)?'
-    r'(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?)',
-    re.IGNORECASE,
-)
-
-
-def deadline_in(text: str, year: int) -> Optional[str]:
-    """A deadline written in a point ("trước 20/11", "cập nhật vào cuối tuần 13/11/2026"), not any date in it."""
-    match = _DEADLINE_RE.search(text or '')
-    if not match:
-        return None
-    found = dates_in(match.group(3), year)
-    return min(found) if found else None
-
-
 def _title(text: str) -> str:
     words = (text or '').split()
     return ' '.join(words[: TITLE_WORDS + 5])[:TITLE_MAX]
@@ -773,7 +744,8 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
 
     def prompt_row(row: dict) -> str:
         item = row['item']
-        lines = [f'[{row["label"]}] phụ trách: {", ".join(item["phu_trach"]) or "-"}; hạn: {item["han"] or "-"}']
+        cell = item.get('phu_trach_o') or ', '.join(item['phu_trach'])
+        lines = [f'[{row["label"]}] ô người phụ trách: "{cell or "-"}"; hạn của dòng: {item["han"] or "-"}']
         lines.append('VIỆC CẦN LÀM:')
         lines += [f'  [{i}] {idea}' for i, idea in enumerate(row['ideas'], 1)]
         if row['context']:
@@ -814,7 +786,22 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
     def build(row: dict, answer: dict) -> Optional[dict]:
         """Validated tasks, blocker and unassigned requests of one row, or None when nothing usable came back."""
         item, ideas, context = row['item'], row['ideas'], row['context']
-        owners = {normalize_key(o): o for o in item['phu_trach']}
+        cell = f' {normalize_key(item.get("phu_trach_o") or " ".join(item["phu_trach"]))} '
+
+        def in_cell(name) -> bool:
+            # Whole words of the owner cell: "Long" is in "Long / Triển", "Presale" is not in "SOC, PM".
+            key = normalize_key(str(name))
+            return bool(key) and f' {key} ' in cell
+
+        # The row's people as the model split the cell, each checked against it; else the table's own split.
+        people = []
+        for name in answer.get('nguoi') or []:
+            if in_cell(name) and str(name).strip() not in people:
+                people.append(str(name).strip())
+            elif not in_cell(name):
+                report['owners_rejected'] += 1
+        people = people or list(item['phu_trach'])
+        by_key = {normalize_key(p): p for p in people}
         tasks, placed = [], set()
         for raw in answer.get('viec') or []:
             if not isinstance(raw, dict) or not str(raw.get('ten') or '').strip():
@@ -832,8 +819,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
             named = []
             for owner in raw.get('phu_trach') or []:
                 key = normalize_key(str(owner))
-                # The row's owner, or a name inside it ("Long" in "Long (BE)"), whole words only.
-                match = owners.get(key) or next((o for k, o in owners.items() if key and f' {key} ' in f' {k} '), None)
+                match = by_key.get(key) or (str(owner).strip() if in_cell(owner) else None)
                 if match and match not in named:
                     named.append(match)
                 elif not match:
@@ -848,7 +834,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                     report['due_rejected'] += 1
             tasks.append(
                 {
-                    'ten': title, 'chi_tiet': details, 'y': cited, 'phu_trach': named or list(item['phu_trach']),
+                    'ten': title, 'chi_tiet': details, 'y': cited, 'phu_trach': named or list(people),
                     'han': due, 'trich_dan': source[:QUOTE_CHARS],
                 }
             )
@@ -868,23 +854,37 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                 twin['trich_dan'] = ' '.join(ideas[i - 1] for i in twin['y'])[:QUOTE_CHARS]
             else:
                 grouped.append(task)
-        for task in list(grouped):
-            if len(task['y']) < 2:
+        # Points the model marked with their own deadline (checked: the date is written in the point) become a task
+        # of their own when they ended up inside a task with another deadline, or in no task.
+        for raw in answer.get('han_rieng') or []:
+            if not isinstance(raw, dict):
                 continue
-            for point in list(task['y']):
-                due = deadline_in(ideas[point - 1], year)
-                if due and due != task['han']:
-                    task['y'].remove(point)
-                    task['trich_dan'] = ' '.join(ideas[i - 1] for i in task['y'])[:QUOTE_CHARS]
-                    grouped.append(
-                        {
-                            'ten': short_title(ideas[point - 1]), 'chi_tiet': [], 'y': [point],
-                            'phu_trach': list(task['phu_trach']), 'han': due, 'trich_dan': ideas[point - 1][:QUOTE_CHARS],
-                        }
-                    )
-                    report['due_split'] = report.get('due_split', 0) + 1
-                    if len(task['y']) < 2:
-                        break
+            point = (numbers([raw.get('y')], len(ideas)) or [0])[0]
+            due = _clean_date(raw.get('han'))
+            if not point or not due or due not in dates_in(ideas[point - 1], year):
+                report['due_rejected'] += bool(point and due)
+                continue
+            owner_task = next((t for t in grouped if point in t['y']), None)
+            if owner_task and (owner_task['han'] == due or len(owner_task['y']) < 2):
+                if owner_task['han'] != due:
+                    owner_task['han'] = due
+                    report['due_accepted'] += 1
+                continue
+            title = _title(str(raw.get('ten') or '').strip())
+            if not title or word_support(title, ideas[point - 1]) < MIN_WORD_SUPPORT:
+                title = short_title(ideas[point - 1])
+            if owner_task:
+                owner_task['y'].remove(point)
+                owner_task['trich_dan'] = ' '.join(ideas[i - 1] for i in owner_task['y'])[:QUOTE_CHARS]
+            grouped.append(
+                {
+                    'ten': title, 'chi_tiet': [], 'y': [point],
+                    'phu_trach': list(owner_task['phu_trach'] if owner_task else people), 'han': due,
+                    'trich_dan': ideas[point - 1][:QUOTE_CHARS],
+                }
+            )
+            placed.add(point)
+            report['due_split'] = report.get('due_split', 0) + 1
         blocker = None
         raw_blocker = answer.get('vuong_mac') if isinstance(answer.get('vuong_mac'), dict) else {}
         # A point the tasks already use is an action, not a blocker.
@@ -910,7 +910,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                 report['titles_replaced'] += 1
             missing = str(raw.get('con_thieu') or '').strip()[:300]
             gaps.append({'ten': title, 'chi_tiet': [missing] if missing else [], 'trich_dan': source[:QUOTE_CHARS]})
-        return {'tasks': grouped, 'placed': placed, 'blocker': blocker, 'gaps': gaps}
+        return {'tasks': grouped, 'placed': placed, 'blocker': blocker, 'gaps': gaps, 'people': people}
 
     results: dict[str, dict] = {}
 
@@ -940,7 +940,8 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
     for row in rows:
         item, built = row['item'], results.get(row['label'])
         if not built:
-            built = {'tasks': [{'ten': short_title(item['ten']), 'chi_tiet': [], 'y': [1] if row['ideas'] else [],
+            built = {'people': list(item['phu_trach']),
+                     'tasks': [{'ten': short_title(item['ten']), 'chi_tiet': [], 'y': [1] if row['ideas'] else [],
                                 'phu_trach': list(item['phu_trach']), 'han': item['han'], 'trich_dan': item['ten'][:QUOTE_CHARS]}],
                      'placed': {1} if row['ideas'] else set(), 'blocker': None, 'gaps': []}
             report['titles_replaced'] += 1
@@ -989,6 +990,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
     for entry in output:
         entry.pop('ngu_canh', None)
         entry.pop('ket_qua', None)
+        entry.pop('phu_trach_o', None)
     return output, report
 
 

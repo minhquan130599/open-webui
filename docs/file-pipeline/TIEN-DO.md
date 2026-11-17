@@ -104,3 +104,7 @@ Trạng thái: ⬜ chưa làm · 🔄 đang làm · ✅ xong (đã test) · ⚠�
   trỏ tin nhắn về 0; tracker đọc lại toàn bộ tin nhắn và file theo lô cho đến hết (cột "Chờ tổng hợp" giảm về 0). Việc đã
   đóng/hủy giữ trong lưu trữ và không bị tạo lại (theo tên, hoặc theo khóa dòng bảng: hủy một việc của dòng chỉ chặn việc
   đó, việc cũ mang khóa cả dòng thì chặn cả dòng). Từ chối khi kênh đang được tổng hợp. Cần phiên chỉnh sửa. Chưa test trên app thật.
+- Bỏ regex nhận diện ý nghĩa: người phụ trách do model tách từ ô gốc (code chỉ kiểm tên có nguyên từ trong ô), hạn riêng
+  do model chỉ ra theo từng ý (code kiểm ngày có viết trong ý rồi tách việc), đọc lại phần văn bản theo số việc model đếm
+  ("tong_so_viec") thay cho đếm từ khóa. Regex còn lại chỉ để kiểm / đọc định dạng: dò câu gốc, đọc ngày, kiểm %, cắt câu
+  theo dấu chấm để đánh số ý, mention và link file của hệ thống.
