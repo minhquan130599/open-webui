@@ -42,6 +42,7 @@ def unknown_tool_error(name: str, tools: Optional[dict]) -> str:
 async def describe_attachments(items: list[dict], user: dict) -> list[dict]:
     """Readable attached files with their size and layout, in the order given."""
     from open_webui.file_pipeline.status import processing_state
+    from open_webui.utils.file_structure import is_spreadsheet
     from open_webui.tools.builtin import _get_accessible_chat_files
 
     described = []
@@ -66,6 +67,9 @@ async def describe_attachments(items: list[dict], user: dict) -> list[dict]:
             info['low_quality_pages'] = structure['low_quality_pages']
         if structure.get('sheets'):
             info['sheets'] = [name for name, _, _ in structure['sheets']]
+        if (file.data or {}).get('table_profile'):
+            info['table_profile'] = file.data['table_profile']
+        info['spreadsheet'] = is_spreadsheet(file.filename, info['content_type'])
         state = await processing_state(file.id)
         if state:
             info['processing'] = state['label']
@@ -122,7 +126,9 @@ def format_attachment_block(
         attrs['chars'] = str(info['chars'])
         if info.get('pages'):
             attrs['pages'] = str(info['pages'])
-        if info.get('sheets'):
+        if info.get('table_profile'):
+            attrs['tables'] = info['table_profile']
+        elif info.get('sheets'):
             attrs['sheets'] = ', '.join(info['sheets'])
         if info.get('low_quality_pages'):
             attrs['low_quality_pages'] = ','.join(str(page) for page in info['low_quality_pages'])
@@ -183,10 +189,15 @@ def format_attachment_block(
             '"việc hạn tháng 12") are answered from the project data with get_project_status / build_project_report '
             '(due_from / due_to), which also includes task tables posted here; it says which files are not in it yet.'
         )
+    if any(info.get('spreadsheet') for info in infos):
+        guide.append(
+            'Spreadsheets (their sheets and columns are listed in tables="..."): filter, count or look up rows with '
+            'query_table, in one call; do not use the terminal for that.'
+        )
     if terminal:
         guide.append(
-            'To work on a file with code (spreadsheet cells and sheets, pandas, filling a report template), '
-            'call open_in_terminal with its id first and use the returned terminal_path.'
+            'Use the terminal only to create a file or fill a Word/Excel template: call open_in_terminal with the '
+            'file id first and use the returned terminal_path.'
         )
     return '\n'.join(parts) + '\n' + ' '.join(guide)
 

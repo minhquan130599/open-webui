@@ -66,6 +66,7 @@ from open_webui.tools.builtin import (
     generate_image,
     list_available_skills,
     open_in_terminal,
+    query_table,
     summarize_chat_file,
     view_pdf_page,
     get_current_timestamp,
@@ -765,6 +766,14 @@ async def get_builtin_tools(
             builtin_functions.append(view_pdf_page)
         if is_builtin_tool_enabled('terminal') and metadata.get('terminal_id'):
             builtin_functions.append(open_in_terminal)
+        from open_webui.utils.file_structure import is_spreadsheet
+
+        if any(
+            is_spreadsheet(str(item.get('name') or item.get('filename') or ''), item.get('content_type'))
+            for item in chat_files
+            if isinstance(item, dict)
+        ):
+            builtin_functions.append(query_table)
 
     # Knowledge base tools - conditional injection based on model knowledge
     # If model has attached knowledge (any type), only provide query_knowledge_files

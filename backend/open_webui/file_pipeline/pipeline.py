@@ -405,6 +405,19 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
             job.stats['rebuilt_hash'] = rebuilt_hash
         job.stats['unverified_pages'] = sum(row.status in ('low', 'unverified', 'failed') for row in rows)
 
+        # Spreadsheets: sheet/column profile for the attachment block, so a model queries them right away.
+        if file.path and is_spreadsheet(file.filename, (file.meta or {}).get('content_type')):
+            try:
+                from open_webui.file_pipeline.tables import profile_text, read_grid
+                from open_webui.models.files import Files
+                from open_webui.storage.provider import Storage
+
+                local = await asyncio.to_thread(Storage.get_file, file.path)
+                sheets = await asyncio.to_thread(read_grid, local, file.filename)
+                await Files.update_file_data_by_id(file_id, {'table_profile': profile_text(sheets)})
+            except Exception as error:
+                log.warning('File %s: no table profile (%s)', file_id, error)
+
         # 4. index
         if changed or options.get('pages') or settings['files.chunk.by_structure']:
             started = time.perf_counter()

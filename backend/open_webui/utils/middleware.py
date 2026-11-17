@@ -721,6 +721,21 @@ async def store_tool_result_image(request, image_url, metadata, user):
         return image_url
 
 
+TERMINAL_OUTPUT_MAX_CHARS = 12_000
+
+
+def _cap_terminal_output(result):
+    """Keep the start and the end of a long terminal output: the model is resent it on every later round."""
+    text = result if isinstance(result, str) else JSONCodec.dumps(result, ensure_ascii=False)
+    if len(text) <= TERMINAL_OUTPUT_MAX_CHARS:
+        return result
+    head, tail = text[: TERMINAL_OUTPUT_MAX_CHARS * 2 // 3], text[-TERMINAL_OUTPUT_MAX_CHARS // 3 :]
+    return (
+        f'{head}\n\n[... {len(text) - len(head) - len(tail)} ký tự ở giữa đã lược bớt. In ít hơn (head, tail, '
+        f'lọc cột) hoặc ghi ra file nếu cần xem hết ...]\n\n{tail}'
+    )
+
+
 async def process_tool_result(
     request,
     tool_function_name,
@@ -920,6 +935,8 @@ async def process_tool_result(
                     tool_result.remove(item)
 
     tool_result = extract_base64_images(tool_result, tool_result_files)
+    if tool_type == 'terminal':
+        tool_result = _cap_terminal_output(tool_result)
 
     if isinstance(tool_result, list):
         tool_result = {'results': tool_result}

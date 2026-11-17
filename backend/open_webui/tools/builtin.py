@@ -3338,6 +3338,98 @@ async def summarize_chat_file(
         return JSONCodec.dumps({'error': str(e)})
 
 
+_TABLE_CACHE: dict = {}  # file id -> (hash, monotonic time, sheets); a few recent spreadsheets
+
+
+async def _spreadsheet_grid(file) -> list[dict]:
+    from open_webui.file_pipeline.tables import read_grid
+    from open_webui.storage.provider import Storage
+
+    cached = _TABLE_CACHE.get(file.id)
+    if cached and cached[0] == file.hash and time.monotonic() - cached[1] < 600:
+        return cached[2]
+    path = await asyncio.to_thread(Storage.get_file, file.path)
+    sheets = await asyncio.to_thread(read_grid, path, file.filename)
+    if len(_TABLE_CACHE) >= 4:
+        _TABLE_CACHE.pop(min(_TABLE_CACHE, key=lambda key: _TABLE_CACHE[key][1]))
+    _TABLE_CACHE[file.id] = (file.hash, time.monotonic(), sheets)
+    return sheets
+
+
+async def query_table(
+    file_id: str,
+    sheet: Optional[str] = None,
+    filters: Optional[list[dict]] = None,
+    columns: Optional[list[str]] = None,
+    sort_by: Optional[str] = None,
+    descending: bool = False,
+    limit: int = 50,
+    group_by: Optional[str] = None,
+    header_row: Optional[int] = None,
+    __request__: Request = None,
+    __user__: dict = None,
+    __metadata__: dict = None,
+) -> str:
+    """
+    Query a spreadsheet (xlsx, csv) attached to the chat: filter, sort, pick columns, or count rows per value.
+    Exact, fast and done on the server: use it instead of the terminal for questions like "tasks due in
+    December", "rows where Owner is SOC", "how many per status". Dates and numbers compare as values
+    (30/11/2026 and 2026-11-30 are the same date).
+
+    :param file_id: The ID of the spreadsheet file
+    :param sheet: Sheet name or 1-based number (default: the first sheet); see the sheets listed for the file
+    :param filters: Conditions all rows must meet: [{"column": "Hạn hoàn thành", "op": "between", "value": ["2026-12-01", "2026-12-31"]}]. column: header name or letter (A, B); op: eq, ne, contains, not_contains, gt, gte, lt, lte, between (value [from, to]), in (value list), empty, not_empty
+    :param columns: Optional columns to return (default: all non-empty)
+    :param sort_by: Optional column to sort by
+    :param descending: Sort from largest/latest first
+    :param limit: Maximum rows to return (default 50, max 500)
+    :param group_by: Instead of rows, count the matching rows per value of this column
+    :param header_row: 1-based row of the column headers when the automatic guess is wrong
+    :return: JSON with the sheet, header row, columns, number of matching rows and the rows (with their sheet row number)
+    """
+    if __request__ is None or not __user__:
+        return JSONCodec.dumps({'error': 'Request and user context required'})
+    try:
+        from open_webui.file_pipeline.settings import file_settings
+        from open_webui.file_pipeline.tables import query
+        from open_webui.utils.file_structure import is_spreadsheet
+
+        file = await _readable_file(file_id, __user__)
+        if not file:
+            return JSONCodec.dumps({'error': 'File not found'})
+        if not file.path or not is_spreadsheet(file.filename, (file.meta or {}).get('content_type')):
+            return JSONCodec.dumps({'error': 'query_table only reads spreadsheets (xlsx, csv); use view_file for documents'})
+        if isinstance(filters, dict):
+            filters = [filters]
+        if isinstance(filters, str):
+            try:
+                filters = JSONCodec.loads(filters)
+            except Exception:
+                return JSONCodec.dumps({'error': 'filters must be a JSON list of {column, op, value}'})
+        if isinstance(columns, str):
+            columns = [c.strip() for c in columns.split(',') if c.strip()]
+        sheets = await _spreadsheet_grid(file)
+        settings = await file_settings()
+        result = await asyncio.to_thread(
+            query,
+            sheets,
+            sheet,
+            filters if isinstance(filters, list) else None,
+            columns,
+            sort_by,
+            bool(descending),
+            int(limit or 50),
+            group_by,
+            int(header_row) if str(header_row or '').strip().isdigit() else None,
+            settings['files.query_max_chars'],
+        )
+        result = {'file': file.filename, 'sheets': [s['name'] for s in sheets], **result}
+        return JSONCodec.dumps(result, ensure_ascii=False)
+    except Exception as e:
+        log.exception(f'query_table error: {e}')
+        return JSONCodec.dumps({'error': str(e)})
+
+
 async def view_pdf_page(
     file_id: str,
     page: int,
