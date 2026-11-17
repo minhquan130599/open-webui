@@ -4,6 +4,7 @@ Only a single unambiguous match is linked: two people who could both be "Long" l
 rather than guessed, so "my work" never shows someone else's task.
 """
 
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -26,7 +27,8 @@ class Person:
 
 
 def _name_key(name: str) -> list[str]:
-    tokens = normalize_key(name).split()
+    # A role or team in brackets is not part of the name: "Long (BE)" is Long.
+    tokens = normalize_key(re.sub(r'\([^)]*\)|\[[^\]]*\]', ' ', name or '')).split()
     while len(tokens) > 1 and tokens[0] in _HONORIFICS:
         tokens = tokens[1:]
     return tokens

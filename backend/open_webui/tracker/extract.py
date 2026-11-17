@@ -444,6 +444,24 @@ def _unbullet(text: str) -> str:
     return '\n'.join(line.strip().lstrip('•▪◦-*+').strip() for line in text.splitlines() if line.strip())
 
 
+# Separators of several owners in one cell. A bare "/" is not one ("PM/BA" is one team), " / " with spaces is.
+_OWNER_SPLIT_RE = re.compile(r'\s*(?:[,;\n]|\s/\s|\s&\s|\s\+\s)\s*')
+
+
+def split_owners(text: str, separator: Optional[str] = None) -> list[str]:
+    """Owners in one cell: split on the table's own separator and on the usual ones (, ; newline " / " " & " " + ")."""
+    parts = [text or '']
+    if separator and separator.strip():
+        parts = [piece for part in parts for piece in part.split(separator)]
+    owners = []
+    for part in parts:
+        for owner in _OWNER_SPLIT_RE.split(part):
+            owner = owner.strip()
+            if owner and owner not in owners:
+                owners.append(owner)
+    return owners
+
+
 def apply_spec(sheets: list[dict], spec: dict) -> dict:
     """Items from every data row as the spec says, and how well it went: {'items', 'stats', 'issues', 'bad_rows'}."""
     from open_webui.file_pipeline.tables import column_letter, parse_date, parse_number, table_rows
@@ -507,7 +525,7 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
             if not status:
                 unmapped[status_text] = unmapped.get(status_text, 0) + 1
         owners_text = cell(row, idx['phu_trach'])
-        owners = [o.strip() for o in (owners_text.split(separator) if separator else [owners_text]) if o.strip()]
+        owners = split_owners(owners_text, separator)
         progress = parse_number(cell(row, idx['tien_do']).rstrip('%')) if cell(row, idx['tien_do']) else None
         if progress is not None and fractions:
             progress = round(progress * 100)
@@ -813,9 +831,12 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
             details = [d for d in details if word_support(d, source) >= MIN_WORD_SUPPORT][:4]
             named = []
             for owner in raw.get('phu_trach') or []:
-                if normalize_key(str(owner)) in owners:
-                    named.append(owners[normalize_key(str(owner))])
-                else:
+                key = normalize_key(str(owner))
+                # The row's owner, or a name inside it ("Long" in "Long (BE)"), whole words only.
+                match = owners.get(key) or next((o for k, o in owners.items() if key and f' {key} ' in f' {k} '), None)
+                if match and match not in named:
+                    named.append(match)
+                elif not match:
                     report['owners_rejected'] += 1
             due = item['han']
             if raw.get('han'):
