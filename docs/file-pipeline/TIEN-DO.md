@@ -228,3 +228,9 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   nhất (câu hỏi trước, câu trả lời có trích file, tin trong luồng) giữ file đó cho câu hỏi tiếp theo; prompt kênh thêm
   quy tắc trả lời: cùng ngôn ngữ người hỏi kể cả ghi chú giữa các bước, trả lời đúng câu hỏi một lần, nội dung tài liệu
   chỉ lấy từ việc đọc tài liệu (không đọc được thì nói và xin file, không viết từ trí nhớ, không trái với đoạn đã trích).
+- Lỗi "TrackerLLMError: Invalid state after retry: Expecting ',' delimiter … (char 8907)" khi tổng hợp lại kênh trên
+  server: khi đọc lại cả kênh, một lượt gọi chứa nhiều tin, câu trả lời JSON vượt TRACKER_MAX_TOKENS (4096) nên bị cắt,
+  hỏi lại cùng lượng tin lại bị cắt. Nay đọc finish_reason: bị cắt thì không hỏi lại vô ích; câu trả lời bị cắt hoặc
+  JSON hỏng hai lần thì nhóm tin được đọc lại thành hai nửa (đến từng tin), theo đúng thứ tự.
+- Monitor: nút "Tổng hợp lại tất cả kênh đang hoạt động" (kênh có tin nhắn trong 30 ngày), xác nhận kèm danh sách kênh,
+  số tin, số việc; kênh đang tổng hợp được bỏ qua; worker xử lý lần lượt vài kênh một lúc. Cần phiên chỉnh sửa.

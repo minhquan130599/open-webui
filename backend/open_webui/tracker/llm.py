@@ -35,6 +35,11 @@ class TrackerLLMError(Exception):
     pass
 
 
+class TrackerOutputError(TrackerLLMError):
+    """The model answered, but not with a usable state: cut at the token limit or invalid twice. Fewer messages
+    per call fixes it, unlike a connection failure."""
+
+
 # Model list per endpoint, refreshed periodically so a pod or model swap is picked up without a restart.
 _MODEL_CACHE_SECONDS = 300
 _model_cache: dict[str, tuple[Optional[list[str]], float]] = {}
@@ -154,7 +159,7 @@ async def _read_stream(response) -> str:
     Streaming keeps bytes flowing, so proxies that cut a request after ~100 s without a response byte
     (RunPod, Cloudflare 524) do not cut long summaries.
     """
-    parts, usage = [], None
+    parts, usage, finish = [], None, None
     async for raw in response.content:
         line = raw.decode('utf-8', 'replace').strip()
         if not line.startswith('data:'):
@@ -171,7 +176,10 @@ async def _read_stream(response) -> str:
             content = (choice.get('delta') or {}).get('content')
             if content:
                 parts.append(content)
-    return JSONCodec.dumps({'choices': [{'message': {'content': ''.join(parts)}}], 'usage': usage or {}})
+            finish = choice.get('finish_reason') or finish
+    return JSONCodec.dumps(
+        {'choices': [{'message': {'content': ''.join(parts)}, 'finish_reason': finish}], 'usage': usage or {}}
+    )
 
 
 async def _post(
@@ -341,6 +349,11 @@ async def generate_state_update(messages: list[dict]) -> StateDelta:
                 status, body = await _post(session, payload)
 
             content = _content(status, body)
+            if _finish_reason(body) == 'length':
+                # Cut at the token limit: asking again for the same messages is cut again.
+                raise TrackerOutputError(
+                    f'State update cut at {TRACKER_MAX_TOKENS} tokens ({len(content)} characters): too many messages in one call'
+                )
             try:
                 return StateDelta.model_validate(extract_json(content))
             except (ValueError, ValidationError) as e:
@@ -355,4 +368,11 @@ async def generate_state_update(messages: list[dict]) -> StateDelta:
                     },
                 ]
 
-    raise TrackerLLMError(f'Invalid state after retry: {last_error}')
+    raise TrackerOutputError(f'Invalid state after retry: {last_error}')
+
+
+def _finish_reason(body) -> Optional[str]:
+    try:
+        return body['choices'][0].get('finish_reason')
+    except (KeyError, IndexError, TypeError, AttributeError):
+        return None

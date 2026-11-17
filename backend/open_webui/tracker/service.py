@@ -484,12 +484,24 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         counts: dict = {}
         learned: list[dict] = []
         # Usually one call; a message longer than the per-message limit is read in parts over several calls.
-        for group in _prompt_groups(_split_long(prompt_messages)):
+        # When the model cannot give a whole valid answer for a group (cut at the token limit, invalid JSON),
+        # the group is read again in two halves, down to one message.
+        groups = _prompt_groups(_split_long(prompt_messages))
+        while groups:
+            group = groups.pop(0)
             roles = [f'{r["ten"]}: {", ".join(r["nguoi"])}' for r in ctx.config['vai_tro'].values()]
             chat_messages, ref_map = build_update_messages(
                 channel.name, state, group, TZ, TRACKER_MESSAGE_MAX_CHARS, time.time_ns(), members, roles
             )
-            delta = await llm.generate_state_update(chat_messages)
+            try:
+                delta = await llm.generate_state_update(chat_messages)
+            except llm.TrackerOutputError as e:
+                if len(group) < 2:
+                    raise
+                half = len(group) // 2
+                log.warning('Tracker: %s for %d messages in %s; reading them in two halves', e, len(group), channel_id)
+                groups[0:0] = [group[:half], group[half:]]
+                continue
             by_message = {f'msg:{m.id}': m for m in group}
             ref_sources = {}
             for ref, source in ref_map.items():

@@ -452,3 +452,55 @@ async def item_trace_reveal(channel_id: str, item_id: str, request: Request):
 @router.get('/api/admin/tracker/channels/{channel_id}/items/{item_id}/trace')
 async def item_trace_admin(channel_id: str, item_id: str, token: str = Depends(require_session)):
     return await _trace(channel_id, item_id)
+
+
+# ---------- rebuild every channel still in use ----------
+
+
+async def _active_channels(days: int) -> list:
+    """Followed channels with a message in the last `days` days, and how much a rebuild would read."""
+    from open_webui.monitoring.server.app import clean, rows
+
+    since = time.time_ns() - max(days, 1) * 86_400 * 1_000_000_000
+    return clean(
+        await rows(
+            """SELECT s.channel_id, c.name AS channel, (s.lease_until > :now) AS running,
+                   jsonb_array_length(coalesce(s.state::jsonb->'hang_muc', '[]'::jsonb)) AS open_items,
+                   (SELECT count(*) FROM message m WHERE m.channel_id = s.channel_id) AS messages,
+                   (SELECT max(m.created_at) FROM message m WHERE m.channel_id = s.channel_id) / 1000000 AS last_message
+               FROM tracker_state s JOIN channel c ON c.id = s.channel_id
+               WHERE EXISTS (SELECT 1 FROM message m WHERE m.channel_id = s.channel_id AND m.created_at >= :since)
+               ORDER BY c.name""",
+            now=time.time_ns(),
+            since=since,
+        )
+    )
+
+
+@router.get('/api/admin/tracker/channels-rebuild-all')
+async def rebuild_all_preview(days: int = 30, token: str = Depends(require_session)):
+    return {'days': days, 'channels': await _active_channels(days)}
+
+
+class RebuildAllForm(BaseModel):
+    days: int = 30
+
+
+@router.post('/api/admin/tracker/channels-rebuild-all')
+async def rebuild_all(form: RebuildAllForm, token: str = Depends(require_session)):
+    """Start a rebuild of every channel with a message in the last `days` days. Channels being summarized are
+    skipped (their result would be committed on top); the tracker worker then reads them a few at a time."""
+    from open_webui.monitoring.server.app import webui
+
+    started, skipped, failed = [], [], []
+    for channel in await _active_channels(form.days):
+        name = channel['channel'] or channel['channel_id']
+        if channel['running']:
+            skipped.append(name)
+            continue
+        result = await webui(f'/tracker/channels/{channel["channel_id"]}/rebuild', method='POST', json_body={})
+        if isinstance(result, dict) and result.get('error'):
+            failed.append({'channel': name, 'error': result['error']})
+        else:
+            started.append(name)
+    return {'started': started, 'skipped': skipped, 'failed': failed}
