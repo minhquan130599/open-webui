@@ -355,3 +355,8 @@ Bỏ bước "mô tả bảng" (chọn sheet, dòng tiêu đề, vai trò cột)
   ("de_xuat_moi") và việc gộp phần của nhiều người / nhiều hạn ("tach", đọc lại các dòng đó); chi tiết viết súc tích.
   Thử lại bằng model thật: có lại 3 đề xuất (dashboard ticket management cho CEO, tư vấn nguồn log, thông tin độc quyền);
   tách theo người vẫn chưa ăn (model đọc lại vẫn giữ một việc). Kế hoạch cá nhân lấy người từ tên file. EXTRACT_VERSION 24.
+- Dev quá tải (RunPod 520, CPU 100%) khi tổng hợp lại tất cả kênh bằng bản đọc mới: mỗi phần tới 40 dòng / cả file
+  một lượt làm mỗi câu trả lời dài 10-12k token, giữ kết nối 5-7 phút, nhiều lượt song song; file 50 việc còn dễ bị cắt
+  ở giới hạn token rồi phải đọc lại. Nay mỗi phần ≤ 20 dòng / 12.000 ký tự, đọc cả file một lượt chỉ khi ≤ 20 dòng
+  (câu trả lời ~4-6k token, 1-2 phút). EXTRACT_VERSION 26. Khuyến nghị khi tổng hợp lại nhiều kênh: Tracker
+  max_concurrency = 1, files.summary.concurrency = 2.

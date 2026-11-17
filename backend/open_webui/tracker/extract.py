@@ -26,7 +26,7 @@ from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 25
+EXTRACT_VERSION = 26
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 # Names this alike (trigrams) or sharing this share of the shorter name's words are shown to the model, which says
@@ -455,8 +455,11 @@ def _is_text(value: str) -> bool:
     return bool(value) and value.upper() not in ('TRUE', 'FALSE') and parse_number(value.rstrip('%')) is None
 
 
-TABLE_SEGMENT_CHARS = 20_000  # rows sent in one reading (the rest of a 64k context is the instructions and the answer)
-TABLE_SEGMENT_ROWS = 40
+# A part is as big as the model answers quickly and whole: about one task per row with a few details, so 20 rows give
+# a 4-6k token answer in one to two minutes, and parts run side by side. A bigger part answers for minutes and risks
+# being cut at the token limit (then its rows are read again).
+TABLE_SEGMENT_CHARS = 12_000
+TABLE_SEGMENT_ROWS = 20
 TABLE_HEAD_ROWS = 15  # first rows of a sheet repeated with every later part, as they are, so the columns are understood
 TABLE_ANSWER_TOKENS = 12_000
 CELL_CHARS = 1500
@@ -689,7 +692,8 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
     row_text = {(s, n): '\n'.join(v for v in r if v) for s, rows in data_rows.items() for n, r in rows}
     total_chars = sum(len(_render_row(n, r)) for rows in data_rows.values() for n, r in rows)
     skipped_sheets: dict[str, str] = {}
-    if total_chars <= TABLE_SEGMENT_CHARS:
+    row_count = sum(len(rows) for rows in data_rows.values())
+    if total_chars <= TABLE_SEGMENT_CHARS and row_count <= TABLE_SEGMENT_ROWS:
         # A small file is read whole: every sheet, every row, in one call.
         parts = [{'entries': [(s, n, r, _render_row(n, r)) for s, rows in data_rows.items() for n, r in rows],
                   'heads': {}, 'whole': True}]
