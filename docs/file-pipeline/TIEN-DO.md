@@ -371,3 +371,7 @@ Bỏ bước "mô tả bảng" (chọn sheet, dòng tiêu đề, vai trò cột)
   là người nên 44/50 việc "chưa liên kết". Sửa: sau khi đọc file, hỏi model một lần với mọi tên người phụ trách của file
   "tên nào là team / phòng ban / chức vụ", áp dụng cho mọi dòng. av: 9 việc + 1 đề xuất (lần trước 3, số đề xuất còn
   dao động giữa các lần đọc). Không còn lỗi 520 / 502 sau 01:47. EXTRACT_VERSION 28.
+- Dev (v27) test-kpi: đủ 6 chỉ tiêu (công thức, mục tiêu L1/L2, tần suất), bỏ đúng 15 dòng (đầu trang, tiêu đề 2 tầng,
+  nhóm A / B / III, tổng, chữ ký) nhưng thừa 2 việc từ dòng tiêu đề nhóm "I", "II" (file chia 2 phần, model đọc 2 phần
+  không nhất quán). Sửa: lượt rà lại được bỏ các việc lập từ dòng không giao việc (tiêu đề nhóm, tổng, chữ ký), xét
+  nhất quán với các dòng cùng loại đã bỏ. EXTRACT_VERSION 29.

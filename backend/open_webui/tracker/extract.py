@@ -26,7 +26,7 @@ from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 28
+EXTRACT_VERSION = 29
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 # Names this alike (trigrams) or sharing this share of the shorter name's words are shown to the model, which says
@@ -535,7 +535,9 @@ Rà lại như người kiểm tra:
   mỗi dòng.
 - Đề xuất nào không có yêu cầu thật trong dòng thì ghi số thứ tự vào "bo_de_xuat".
 - Dòng nào bị coi là không phải việc nhưng thật ra giao hoặc yêu cầu việc thì ghi vào "la_viec".
-Trả về đúng một JSON: {{"sua": [{{"so": 1, "chi_tiet": ["..."]}}], "tach": [2],
+- Đầu việc nào lập từ dòng KHÔNG giao việc (tiêu đề nhóm / mục chỉ có mã nhóm, tên nhóm, tổng trọng số; dòng tổng cộng;
+  dòng chữ ký) thì ghi số thứ tự vào "khong_phai_viec"; xét nhất quán với các dòng cùng loại đã bị coi là không phải việc.
+Trả về đúng một JSON: {{"sua": [{{"so": 1, "chi_tiet": ["..."]}}], "tach": [2], "khong_phai_viec": [4],
  "de_xuat_moi": [{{"sheet": "...", "dong": 19, "ten": "...", "yeu_cau": "..."}}], "bo_de_xuat": [3],
  "la_viec": [{{"sheet": "...", "dong": 14}}]}}"""
 
@@ -854,6 +856,13 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
                 if gap in gaps:
                     gaps.remove(gap)
                     report['gaps_removed'] += 1
+        # Tasks the reviewer finds were made from rows that give no work (a group heading, a total).
+        wrong = [mine[int(n) - 1] for n in answer.get('khong_phai_viec') or [] if str(n).isdigit() and 1 <= int(n) <= len(mine)]
+        if wrong:
+            tasks[:] = [t for t in tasks if not any(t is w for w in wrong)]
+            for task in wrong:
+                not_tasks.add((task['sheet'], task['dong']))
+            report['tasks_removed'] = report.get('tasks_removed', 0) + len(wrong)
         # Requests no task answers, found by the reviewer.
         before = len(gaps)
         collect({'de_xuat': answer.get('de_xuat_moi') or []}, part)
