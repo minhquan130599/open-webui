@@ -866,21 +866,6 @@
 											</span>
 											<span class="truncate">{item.phu_trach.join(', ')}</span>
 										</span>
-										{#each item.phu_trach as name}
-											{@const note = ownerNote(item, name)}
-											{#if note}
-												<span
-													class="whitespace-nowrap rounded-full px-1.5 py-0.5 text-[0.6875rem] {note.className}"
-													title={name}>{note.text}: {name}</span
-												>
-											{/if}
-										{/each}
-									{/if}
-									{#if item.nhom && item.nhom !== 'Cả nhóm'}
-										<span
-											class="whitespace-nowrap rounded-full bg-blue-50 px-1.5 py-0.5 text-[0.6875rem] text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"
-											title={$i18n.t('Given to a role or team')}>{item.nhom}</span
-										>
 									{/if}
 									{#if tag}
 										<span
@@ -890,12 +875,6 @@
 									{:else if !item.han && !isDone(item)}
 										<span class="text-[0.6875rem] text-gray-400">{$i18n.t('No due date')}</span>
 									{/if}
-									{#each tableRefs(item.nguon) as ref (ref.code)}
-										<span
-											class="whitespace-nowrap rounded-full bg-gray-100 px-1.5 py-0.5 font-mono text-[0.6875rem] dark:bg-gray-800"
-											title={`${ref.sheet} · ${ref.code}`}>{ref.code}</span
-										>
-									{/each}
 								</div>
 								{#if item.chi_tiet?.length}
 									<details class="mt-1.5 text-xs text-gray-600 dark:text-gray-300">

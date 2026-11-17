@@ -174,3 +174,6 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   Chủ kênh bị khóa tài khoản: chọn chủ mới theo thứ tự quản lý → admin hệ thống trong kênh (kênh nhóm: thành viên; kênh
   thường: người từng nhắn) → người nhắn nhiều nhất 90 ngày → kênh nhóm: thành viên vào sớm nhất / kênh thường: admin hệ
   thống lâu năm nhất; người được chọn nhận thông báo. Monitor: cột "chưa liên kết" không đếm team (SOC, TI…).
+- Nhóm 9 bổ sung: bảng tiến độ mỗi việc chỉ hiện người phụ trách (người / team), hạn, tiến độ, chi tiết, vướng mắc; bỏ các
+  nhãn cảnh báo, nhãn nhóm và mã dòng. Xóa tin nhắn → việc chỉ có nguồn là tin đó bị gỡ; sửa tin gỡ file / ảnh → việc chỉ
+  đến từ file đó bị gỡ (việc trích từ file ghi nguồn "file:<id>"); việc còn tin khác nhắc thì giữ, chỉ bỏ nguồn đã mất.

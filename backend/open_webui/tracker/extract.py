@@ -1240,7 +1240,9 @@ async def match_state(items: list[dict], state_items: list) -> dict[int, str]:
     return matches
 
 
-def merge_into_state(state, items: list[dict], source: str, today: str, matches: dict[int, str]) -> dict:
+def merge_into_state(
+    state, items: list[dict], source: str, today: str, matches: dict[int, str], file_id: Optional[str] = None
+) -> dict:
     """Fold verified items into the state (a ProjectState, changed in place). Newer values win, both sources are
     kept, and a changed deadline, owner or status of a known item is recorded as a conflict, as is a table row
     that is no longer in the new version of its file.
@@ -1254,7 +1256,8 @@ def merge_into_state(state, items: list[dict], source: str, today: str, matches:
     for index, item in enumerate(items):
         if not item.get('xac_minh'):
             continue
-        sources = [source] + ([item['khoa']] if item.get('khoa') else [])
+        # The file is a source too: removing it from the message (or deleting the message) retracts its items.
+        sources = [source] + ([f'file:{file_id}'] if file_id else []) + ([item['khoa']] if item.get('khoa') else [])
         title = item['ten'] if len(item['ten']) <= TITLE_MAX else short_title(item['ten'], TITLE_MAX)
         details = list(item.get('chi_tiet') or [])
         existing = by_id.get(matches.get(index, ''))

@@ -177,7 +177,7 @@ async def _merge_extractions(
                 and not (i.get('khoa') and ({i['khoa'], i['khoa'].split('#')[0]} & archived_rows))
             ]
             matches = await extract.match_state(items, state.hang_muc)
-            outcome = extract.merge_into_state(state, items, f'msg:{message_id}', today, matches)
+            outcome = extract.merge_into_state(state, items, f'msg:{message_id}', today, matches, result.get('file_id'))
             report = result.get('report') or {}
             entries.append(
                 {
@@ -319,6 +319,41 @@ def _assign_owners(delta, ref_sources: dict, ctx, counts: dict, state=None) -> d
     return changes
 
 
+def _attached_file_ids(message: Message) -> set[str]:
+    ids = set()
+    for item in (message.data or {}).get('files') or []:
+        if isinstance(item, dict):
+            file_id = media._file_id(item)
+            if file_id:
+                ids.add(file_id)
+    return ids
+
+
+def _retract(state, deleted: set[str], edited: list[Message]) -> list[str]:
+    """Items that only came from a deleted message, or from a file or image removed from an edited message, are
+    removed; an item other messages also back keeps them and only loses the source that is gone. Returns the names
+    of the removed items. (The update model has no way to delete an item, so this is done by code.)"""
+    gone_files: dict[str, set[str]] = {}  # message source -> file sources no longer attached to it
+    current = {f'msg:{m.id}': {f'file:{i}' for i in _attached_file_ids(m)} for m in edited}
+    removed, kept = [], []
+    for item in state.hang_muc:
+        messages = [s for s in item.nguon if s.startswith('msg:')]
+        files = [s for s in item.nguon if s.startswith('file:')]
+        lost_files = {f for f in files for m in messages if m in current and f not in current[m]}
+        if lost_files:
+            gone_files.setdefault(item.id, set()).update(lost_files)
+        # An item backed by a removed file and by no other message than the one the file was removed from.
+        from_lost_file = bool(lost_files) and set(files) <= lost_files and all(m in current for m in messages)
+        if messages and (set(messages) <= deleted or from_lost_file):
+            removed.append(item.ten)
+            continue
+        if lost_files:
+            item.nguon = [s for s in item.nguon if s not in lost_files]
+        kept.append(item)
+    state.hang_muc = kept
+    return removed
+
+
 def _drop_sources(state: dict, source_ids: set[str]) -> dict:
     for key in ('hang_muc', 'quyet_dinh', 'rui_ro', 'viec_tiep_theo'):
         for entry in state.get(key) or []:
@@ -456,6 +491,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                 summaries.append(delta.tom_tat_lo)
 
         _drop_ai_tasks(state, old_state, candidates, await _ai_names(candidates))
+        retracted = _retract(state, {f'msg:{d.get("id")}' for d in deletions}, edited)
         # Teams declared in the channel ("AM: @…", now or before) replace the team names that owned items.
         channel_config.apply_roles(state, ctx.config)
         link_owners(state, people, ctx.config.get('bi_danh'))
@@ -474,6 +510,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                 'attachments': [line for lines in attachments.values() for line in lines],
                 **({'file_tasks': file_tasks} if file_tasks else {}),
                 **({'giao_viec': counts} if counts else {}),
+                **({'viec_bi_go': retracted} if retracted else {}),
                 **({'vai_tro_moi': learned} if learned else {}),
             },
         }
