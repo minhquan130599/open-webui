@@ -569,20 +569,16 @@ async def mail_test(form: MailTestForm, x_monitor_key: Optional[str] = Header(No
             current['smtp_verify_tls'] = value
     import datetime as dt
 
-    tomorrow = (dt.date.fromisoformat(today()) + dt.timedelta(days=1)).isoformat()
-    sample = [
-        ('today', WorkEntry('', 'tien-do-du-an-mau', 'x', 'Hoàn thiện báo cáo tuần (email thử)', [], [], 'dang_lam', 60,
-                            today(), None, None)),
-        ('tomorrow', WorkEntry('', 'tien-do-du-an-mau', 'y', 'Gửi hồ sơ nghiệm thu (email thử)', [], [], 'dang_lam', 30,
-                               tomorrow, 'Chờ khách hàng ký', None)),
-    ]
+    from open_webui.tracker.mailer import sample_reminders
+
+    sample = sample_reminders(today())
     base = ((await Config.get('webui.url')) or os.getenv('OPEN_WEBUI_PUBLIC_URL', '') or '').rstrip('/')
     started = time.perf_counter()
     try:
         await mailer.send(
             form.to,
-            '[NCS AI] Email thử: nhắc việc đến hạn',
-            mailer.reminder_html(form.to, sample, f'{base}/my-work' if base else ''),
+            '[Email thử] ' + mailer.reminder_subject(sample, today()),
+            mailer.reminder_html(form.to.split('@')[0], sample, f'{base}/my-work' if base else '', '', today()),
             current,
         )
     except mailer.MailError as e:

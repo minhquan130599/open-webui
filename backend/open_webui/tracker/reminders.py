@@ -80,7 +80,13 @@ async def send_due_reminders(day_before: bool = True) -> int:
     # Emails follow the inbox: only people newly notified for an item get it in their email, so a second run
     # on the same day sends nothing again. Without the inbox, the once-a-day run is the only guard.
     emails: dict[str, list] = {}
+    # Overdue items are not notified again every day; they ride along in the email of someone reminded today.
+    overdue: dict[str, list] = {}
     for entry in await mywork.collect(channels):
+        if entry.bucket == 'overdue':
+            for user_id in entry.owner_ids:
+                overdue.setdefault(user_id, []).append(('overdue', entry))
+            continue
         kind = kinds.get(entry.days_left)
         if not kind or entry.bucket == 'done' or not entry.owner_ids:
             continue
@@ -105,6 +111,8 @@ async def send_due_reminders(day_before: bool = True) -> int:
             log.exception('Due reminder failed for item %s in channel %s', entry.id, entry.channel_id)
     if notified:
         await emit_changes(notified)
+    for user_id in emails:
+        emails[user_id] = overdue.get(user_id, []) + emails[user_id]
     if emails:
         try:
             await mailer.send_reminders(emails)

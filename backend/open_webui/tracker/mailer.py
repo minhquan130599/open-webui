@@ -282,43 +282,167 @@ async def send(to: str, subject: str, html_body: str, s: Optional[dict] = None) 
     raise MailError(f'Gửi mail lỗi HTTP {status} ({hint}): {error.get("code", "")} {error.get("message", "")}'[:400])
 
 
-def reminder_html(name: str, items: list[tuple], link: str) -> str:
-    """items: (kind, entry) with kind 'today' / 'tomorrow'."""
-    rows = []
-    for kind, entry in sorted(items, key=lambda x: (x[0] != 'today', x[1].han or '', x[1].channel_name)):
-        label = 'Hôm nay' if kind == 'today' else 'Ngày mai'
-        color = '#b42318' if kind == 'today' else '#b54708'
-        progress = f'{entry.tien_do}%' if entry.tien_do is not None else '—'
-        blocker = (
-            f'<div style="color:#b42318;font-size:12px;margin-top:2px">Vướng mắc: {html.escape(entry.vuong_mac)}</div>'
-            if entry.vuong_mac
-            else ''
+REMINDER_GROUPS = (
+    # kind, heading, accent, soft background
+    ('overdue', 'Đã quá hạn', '#b42318', '#fef3f2'),
+    ('today', 'Đến hạn hôm nay', '#e04f16', '#fff4ed'),
+    ('tomorrow', 'Đến hạn ngày mai', '#b54708', '#fffaeb'),
+)
+STATUS_TEXT = {
+    'chua_bat_dau': 'Chưa bắt đầu',
+    'dang_lam': 'Đang làm',
+    'bi_chan': 'Bị chặn',
+    'tam_dung': 'Tạm dừng',
+    'hoan_thanh': 'Hoàn thành',
+}
+
+
+def _date_vn(value: Optional[str]) -> str:
+    """2026-11-30 -> 30/11/2026."""
+    if not value or len(value) < 10:
+        return value or ''
+    return f'{value[8:10]}/{value[5:7]}/{value[:4]}'
+
+
+def _due_text(kind: str, entry) -> str:
+    if kind == 'overdue':
+        late = -(entry.days_left or 0)
+        return f'Quá hạn {late} ngày (hạn {_date_vn(entry.han)})'
+    return f'{"Hôm nay" if kind == "today" else "Ngày mai"}, {_date_vn(entry.han)}'
+
+
+def reminder_subject(items: list[tuple], day: str) -> str:
+    counts = {kind: sum(1 for k, _ in items if k == kind) for kind, *_ in REMINDER_GROUPS}
+    parts = [
+        f'{counts["overdue"]} quá hạn' if counts['overdue'] else '',
+        f'{counts["today"]} đến hạn hôm nay' if counts['today'] else '',
+        f'{counts["tomorrow"]} đến hạn ngày mai' if counts['tomorrow'] else '',
+    ]
+    return f'[NCS AI] Nhắc việc {_date_vn(day)[:5]}: ' + ', '.join(p for p in parts if p)
+
+
+def _progress_bar(value: Optional[int], color: str) -> str:
+    """A bar made of table cells: Outlook ignores most CSS but renders cell widths."""
+    if value is None:
+        return ''
+    done = max(0, min(int(value), 100))
+    filled = f'<td width="{done}%" style="background:{color};height:6px;line-height:6px;font-size:0">&nbsp;</td>' if done else ''
+    empty = (
+        f'<td width="{100 - done}%" style="background:#eaecf0;height:6px;line-height:6px;font-size:0">&nbsp;</td>'
+        if done < 100
+        else ''
+    )
+    return (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px"><tr>'
+        f'<td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-radius:3px">'
+        f'<tr>{filled}{empty}</tr></table></td>'
+        f'<td width="44" style="padding-left:8px;font-size:12px;color:#475467;text-align:right;white-space:nowrap">{done}%</td>'
+        '</tr></table>'
+    )
+
+
+def _item_html(kind: str, entry, name: str, accent: str, base: str) -> str:
+    esc = html.escape
+    channel = esc(entry.channel_name)
+    if base and entry.channel_id:
+        channel = (
+            f'<a href="{esc(base)}/channels/{esc(entry.channel_id)}" style="color:#344054;text-decoration:underline">'
+            f'#{channel}</a>'
         )
-        rows.append(
-            f'<tr><td style="padding:8px;border-bottom:1px solid #eee"><b>{html.escape(entry.ten)}</b>{blocker}</td>'
-            f'<td style="padding:8px;border-bottom:1px solid #eee">#{html.escape(entry.channel_name)}</td>'
-            f'<td style="padding:8px;border-bottom:1px solid #eee;color:{color};white-space:nowrap">'
-            f'{label} ({html.escape(entry.han or "")})</td>'
-            f'<td style="padding:8px;border-bottom:1px solid #eee;text-align:right">{progress}</td></tr>'
+    else:
+        channel = f'#{channel}'
+    meta = [channel, esc(STATUS_TEXT.get(entry.trang_thai, entry.trang_thai or ''))]
+    if entry.phu_trach:
+        meta.append('Phụ trách: ' + esc(', '.join(entry.phu_trach)))
+    blocker = (
+        '<div style="margin-top:8px;padding:6px 10px;background:#fef3f2;border-left:3px solid #d92d20;'
+        f'color:#b42318;font-size:12.5px">Vướng mắc: {esc(entry.vuong_mac)}</div>'
+        if entry.vuong_mac
+        else ''
+    )
+    return f'''<tr><td style="padding:0 0 10px 0">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eaecf0;border-left:4px solid {accent};border-radius:8px;background:#ffffff">
+<tr><td style="padding:12px 14px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+<td style="font-size:14.5px;font-weight:600;color:#101828;line-height:1.4">{esc(entry.ten)}</td>
+<td style="padding-left:12px;font-size:12px;font-weight:600;color:{accent};white-space:nowrap;text-align:right;vertical-align:top">{esc(_due_text(kind, entry))}</td>
+</tr></table>
+<div style="margin-top:4px;font-size:12.5px;color:#475467">{' &nbsp;·&nbsp; '.join(m for m in meta if m)}</div>
+{_progress_bar(entry.tien_do, accent)}{blocker}
+</td></tr></table>
+</td></tr>'''
+
+
+def reminder_html(name: str, items: list[tuple], link: str, base: str = '', day: str = '') -> str:
+    """The reminder email: items as (kind, entry), kind 'overdue' / 'today' / 'tomorrow', grouped by urgency.
+    Built from tables with inline styles so Outlook, Gmail and phone mail apps show it the same way."""
+    esc = html.escape
+    counts = {kind: sum(1 for k, _ in items if k == kind) for kind, *_ in REMINDER_GROUPS}
+    chips = ''.join(
+        f'<td style="padding:0 6px 0 0"><span style="display:inline-block;padding:4px 10px;border-radius:999px;'
+        f'background:{soft};color:{accent};font-size:12.5px;font-weight:600">{counts[kind]} {heading.lower()}</span></td>'
+        for kind, heading, accent, soft in REMINDER_GROUPS
+        if counts[kind]
+    )
+    sections = []
+    for kind, heading, accent, _ in REMINDER_GROUPS:
+        group = sorted((e for k, e in items if k == kind), key=lambda e: (e.han or '', e.channel_name, e.ten))
+        if not group:
+            continue
+        sections.append(
+            f'<tr><td style="padding:18px 0 8px 0;font-size:13px;font-weight:700;color:{accent};'
+            f'text-transform:uppercase;letter-spacing:.04em">{heading} ({len(group)})</td></tr>'
+            + ''.join(_item_html(kind, entry, name, accent, base) for entry in group)
         )
     button = (
-        f'<p style="margin:16px 0"><a href="{html.escape(link)}" style="background:#111;color:#fff;padding:9px 16px;'
-        f'border-radius:8px;text-decoration:none">Mở Công việc của tôi</a></p>'
+        '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0 4px 0"><tr>'
+        f'<td style="border-radius:8px;background:#101828"><a href="{esc(link)}" style="display:inline-block;'
+        'padding:10px 18px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none">Mở Công việc của tôi</a>'
+        '</td></tr></table>'
         if link
         else ''
     )
-    return f"""<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#111;max-width:680px">
-<p>Chào {html.escape(name)},</p>
-<p>Bạn có <b>{len(items)}</b> công việc sắp đến hạn:</p>
-<table style="border-collapse:collapse;width:100%;font-size:13px">
-<tr style="text-align:left;color:#555"><th style="padding:8px;border-bottom:2px solid #ddd">Công việc</th>
-<th style="padding:8px;border-bottom:2px solid #ddd">Kênh</th><th style="padding:8px;border-bottom:2px solid #ddd">Hạn</th>
-<th style="padding:8px;border-bottom:2px solid #ddd;text-align:right">Tiến độ</th></tr>
-{''.join(rows)}
-</table>
+    total = len(items)
+    preheader = ', '.join(
+        f'{counts[kind]} {heading.lower()}' for kind, heading, *_ in REMINDER_GROUPS if counts[kind]
+    )
+    return f'''<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nhắc việc</title></head>
+<body style="margin:0;padding:0;background:#f2f4f7">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0">{esc(preheader)} – NCS AI nhắc việc.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f4f7"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#101828">
+<tr><td style="padding:0 4px 12px 4px;font-size:13px;color:#475467"><b style="color:#101828">NCS AI</b> &nbsp;·&nbsp; Nhắc việc{f" ngày {esc(_date_vn(day))}" if day else ""}</td></tr>
+<tr><td style="background:#ffffff;border:1px solid #eaecf0;border-radius:12px;padding:22px 22px 18px 22px">
+<div style="font-size:18px;font-weight:700;margin-bottom:6px">Chào {esc(name)},</div>
+<div style="font-size:14px;color:#344054;line-height:1.5">Bạn có <b>{total}</b> công việc cần chú ý. Cập nhật tiến độ bằng cách nhắn trong kênh dự án; NCS AI sẽ tự ghi nhận.</div>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:12px"><tr>{chips}</tr></table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">{''.join(sections)}</table>
 {button}
-<p style="color:#888;font-size:12px">Email tự động từ NCS AI (Knight). Tắt email nhắc việc trong Cài đặt → Thông báo.</p>
-</div>"""
+</td></tr>
+<tr><td style="padding:14px 6px 0 6px;font-size:12px;color:#667085;line-height:1.5">Email tự động từ NCS AI (Knight), gửi cho người phụ trách các việc trên.
+Việc sai người phụ trách hoặc sai hạn: nhắn đính chính trong kênh dự án. Tắt email nhắc việc: Cài đặt → Thông báo.</td></tr>
+</table></td></tr></table></body></html>'''
+
+
+def sample_reminders(day: str) -> list[tuple]:
+    """Made-up items of every group, for the test email and previews."""
+    import datetime as dt
+
+    from open_webui.tracker.mywork import WorkEntry
+
+    def shift(days: int) -> str:
+        return (dt.date.fromisoformat(day) + dt.timedelta(days=days)).isoformat()
+
+    def entry(ten, channel, owners, status, progress, due, days_left, blocker=None):
+        return WorkEntry('', channel, ten[:8], ten, owners, [], status, progress, due, blocker, None, days_left=days_left)
+
+    return [
+        ('overdue', entry('Xác minh vì sao test-CG10015 còn lọc tay, cập nhật kết quả test', 'cx-phan-hoi', ['TI'], 'dang_lam', 40, shift(-4), -4,
+                          'Chưa có phương án cho lịch sử portal 6 tháng')),
+        ('today', entry('Hoàn thiện báo cáo tuần gửi khách hàng', 'du-an-soc-ngan-hang', ['Long', 'Triển'], 'dang_lam', 70, day, 0)),
+        ('tomorrow', entry('Gửi hồ sơ nghiệm thu giai đoạn 1', 'du-an-soc-ngan-hang', ['Long'], 'chua_bat_dau', None, shift(1), 1,
+                           'Chờ khách hàng ký biên bản')),
+    ]
 
 
 async def send_reminders(per_user: dict[str, list[tuple]]) -> dict:
@@ -345,6 +469,9 @@ async def send_reminders(per_user: dict[str, list[tuple]]) -> dict:
         return {**result, 'failed': len(per_user)}
     base = ((await Config.get('webui.url')) or os.getenv('OPEN_WEBUI_PUBLIC_URL', '') or '').rstrip('/')
     link = f'{base}/my-work' if base else ''
+    from open_webui.tracker.mywork import today as today_iso
+
+    day = today_iso()
     for user_id, items in per_user.items():
         user = await Users.get_user_by_id(user_id)
         if not user or not user.email or '@' not in user.email:
@@ -354,15 +481,10 @@ async def send_reminders(per_user: dict[str, list[tuple]]) -> dict:
         if ((user_settings or {}).get('ui') or {}).get(USER_OPT_OUT) is False:
             result['skipped'] += 1
             continue
-        today = sum(1 for kind, _ in items if kind == 'today')
-        subject = (
-            f'[NCS AI] {today} việc đến hạn hôm nay' + (f', {len(items) - today} việc ngày mai' if today < len(items) else '')
-            if today
-            else f'[NCS AI] {len(items)} việc đến hạn ngày mai'
-        )
+        subject = reminder_subject(items, day)
         started = time.perf_counter()
         try:
-            await send(user.email, subject, reminder_html(user.name or user.email, items, link), s)
+            await send(user.email, subject, reminder_html(user.name or user.email, items, link, base, day), s)
             result['sent'] += 1
             perf.record(
                 'tracker', name='email', user_id=user_id, count=len(items),
