@@ -52,6 +52,23 @@ Trạng thái: ⬜ chưa làm · 🔄 đang làm · ✅ xong (đã test) · ⚠�
 - ⚠️ 8e. Văn bản (PDF, DOCX): người / hạn / % chỉ giữ khi có trong văn bản; ảnh: vision chép chữ rồi trích như văn bản
 - ⚠️ 8f. Phiên bản mới của bảng: dòng biến mất được ghi vào "Mâu thuẫn" (không xóa); monitor hiện chỉ số chất lượng
 
+## Nhóm 9. Gán việc đúng người, giảm việc chưa gán, quản lý kênh (kế hoạch: KE-HOACH-GAN-VIEC.md)
+Chốt: Q1 kế hoạch không nêu người → chưa giao; Q2 có danh sách "không nhận việc chung"; Q3 nhắc thứ Hai chỉ chủ kênh /
+người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
+- ⬜ T1. Prompt tổng hợp chat: `giao_cho`, tin @Knight vẫn giao việc, đính chính thay danh sách
+- ⬜ T2. Code tính người phụ trách (tên/@tag, chức vụ, cả nhóm, tự nhận, không rõ), kiểm tên có trong tin, bắt buộc nguồn
+- ⬜ T3. Bảng chức vụ / nhóm / "không nhận việc chung" của kênh: lưu, tự học từ tin, API
+- ⬜ T4. Giao diện "Thành viên & chức vụ" trong bảng tiến độ kênh
+- ⬜ T5. Nhãn Ngoài kênh / Bên ngoài / Đã nghỉ; bí danh kênh; gán nhanh việc chưa có người
+- ⬜ T6. Yêu cầu chưa giao: gom 1 việc / dòng, gán người phụ trách của dòng
+- ⬜ T7. Lỗi nhỏ việc từ file: hạn đặt sai việc, chi tiết trùng, vướng mắc là nhận định, tên cắt ở ":"
+- ⬜ T8. Nhắc thứ Hai cho chủ kênh / người quản lý (thông báo + email), cấu hình trên monitor
+- ⬜ T9. Người quản lý kênh (vai trò manager): gán / bỏ, quyền tiến độ như chủ kênh
+- ⬜ T10. Chuyển chủ kênh; tài khoản bị khóa (tự chuyển, việc "đã nghỉ")
+- ⬜ T11. Monitor: % chưa gán / chưa liên kết theo kênh, đổi chủ kênh / người quản lý
+- ⬜ T12. Kiểm thử cũ + mới, cập nhật tài liệu, commit
+- ⬜ T13. Deploy, tổng hợp lại kênh bd3, poc soc, av (phía server)
+
 ## Ghi chú kết quả từng phần
 - Nhóm 1 + 5 + 7a (commit 9f63f5d52): quy tắc ẩn tool gỡ khỏi middleware; skill `chon-nguon` (seed) luôn nạp sẵn qua
   tham số `files.routing_skill`; báo cáo/`get_project_status` có `due_from`/`due_to` và ghi "file chưa tổng hợp" kèm gợi ý
