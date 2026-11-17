@@ -59,12 +59,12 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
 - ✅ T2. Code tính người phụ trách (tên/@tag, chức vụ, cả nhóm, tự nhận, không rõ), kiểm tên có trong tin, bắt buộc nguồn
 - 🔄 T3. Bảng chức vụ / nhóm / "không nhận việc chung" của kênh: lưu, tự học từ tin, API
 - ⬜ T4. Giao diện "Thành viên & chức vụ" trong bảng tiến độ kênh
-- ⬜ T5. Nhãn Ngoài kênh / Bên ngoài / Đã nghỉ; bí danh kênh; gán nhanh việc chưa có người
-- ⬜ T6. Yêu cầu chưa giao: gom 1 việc / dòng, gán người phụ trách của dòng
-- ⬜ T7. Lỗi nhỏ việc từ file: hạn đặt sai việc, chi tiết trùng, vướng mắc là nhận định, tên cắt ở ":"
+- 🔄 T5. Nhãn Ngoài kênh / Bên ngoài / Đã nghỉ; bí danh kênh; gán nhanh việc chưa có người
+- ✅ T6. Yêu cầu chưa giao: gom 1 việc / dòng, gán người phụ trách của dòng
+- ✅ T7. Lỗi nhỏ việc từ file: hạn đặt sai việc, chi tiết trùng, vướng mắc là nhận định, tên cắt ở ":"
 - ⬜ T8. Nhắc thứ Hai cho chủ kênh / người quản lý (thông báo + email), cấu hình trên monitor
-- ⬜ T9. Người quản lý kênh (vai trò manager): gán / bỏ, quyền tiến độ như chủ kênh
-- ⬜ T10. Chuyển chủ kênh; tài khoản bị khóa (tự chuyển, việc "đã nghỉ")
+- 🔄 T9. Người quản lý kênh (vai trò manager): gán / bỏ, quyền tiến độ như chủ kênh
+- 🔄 T10. Chuyển chủ kênh; tài khoản bị khóa (tự chuyển, việc "đã nghỉ")
 - ⬜ T11. Monitor: % chưa gán / chưa liên kết theo kênh, đổi chủ kênh / người quản lý
 - ⬜ T12. Kiểm thử cũ + mới, cập nhật tài liệu, commit
 - ⬜ T13. Deploy, tổng hợp lại kênh bd3, poc soc, av (phía server)
@@ -132,3 +132,11 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   việc mới không có tin nguồn bị bỏ; tin @Knight vẫn giao việc. Đã test trên tin thật bd3 / poc soc (model giả lập cố
   tình sai): AM đúng 3 người, bỏ Sơn; "các nhân sự" bỏ Sơn / My / người không nhận việc chung; 9 tên tự nở bị loại;
   đính chính thay đúng 5 người; vietanh.nguyen → Nguyễn Việt Anh; PH04 bên ngoài; việc không nguồn bị bỏ.
+- Nhóm 9 / T3, T5, T9, T10 phần backend (`tracker/team.py`, `router.py`, `models.edit_state`, `mywork.py`): API bảng chức vụ
+  (sửa tay → việc theo chức vụ đổi người theo), "không nhận việc chung", gán nhanh + nhớ bí danh, người quản lý kênh
+  (vai trò manager) có quyền như chủ kênh ở tiến độ / trang Công việc, chuyển chủ kênh (chủ cũ thành người quản lý),
+  nhãn người phụ trách: đã liên kết / ngoài kênh / bên ngoài / đã nghỉ (tài khoản pending hoặc đã xóa; không nhắc tới họ).
+- Nhóm 9 / T6–T7: yêu cầu chưa giao gom 1 việc / dòng "Bổ sung hành động cho N yêu cầu chưa được xử lý", gán người phụ
+  trách của dòng, yêu cầu ở phần chi tiết; hạn model đặt nhầm việc → tách ý chứa ngày đó thành việc riêng (PH-000006 có
+  việc hạn 13/11); bỏ chi tiết trùng / lặp tên; tên không cắt ở ":"; dòng tiêu đề "PHẢN ÁNH CHUNG:" không thành ý. Đã test
+  trên file phản hồi thật (model giả lập mắc đúng lỗi av).

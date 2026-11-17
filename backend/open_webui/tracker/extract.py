@@ -29,7 +29,7 @@ from open_webui.tracker.schema import _STATUS_ALIASES, STATUSES, WorkItem, _clea
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 7
+EXTRACT_VERSION = 8
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 ROW_BATCH_CHARS = 10_000
@@ -583,7 +583,7 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
                 'dong': number,
                 'khoa': f'table:{sheet["name"]}:{code or number}',
                 'xac_minh': True,
-                'ngu_canh': ' | '.join(_unbullet(cell(row, i)).replace('\n', '; ') for i in context_idx if cell(row, i))[:1500],
+                'ngu_canh': '\n'.join(_unbullet(cell(row, i)) for i in context_idx if cell(row, i))[:1500],
             }
         )
     rows = len(data)
@@ -683,7 +683,8 @@ Với mỗi dòng, lập đầu việc để theo dõi tiến độ:
 2. "ten": tóm tắt việc tối đa 15 từ, bắt đầu bằng động từ, giữ tên đơn vị, khách hàng, sản phẩm; không chép nguyên câu.
 3. "chi_tiet": các ý phụ chưa có trong tên, mỗi ý một câu ngắn (tối đa 4).
    Ý phủ định hoặc kết luận KHÔNG làm ("không nên…", "không cần…") không phải việc: xếp vào "nhan_dinh", không đưa
-   vào tên việc.
+   vào tên việc. "vuong_mac" chỉ gồm khó khăn, hạn chế, phụ thuộc bên khác, thiếu nguồn lực; câu đánh giá hay kết luận
+   ("SOC đánh giá…") là "nhan_dinh".
 4. MỌI ý [n] phải được xếp vào đúng một chỗ: "y" của một việc, "vuong_mac" (hạn chế, khó khăn), hoặc "nhan_dinh" (chỉ là
    nhận định, đánh giá, không phải việc).
 5. Nếu dòng có [Y..]: xét TỪNG yêu cầu, kể cả yêu cầu về thời gian ("phải nhắc mới có", "chậm") và sự chủ động.
@@ -708,7 +709,8 @@ def segment_ideas(text: str, limit: int = MAX_IDEAS) -> list[str]:
     ideas = []
     for line in (text or '').splitlines():
         line = line.strip().lstrip('•▪◦-*+').strip()
-        if not line:
+        # A short line ending with ":" ("PHẢN ÁNH CHUNG:", "CHI TIẾT THEO KHÁCH HÀNG:") is a heading, not a point.
+        if not line or (line.endswith(':') and len(line.split()) <= 5):
             continue
         current = ''
         for sentence in _IDEA_SPLIT_RE.split(line):
@@ -727,7 +729,8 @@ def short_title(text: str, limit: int = 120) -> str:
     """Last resort when no model summary: the first sentence of the first line, cut at a word."""
     first = (text or '').strip().splitlines()[0] if (text or '').strip() else ''
     first = first.strip().lstrip('•▪◦-*+').strip()
-    first = re.split(r'(?<=[.!?;:])\s', first, maxsplit=1)[0].strip().rstrip('.;')
+    sentence = re.split(r'(?<=[.!?;])\s', first, maxsplit=1)[0].strip().rstrip('.;:')
+    first = sentence if len(sentence.split()) >= 3 else first.strip().rstrip('.;:')
     first = first[:1].upper() + first[1:]
     if len(first) <= limit:
         return first
@@ -851,6 +854,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
         people = people or list(item['phu_trach'])
         by_key = {normalize_key(p): p for p in people}
         tasks, placed = [], set()
+        misplaced: list[tuple[int, str]] = []  # (point, deadline written in it) the model gave to another task
         for raw in answer.get('viec') or []:
             if not isinstance(raw, dict) or not str(raw.get('ten') or '').strip():
                 continue
@@ -862,8 +866,15 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
             if word_support(title, source) < MIN_WORD_SUPPORT:
                 title = short_title(source)
                 report['titles_replaced'] += 1
-            details = [str(d).strip()[:300] for d in raw.get('chi_tiet') or [] if str(d).strip()]
-            details = [d for d in details if word_support(d, source) >= MIN_WORD_SUPPORT][:4]
+            details = []
+            for detail in raw.get('chi_tiet') or []:
+                detail = str(detail).strip()[:300]
+                if not detail or word_support(detail, source) < MIN_WORD_SUPPORT:
+                    continue
+                if similarity(detail, title) >= 0.75 or any(similarity(detail, d) >= 0.75 for d in details):
+                    continue
+                details.append(detail)
+            details = details[:4]
             named = []
             for owner in raw.get('phu_trach') or []:
                 key = normalize_key(str(owner))
@@ -878,8 +889,12 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                 if proposed and proposed in dates_in(source, year):
                     due = proposed
                     report['due_accepted'] += proposed != item['han']
-                elif proposed != item['han']:
-                    report['due_rejected'] += 1
+                elif proposed and proposed != item['han']:
+                    holder = next((j for j in range(1, len(ideas) + 1) if proposed in dates_in(ideas[j - 1], year)), None)
+                    if holder:
+                        misplaced.append((holder, proposed))
+                    else:
+                        report['due_rejected'] += 1
             tasks.append(
                 {
                     'ten': title, 'chi_tiet': details, 'y': cited, 'phu_trach': named or list(people),
@@ -902,6 +917,27 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                 twin['trich_dan'] = ' '.join(ideas[i - 1] for i in twin['y'])[:QUOTE_CHARS]
             else:
                 grouped.append(task)
+        for point, due in misplaced:
+            if any(t['han'] == due and point in t['y'] for t in grouped):
+                continue
+            owner_task = next((t for t in grouped if point in t['y']), None)
+            if owner_task and len(owner_task['y']) > 1:
+                owner_task['y'].remove(point)
+                owner_task['trich_dan'] = ' '.join(ideas[i - 1] for i in owner_task['y'])[:QUOTE_CHARS]
+                owner_task['chi_tiet'] = [d for d in owner_task['chi_tiet'] if word_support(d, ideas[point - 1]) < 0.6]
+            elif owner_task:
+                owner_task['han'] = due
+                report['due_accepted'] += 1
+                continue
+            grouped.append(
+                {
+                    'ten': short_title(ideas[point - 1]), 'chi_tiet': [], 'y': [point],
+                    'phu_trach': list(owner_task['phu_trach'] if owner_task else people), 'han': due,
+                    'trich_dan': ideas[point - 1][:QUOTE_CHARS],
+                }
+            )
+            placed.add(point)
+            report['due_split'] = report.get('due_split', 0) + 1
         # Points the model marked with their own deadline (checked: the date is written in the point) become a task
         # of their own when they ended up inside a task with another deadline, or in no task.
         for raw in answer.get('han_rieng') or []:
@@ -1016,25 +1052,31 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                 }
             )
             report['tasks'] += 1
-        for index, gap in enumerate(built['gaps'], 1):
+        if built['gaps']:
+            # One task per row for the requests no action answers, given to whoever handles the row: they add the
+            # missing actions (or close it). The requests are its details.
+            gaps = built['gaps']
+            owners = list(built.get('people') or item['phu_trach'])
+            points = [g['ten'] + (f' – còn thiếu: {g["chi_tiet"][0]}' if g['chi_tiet'] else '') for g in gaps]
             output.append(
                 {
                     **item,
-                    'ten': gap['ten'],
-                    'chi_tiet': gap['chi_tiet'],
-                    'phu_trach': [],
+                    'ten': f'Bổ sung hành động cho {len(gaps)} yêu cầu chưa được xử lý',
+                    'chi_tiet': [p[:300] for p in points[:6]] + ([f'… và {len(points) - 6} yêu cầu khác'] if len(points) > 6 else []),
+                    'phu_trach': owners,
                     'han': None,
                     'trang_thai': 'chua_bat_dau',
                     'tien_do': None,
                     'hoan_thanh_luc': None,
                     'vuong_mac': None,
-                    'chua_giao': True,
-                    'trich_dan': gap['trich_dan'],
-                    'khoa': f'{item["khoa"]}#yc{index}',
+                    'chua_giao': not owners,
+                    'trich_dan': ' '.join(g['trich_dan'] for g in gaps)[:QUOTE_CHARS],
+                    'khoa': f'{item["khoa"]}#yc',
                     'xac_minh': True,
                 }
             )
-            report['gaps'] += 1
+            report['gaps'] += len(gaps)
+            report['gap_tasks'] = report.get('gap_tasks', 0) + 1
     for entry in output:
         entry.pop('ngu_canh', None)
         entry.pop('ket_qua', None)

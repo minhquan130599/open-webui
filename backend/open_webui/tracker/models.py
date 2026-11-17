@@ -366,6 +366,21 @@ class TrackerTable:
         row.version = (row.version or 0) + 1
         row.updated_at = now
 
+    async def edit_state(self, channel_id: str, change, db: Optional[AsyncSession] = None) -> bool:
+        """Apply change(state) -> bool to the stored state under the row lock; saved when it returns True."""
+        now = time.time_ns()
+        async with get_async_db_context(db) as db:
+            row = await self._locked_row(db, channel_id)
+            if not row or not row.state:
+                return False
+            state = load_state(row.state)
+            ensure_item_ids(state)
+            if not change(state):
+                return False
+            self._save_state(row, state, now)
+            await db.commit()
+            return True
+
     async def ensure_item_ids(self, channel_id: str, db: Optional[AsyncSession] = None) -> None:
         """Give items stored before ids existed an id, so they can be closed or cancelled."""
         async with get_async_db_context(db) as db:

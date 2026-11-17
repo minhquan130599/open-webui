@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.models.channels import Channels
 from open_webui.models.users import Users
-from open_webui.tracker import mywork, reminders
+from open_webui.tracker import mywork, reminders, team
 from open_webui.tracker.config import ENABLE_PROJECT_TRACKER
 from open_webui.tracker.models import TrackerItemModel, Trackers
 from open_webui.tracker.schema import load_state, render_state_markdown
@@ -39,8 +39,9 @@ class ArchiveForm(BaseModel):
     kind: Literal['dong', 'huy']
 
 
-def _can_manage(channel, user) -> bool:
-    return user.role == 'admin' or channel.user_id == user.id
+async def _can_manage(channel, user) -> bool:
+    """Admins, the channel owner and its managers (team leads) run the channel's progress."""
+    return await team.can_manage(channel, user)
 
 
 async def _get_readable_channel(channel_id: str, user):
@@ -60,7 +61,7 @@ async def get_channel_state(channel_id: str, user=Depends(get_verified_user)):
     channel = await _get_readable_channel(channel_id, user)
     row = await Trackers.get_state(channel_id)
     if not row:
-        return TrackerStateResponse(channel_id=channel_id, can_manage=_can_manage(channel, user))
+        return TrackerStateResponse(channel_id=channel_id, can_manage=await _can_manage(channel, user))
     if row.state and any(not item.get('id') for item in row.state.get('hang_muc') or []):
         await Trackers.ensure_item_ids(channel_id)  # state stored before items had ids
         row = await Trackers.get_state(channel_id)
@@ -76,13 +77,13 @@ async def get_channel_state(channel_id: str, user=Depends(get_verified_user)):
         next_attempt_at=row.next_attempt_at if row.fail_count else None,
         last_error=row.last_error if user.role == 'admin' else None,
         archive=sorted(row.archive or [], key=lambda e: e.get('archived_at') or 0, reverse=True),
-        can_manage=_can_manage(channel, user),
+        can_manage=await _can_manage(channel, user),
     )
 
 
 async def _get_managed_channel(channel_id: str, user):
     channel = await _get_readable_channel(channel_id, user)
-    if not _can_manage(channel, user):
+    if not await _can_manage(channel, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
     return channel
 
@@ -112,6 +113,89 @@ async def reopen_work_item(channel_id: str, item_id: str, user=Depends(get_verif
     await _get_managed_channel(channel_id, user)
     if not await Trackers.reopen_item(channel_id, item_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND)
+    return {'status': True}
+
+
+class RolesForm(BaseModel):
+    roles: list[dict]  # [{'ten': 'AM', 'ids': [user ids]}]
+
+
+class IdsForm(BaseModel):
+    ids: list[str]
+
+
+class AssignForm(BaseModel):
+    user_ids: list[str]
+    remember: Optional[str] = None  # the unlinked name the item had ("Duy"), remembered as this account's alias
+
+
+class ManagerForm(BaseModel):
+    user_id: str
+    manager: bool
+
+
+class OwnerForm(BaseModel):
+    user_id: str
+
+
+@router.get('/channels/{channel_id}/team')
+async def get_channel_team(channel_id: str, user=Depends(get_verified_user)):
+    """Members (owner, managers, left-out, left the company), the role table and aliases of a channel."""
+    channel = await _get_readable_channel(channel_id, user)
+    return {**await team.team(channel), 'can_manage': await _can_manage(channel, user),
+            'can_change_owner': user.role == 'admin' or channel.user_id == user.id}
+
+
+@router.post('/channels/{channel_id}/roles')
+async def set_channel_roles(channel_id: str, form: RolesForm, user=Depends(get_verified_user)):
+    """Replace the channel's roles and teams; open items given to a role follow its new people."""
+    await _get_managed_channel(channel_id, user)
+    await team.set_roles(channel_id, form.roles)
+    return {'status': True}
+
+
+@router.post('/channels/{channel_id}/left-out')
+async def set_channel_left_out(channel_id: str, form: IdsForm, user=Depends(get_verified_user)):
+    """People never given work meant for everyone (besides admins, the owner and managers)."""
+    await _get_managed_channel(channel_id, user)
+    await team.set_left_out(channel_id, form.ids)
+    return {'status': True}
+
+
+@router.post('/channels/{channel_id}/items/{item_id}/assign')
+async def assign_work_item(channel_id: str, item_id: str, form: AssignForm, user=Depends(get_verified_user)):
+    await _get_managed_channel(channel_id, user)
+    if not await team.assign_item(channel_id, item_id, form.user_ids, form.remember):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND)
+    return {'status': True}
+
+
+@router.delete('/channels/{channel_id}/aliases/{name}')
+async def delete_channel_alias(channel_id: str, name: str, user=Depends(get_verified_user)):
+    await _get_managed_channel(channel_id, user)
+    await team.remove_alias(channel_id, name)
+    return {'status': True}
+
+
+@router.post('/channels/{channel_id}/managers')
+async def set_channel_manager(channel_id: str, form: ManagerForm, user=Depends(get_verified_user)):
+    """Name or remove a manager (team lead). The owner and admins only."""
+    channel = await _get_readable_channel(channel_id, user)
+    if not (user.role == 'admin' or channel.user_id == user.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    if not await team.set_manager(channel_id, form.user_id, form.manager):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Người này không phải thành viên kênh')
+    return {'status': True}
+
+
+@router.post('/channels/{channel_id}/owner')
+async def transfer_channel_owner(channel_id: str, form: OwnerForm, user=Depends(get_verified_user)):
+    """Hand the channel over to another member; the previous owner stays as a manager. The owner and admins only."""
+    channel = await _get_readable_channel(channel_id, user)
+    if not (user.role == 'admin' or channel.user_id == user.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    if not await team.transfer_owner(channel_id, form.user_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Người này không phải thành viên kênh')
     return {'status': True}
 
 

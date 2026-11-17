@@ -6,13 +6,16 @@ owner joined the channel later, are matched by name at read time with the same u
 
 import datetime as dt
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 from open_webui.models.channels import Channels
 from open_webui.models.users import Users
+from open_webui.tracker import channel_config, team
 from open_webui.tracker.models import Trackers
 from open_webui.tracker.people import channel_people, match_person
+from open_webui.tracker.schema import normalize_key
+from open_webui.tracker.team import LEFT_ROLES
 from open_webui.tracker.prompts import format_time
 from open_webui.tracker.service import TZ
 
@@ -36,6 +39,12 @@ class WorkEntry:
     days_left: Optional[int] = None
     channel_owner_id: Optional[str] = None
     can_manage: bool = False
+    chua_giao: bool = False
+    nhom: Optional[str] = None
+    ben_ngoai: list = field(default_factory=list)
+    # One per owner name: {'name', 'id', 'status'}: linked | outside (not a channel member) | external (another
+    # company) | left (account disabled or deleted)
+    owners: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -85,18 +94,24 @@ async def collect(channels: list) -> list[WorkEntry]:
         if not channel or not row.state:
             continue
         people = None
+        aliases = (await channel_config.get(channel.id)).get('bi_danh') or {}
         for index, item in enumerate(row.state.get('hang_muc') or []):
             if not isinstance(item, dict) or not item.get('ten'):
                 continue
             names = [n for n in item.get('phu_trach') or [] if isinstance(n, str)]
+            outside_company = [n for n in item.get('ben_ngoai') or [] if isinstance(n, str)]
             owner_ids = [i for i in item.get('phu_trach_ids') or [] if isinstance(i, str)]
-            if names and len(owner_ids) < len(names):
-                if people is None:
-                    people = await channel_people(channel)
-                for name in names:
-                    user_id = match_person(name, people)
-                    if user_id and user_id not in owner_ids:
-                        owner_ids.append(user_id)
+            if people is None:
+                people = await channel_people(channel)
+            owners = []
+            for name in names:
+                if name in outside_company:
+                    owners.append({'name': name, 'id': None, 'status': 'external'})
+                    continue
+                user_id = aliases.get(normalize_key(name)) or match_person(name, people)
+                if user_id and user_id not in owner_ids:
+                    owner_ids.append(user_id)
+                owners.append({'name': name, 'id': user_id, 'status': 'linked' if user_id else 'outside'})
             entry = WorkEntry(
                 channel_id=channel.id,
                 channel_name=channel.name,
@@ -110,9 +125,22 @@ async def collect(channels: list) -> list[WorkEntry]:
                 vuong_mac=item.get('vuong_mac'),
                 cap_nhat_luc=item.get('cap_nhat_luc'),
                 channel_owner_id=channel.user_id,
+                chua_giao=bool(item.get('chua_giao')),
+                nhom=item.get('nhom'),
+                ben_ngoai=outside_company,
+                owners=owners,
             )
             classify(entry, day)
             entries.append(entry)
+    # Accounts disabled (or deleted) since they were given the work: shown as "left", reminders skip them.
+    linked = {o['id'] for e in entries for o in e.owners if o['id']} | {i for e in entries for i in e.owner_ids}
+    if linked:
+        active = {u.id for u in await Users.get_users_by_user_ids(list(linked)) if u.role not in LEFT_ROLES}
+        for entry in entries:
+            for owner in entry.owners:
+                if owner['id'] and owner['id'] not in active:
+                    owner['status'] = 'left'
+            entry.owner_ids = [i for i in entry.owner_ids if i in active]
     return entries
 
 
@@ -126,11 +154,20 @@ async def readable_channels(user) -> list:
     return project_channels(await Channels.get_channels_by_user_id(user.id))
 
 
+async def managed_ids(user, channels: list) -> set[str]:
+    """Channels among these that the user runs: admins all, else the ones they own or manage (team lead)."""
+    if user.role == 'admin':
+        return {c.id for c in channels}
+    owned = {c.id for c in channels if c.user_id == user.id}
+    return owned | await team.managed_channel_ids(user.id, [c.id for c in channels if c.id not in owned])
+
+
 async def managed_channels(user) -> list:
     """Channels whose members' work the user may see: for an admin every channel they are in, else the
-    channels they own."""
+    channels they own or manage."""
     channels = await readable_channels(user)
-    return channels if user.role == 'admin' else [c for c in channels if c.user_id == user.id]
+    ids = await managed_ids(user, channels)
+    return [c for c in channels if c.id in ids]
 
 
 async def work_of(viewer, target_id: str) -> Optional[list[WorkEntry]]:
@@ -142,8 +179,9 @@ async def work_of(viewer, target_id: str) -> Optional[list[WorkEntry]]:
         if not channels:
             return None
     entries = [e for e in await collect(channels) if target_id in e.owner_ids]
+    managed = await managed_ids(viewer, channels)
     for entry in entries:
-        entry.can_manage = viewer.role == 'admin' or entry.channel_owner_id == viewer.id
+        entry.can_manage = entry.channel_id in managed
     return entries
 
 
@@ -187,22 +225,22 @@ async def board(viewer, mode: str) -> dict:
     team: every item of the channels the viewer manages (owners: their channels; admins: channels they are in).
     """
     readable = await readable_channels(viewer)
-    managed_ids = {c.id for c in readable if viewer.role == 'admin' or c.user_id == viewer.id}
-    channels = readable if mode == 'mine' else [c for c in readable if c.id in managed_ids]
+    managed = await managed_ids(viewer, readable)
+    channels = readable if mode == 'mine' else [c for c in readable if c.id in managed]
     entries = await collect(channels)
     if mode == 'mine':
-        entries = [e for e in entries if viewer.id in e.owner_ids or (not e.phu_trach and e.channel_id in managed_ids)]
+        entries = [e for e in entries if viewer.id in e.owner_ids or (not e.owner_ids and e.channel_id in managed)]
     for entry in entries:
-        entry.can_manage = entry.channel_id in managed_ids
+        entry.can_manage = entry.channel_id in managed
     owner_ids = {o for e in entries for o in e.owner_ids}
     users = await Users.get_users_by_user_ids(list(owner_ids)) if owner_ids else []
     used = {e.channel_id for e in entries}
     return {
         'mode': mode,
         'today': today(),
-        'can_view_team': bool(managed_ids),
+        'can_view_team': bool(managed),
         'channels': [
-            {'id': c.id, 'name': c.name, 'can_manage': c.id in managed_ids}
+            {'id': c.id, 'name': c.name, 'can_manage': c.id in managed}
             for c in channels
             if c.id in used or (mode == 'team')
         ],
