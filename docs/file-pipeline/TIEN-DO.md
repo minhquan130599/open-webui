@@ -349,3 +349,9 @@ Bỏ bước "mô tả bảng" (chọn sheet, dòng tiêu đề, vai trò cột)
   sheet. Bản mô tả bảng đã lưu và màn sửa trên monitor không còn tác dụng. EXTRACT_VERSION 23.
 - Thử bằng model thật: KPI_PM 2 lượt gọi, đủ 6 chỉ tiêu, tự hiểu tiêu đề hai tầng ("Mục tiêu (L2): 90%, Tối thiểu (L1):
   85%"), không còn bước tự nghĩ; Lịch KS BN (không có tiêu đề) 15/15 buổi; NganTT tự bỏ sheet tra cứu và sheet tạm.
+- Kết quả trên dev (v23, model thật) CX Feedback: đúng người / hạn / trạng thái / vướng mắc, chi tiết bám file, không
+  còn ô phân loại; nhưng mất hết đề xuất từ yêu cầu khách (đọc cả file trong một câu trả lời dài, model bỏ phần này) và
+  không tách việc theo người. Sửa: lượt rà lại (theo phần, đã có danh sách việc) tìm thêm yêu cầu chưa được đáp ứng
+  ("de_xuat_moi") và việc gộp phần của nhiều người / nhiều hạn ("tach", đọc lại các dòng đó); chi tiết viết súc tích.
+  Thử lại bằng model thật: có lại 3 đề xuất (dashboard ticket management cho CEO, tư vấn nguồn log, thông tin độc quyền);
+  tách theo người vẫn chưa ăn (model đọc lại vẫn giữ một việc). Kế hoạch cá nhân lấy người từ tên file. EXTRACT_VERSION 24.

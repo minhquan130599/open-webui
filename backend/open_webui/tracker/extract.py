@@ -26,7 +26,7 @@ from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 23
+EXTRACT_VERSION = 24
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 # Names this alike (trigrams) or sharing this share of the shorter name's words are shown to the model, which says
@@ -521,10 +521,18 @@ Dòng được coi là không phải việc: {skipped}
 Rà lại như người kiểm tra:
 - Với từng đầu việc: chi tiết nào KHÔNG có trong dòng (tự nghĩ ra) thì bỏ; thông tin quan trọng của dòng (cách làm,
   đầu ra, tiêu chí, mục tiêu, tần suất, con số, tên) chưa có trong tên và chi tiết thì thêm. Không thêm ô phân loại.
-  Chỉ ghi các việc cần sửa, với danh sách chi tiết ĐẦY ĐỦ sau khi sửa (tối đa 6 ý).
+  Mỗi ý ngắn gọn, viết lại cho súc tích, không chép nguyên cả đoạn. Chỉ ghi các việc cần sửa, với danh sách chi tiết
+  ĐẦY ĐỦ sau khi sửa (tối đa 6 ý).
+- Việc nào gộp các phần mà dòng giao cho NGƯỜI KHÁC NHAU hoặc ghi HẠN KHÁC NHAU thì ghi số thứ tự vào "tach".
+- Dòng có yêu cầu / phản hồi / mong đợi của người khác (khách hàng, người dùng, đơn vị) mà việc của dòng chưa đáp ứng,
+  kể cả gián tiếp: ghi vào "de_xuat_moi" việc cần làm để đáp ứng ("ten" bắt đầu bằng động từ) kèm "yeu_cau" chép đúng
+  câu yêu cầu trong dòng; không lặp việc hay đề xuất đã có, không đề xuất điều dòng đã quyết định không làm, tối đa 3
+  mỗi dòng.
 - Đề xuất nào không có yêu cầu thật trong dòng thì ghi số thứ tự vào "bo_de_xuat".
 - Dòng nào bị coi là không phải việc nhưng thật ra giao hoặc yêu cầu việc thì ghi vào "la_viec".
-Trả về đúng một JSON: {{"sua": [{{"so": 1, "chi_tiet": ["..."]}}], "bo_de_xuat": [3], "la_viec": [{{"sheet": "...", "dong": 14}}]}}"""
+Trả về đúng một JSON: {{"sua": [{{"so": 1, "chi_tiet": ["..."]}}], "tach": [2],
+ "de_xuat_moi": [{{"sheet": "...", "dong": 19, "ten": "...", "yeu_cau": "..."}}], "bo_de_xuat": [3],
+ "la_viec": [{{"sheet": "...", "dong": 14}}]}}"""
 
 OVERVIEW_PROMPT = """File bảng tính "{name}" lớn, sẽ được đọc theo từng phần. Dưới đây là các dòng đầu của mỗi sheet
 (số dòng, các ô theo chữ cái cột).
@@ -736,8 +744,8 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
                 log.warning('Tracker: table part failed (%s)', error)
                 return {}
 
-    async def read(part: dict) -> dict:
-        prompt = TABLE_PROMPT.format(name=name, today=today, context=context_of(part), rows=render(part))
+    async def read(part: dict, note: str = '') -> dict:
+        prompt = TABLE_PROMPT.format(name=name, today=today, context=context_of(part) + note, rows=render(part))
         return await ask(prompt, TABLE_ANSWER_TOKENS)
 
     tasks: list[dict] = []
@@ -829,6 +837,10 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
                 if gap in gaps:
                     gaps.remove(gap)
                     report['gaps_removed'] += 1
+        # Requests no task answers, found by the reviewer.
+        before = len(gaps)
+        collect({'de_xuat': answer.get('de_xuat_moi') or []}, part)
+        report['gaps_added'] = report.get('gaps_added', 0) + len(gaps) - before
         restored = []
         for entry in answer.get('la_viec') or []:
             if isinstance(entry, dict) and str(entry.get('dong') or '').isdigit():
@@ -836,6 +848,17 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
                 if key in not_tasks:
                     not_tasks.discard(key)
                     restored.append(key)
+        # Rows whose parts go to different people or deadlines are read again, one task per part.
+        split = {
+            (mine[int(n) - 1]['sheet'], mine[int(n) - 1]['dong'])
+            for n in answer.get('tach') or [] if str(n).isdigit() and 1 <= int(n) <= len(mine)
+        }
+        if split:
+            report['rows_split'] = report.get('rows_split', 0) + len(split)
+            tasks[:] = [t for t in tasks if (t['sheet'], t['dong']) not in split]
+            again_part = {'entries': [e for e in part['entries'] if (e[0], e[1]) in split], 'heads': part['heads']}
+            note = 'Các dòng dưới đây giao các phần cho người khác nhau hoặc ghi hạn khác nhau: lập MỖI phần một việc.\n'
+            collect(await read(again_part, note), again_part)
         if restored:
             report['rows_restored'] += len(restored)
             again_part = {'entries': [e for e in part['entries'] if (e[0], e[1]) in restored], 'heads': part['heads']}
