@@ -187,3 +187,9 @@ người quản lý; Q4 bước rà lại yêu cầu chưa giao: chưa làm.
   đầu bằng động từ ("Xây dựng dashboard ticket management cho CEO"), chi tiết "Khách yêu cầu: …", giao cho người / team phụ
   trách dòng; gộp yêu cầu trùng, tối đa 3 việc mỗi dòng. Đọc lại file: việc cũ của cùng dòng mà lần đọc mới không còn
   (việc gộp kiểu cũ) được thay, không để song song; lịch sử ghi "thay N". EXTRACT_VERSION 11.
+- Nhóm 9 bổ sung (rà các kênh test, test01, test02, av ngày 17/11): bảng kế hoạch có cột "Mô tả chi tiết" trước đây bị
+  model xếp vào bối cảnh và gần như mất; nay bản mô tả bảng có vai trò "mo_ta" (cách làm, phạm vi của chính việc), các ý
+  của cột này đánh số tiếp sau tên việc và vào chi tiết của việc (ý model bỏ sót được code thêm). Bản mô tả cũ do model
+  lập chưa có "mo_ta" thì được lập lại (bản sửa tay giữ nguyên). Cột kết quả và các ý thêm vào chi tiết không còn bị cắt
+  ở dấu ";" đầu tiên; dòng "Kết quả" luôn giữ khi chi tiết đủ 6 dòng. Prompt: "Long (BE)" là người Long, không thêm nhóm
+  BE; tên viết tắt SOC / TI / CX / PM là nhóm. EXTRACT_VERSION 12.

@@ -29,7 +29,7 @@ from open_webui.tracker.schema import _STATUS_ALIASES, STATUSES, WorkItem, _clea
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 11
+EXTRACT_VERSION = 12
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 ROW_BATCH_CHARS = 10_000
@@ -114,7 +114,8 @@ Hãy mô tả cách đọc danh sách công việc từ file này. Nhiều sheet
  "sheet": "tên sheet", "dong_tieu_de": số dòng tiêu đề (bắt đầu từ 1),
  "cot": {{"ma": "cột mã/ID của việc hoặc null",
           "ten": ["CHỈ cột ghi việc phải làm / hành động (vd Next step, Action, Công việc, Nhiệm vụ)"],
-          "ngu_canh": ["cột mô tả vấn đề, bối cảnh (vd nội dung phản hồi, mô tả lỗi, yêu cầu của khách) hoặc []"],
+          "mo_ta": ["cột mô tả chi tiết CHÍNH việc đó: các bước, phạm vi cần làm (vd Mô tả chi tiết, Nội dung công việc) hoặc []"],
+          "ngu_canh": ["cột vấn đề / yêu cầu của khách hoặc bên khác mà việc phải đáp ứng (vd nội dung phản hồi, mô tả lỗi, mong đợi của khách) hoặc []"],
           "phu_trach": "cột hoặc null", "han": "cột hoặc null", "trang_thai": "cột hoặc null",
           "tien_do": "cột % hoàn thành hoặc null", "vuong_mac": "cột khó khăn / vướng mắc hoặc null",
           "ngay_hoan_thanh": "cột ngày hoàn thành thực tế hoặc null", "ket_qua": "cột kết quả xử lý hoặc null"}},
@@ -138,7 +139,8 @@ Thông tin các sheet:
 {sheets}
 </tai_lieu>
 Sửa bản mô tả cho đúng và trả về đúng một JSON cùng định dạng (đủ các khóa loai, sheet, dong_tieu_de, cot, trang_thai,
-tach_phu_trach, ngay, ly_do). "cot.ten" chỉ gồm cột hành động; cột mô tả vấn đề, bối cảnh đưa vào "cot.ngu_canh"."""
+tach_phu_trach, ngay, ly_do). "cot.ten" chỉ gồm cột hành động; cột mô tả cách làm của chính việc đưa vào "cot.mo_ta";
+cột vấn đề, yêu cầu của khách đưa vào "cot.ngu_canh"."""
 
 SAME_PROMPT = """Các cặp đầu việc dưới đây có tên gần giống nhau. Với mỗi cặp, cho biết có phải CÙNG MỘT việc không
 (cùng nội dung công việc, chỉ khác cách viết hoặc đã cập nhật thêm).
@@ -512,6 +514,11 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
     context_cols = columns.get('ngu_canh') or []
     context_cols = [context_cols] if isinstance(context_cols, str) else context_cols
     context_idx = [i for i in (_column(c, names) for c in context_cols) if i is not None and i not in name_idx]
+    detail_cols = columns.get('mo_ta') or []
+    detail_cols = [detail_cols] if isinstance(detail_cols, str) else detail_cols
+    detail_idx = [
+        i for i in (_column(c, names) for c in detail_cols) if i is not None and i not in name_idx and i not in context_idx
+    ]
     idx = {
         key: _column(columns.get(key), names)
         for key in ('ma', 'phu_trach', 'han', 'trang_thai', 'tien_do', 'vuong_mac', 'ngay_hoan_thanh', 'ket_qua')
@@ -584,6 +591,7 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
                 'khoa': f'table:{sheet["name"]}:{code or number}',
                 'xac_minh': True,
                 'ngu_canh': '\n'.join(_unbullet(cell(row, i)) for i in context_idx if cell(row, i))[:1500],
+                'mo_ta': '\n'.join(_unbullet(cell(row, i)) for i in detail_idx if cell(row, i))[:1500],
             }
         )
     rows = len(data)
@@ -663,7 +671,8 @@ ROW_BATCH_CHARS = 6000
 TITLE_MAX = 160
 TITLE_WORDS = 15
 LONG_NAME_CHARS = 400
-MAX_GAP_TASKS = 3  # requests without a planned action, turned into tasks, per row
+MAX_GAP_TASKS = 3
+MAX_DETAILS = 6  # detail lines per task (the result column always kept)  # requests without a planned action, turned into tasks, per row
 MAX_IDEAS = 30
 MIN_IDEA_CHARS = 25
 MAX_CONTEXT_IDEAS = 20
@@ -671,7 +680,8 @@ MAX_CONTEXT_IDEAS = 20
 MIN_WORD_SUPPORT = 0.25
 
 ROW_PROMPT = """Bảng công việc "{name}". Hôm nay là {today}. Mỗi mục là một dòng: ô người phụ trách (nguyên văn), hạn của
-dòng, các ý của VIỆC CẦN LÀM đánh số [1], [2]..., và có thể có YÊU CẦU / BỐI CẢNH đánh số [Y1], [Y2]...
+dòng, các ý của VIỆC CẦN LÀM đánh số [1], [2]... (có thể kèm MÔ TẢ CHI TIẾT CỦA VIỆC, đánh số tiếp), và có thể có
+YÊU CẦU / BỐI CẢNH đánh số [Y1], [Y2]...
 <tai_lieu>
 {rows}
 </tai_lieu>
@@ -679,11 +689,13 @@ dòng, các ý của VIỆC CẦN LÀM đánh số [1], [2]..., và có thể c�
 Với mỗi dòng, lập đầu việc để theo dõi tiến độ:
 0. Tách ô người phụ trách, chép đúng chữ trong ô, không thêm ai ngoài ô: "nguoi" = từng NGƯỜI (ô "Long / Triển" là 2
    người "Long", "Triển"); "nhom" = từng TEAM / phòng ban / chức vụ (ô "SOC, PM" là 2 nhóm "SOC", "PM"; "Phòng R & D"
-   là 1 nhóm).
+   là 1 nhóm). Chữ trong ngoặc sau tên người là phòng ban của người đó: ô "Long (BE)" là người "Long", không thêm
+   nhóm "BE". Tên viết tắt của team / phòng ban (SOC, TI, CX, PM) là nhóm, kể cả khi đứng cạnh tên khác.
 1. Mặc định cả dòng là MỘT việc. Chỉ tách thành nhiều việc khi các ý có người phụ trách khác nhau (chọn trong "nguoi")
    hoặc có hạn riêng ghi rõ trong ý. Ý nào ghi hạn riêng của chính nó thì liệt kê trong "han_rieng".
 2. "ten": tóm tắt việc tối đa 15 từ, bắt đầu bằng động từ, giữ tên đơn vị, khách hàng, sản phẩm; không chép nguyên câu.
-3. "chi_tiet": các ý phụ chưa có trong tên, mỗi ý một câu ngắn (tối đa 4).
+3. "chi_tiet": các ý phụ chưa có trong tên, mỗi ý một câu ngắn (tối đa 4). Ý của MÔ TẢ CHI TIẾT thuộc việc của dòng:
+   đưa vào "chi_tiet" (gộp ý gần nhau), không tạo việc riêng trừ khi ghi người hoặc hạn khác.
    Ý phủ định hoặc kết luận KHÔNG làm ("không nên…", "không cần…") không phải việc: xếp vào "nhan_dinh", không đưa
    vào tên việc. "vuong_mac" chỉ gồm khó khăn, hạn chế, phụ thuộc bên khác, thiếu nguồn lực; câu đánh giá hay kết luận
    ("SOC đánh giá…") là "nhan_dinh".
@@ -740,6 +752,14 @@ def short_title(text: str, limit: int = 120) -> str:
     if len(first) <= limit:
         return first
     return first[:limit].rsplit(' ', 1)[0] + '…'
+
+
+def clip(text: str, limit: int) -> str:
+    """The text on one line, cut at a word when longer than the limit."""
+    text = ' '.join((text or '').split()).strip().rstrip('.;')
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(' ', 1)[0] + '…'
 
 
 def _content_words(text: str) -> set[str]:
@@ -816,9 +836,10 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
     rows = []
     for n, item in enumerate(items, 1):
         ideas = segment_ideas(item['ten'])
+        described = segment_ideas(item.get('mo_ta') or '', MAX_IDEAS)[: max(MAX_IDEAS - len(ideas), 0)]
         context = segment_ideas(item.get('ngu_canh') or '', MAX_CONTEXT_IDEAS)
-        rows.append({'label': f'R{n}', 'item': item, 'ideas': ideas, 'context': context})
-        report['ideas'] += len(ideas)
+        rows.append({'label': f'R{n}', 'item': item, 'ideas': ideas + described, 'own': len(ideas), 'context': context})
+        report['ideas'] += len(ideas) + len(described)
     by_label = {row['label']: row for row in rows}
     by_code = {row['item']['khoa'].split(':', 2)[-1].upper(): row['label'] for row in rows}
     semaphore = asyncio.Semaphore(max(concurrency, 1))
@@ -828,7 +849,10 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
         cell = item.get('phu_trach_o') or ', '.join(item['phu_trach'])
         lines = [f'[{row["label"]}] ô người phụ trách: "{cell or "-"}"; hạn của dòng: {item["han"] or "-"}']
         lines.append('VIỆC CẦN LÀM:')
-        lines += [f'  [{i}] {idea}' for i, idea in enumerate(row['ideas'], 1)]
+        for i, idea in enumerate(row['ideas'], 1):
+            if i == row['own'] + 1:
+                lines.append('MÔ TẢ CHI TIẾT CỦA VIỆC:')
+            lines.append(f'  [{i}] {idea}')
         if row['context']:
             lines.append('YÊU CẦU / BỐI CẢNH:')
             lines += [f'  [Y{i}] {idea}' for i, idea in enumerate(row['context'], 1)]
@@ -1068,15 +1092,15 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
         unplaced = [row['ideas'][i - 1] for i in range(1, len(row['ideas']) + 1) if i not in built['placed']]
         if unplaced:
             first = built['tasks'][0]
-            first['chi_tiet'] = [*first['chi_tiet'], *(short_title(idea, 200) for idea in unplaced)]
+            first['chi_tiet'] = [*first['chi_tiet'], *(clip(idea, 200) for idea in unplaced)]
             report['added_by_code'] += len(unplaced)
-        extra = [f'Kết quả: {short_title(item["ket_qua"], 200)}'] if item.get('ket_qua') else []
+        extra = [f'Kết quả: {clip(item["ket_qua"], 300)}'] if item.get('ket_qua') else []
         for index, task in enumerate(built['tasks'], 1):
             output.append(
                 {
                     **item,
                     'ten': task['ten'],
-                    'chi_tiet': (task['chi_tiet'] + (extra if index == 1 else []))[:6],
+                    'chi_tiet': task['chi_tiet'][: MAX_DETAILS - len(extra)] + extra if index == 1 else task['chi_tiet'][:MAX_DETAILS],
                     'phu_trach': task['phu_trach'],
                     'han': task['han'],
                     'vuong_mac': built['blocker'] or item['vuong_mac'],
@@ -1096,7 +1120,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
                 {
                     **item,
                     'ten': gap['ten'][:TITLE_MAX],
-                    'chi_tiet': [f'Khách yêu cầu: {short_title(gap["trich_dan"], 220)}'],
+                    'chi_tiet': [f'Khách yêu cầu: {clip(gap["trich_dan"], 300)}'],
                     'phu_trach': owners,
                     'han': None,
                     'trang_thai': 'chua_bat_dau',
@@ -1117,6 +1141,7 @@ async def summarize_rows(name: str, items: list[dict], today: str, concurrency: 
         entry['doi_nhom'] = list(dict.fromkeys([*(entry.get('doi_nhom') or []), *teams]))
     for entry in output:
         entry.pop('ngu_canh', None)
+        entry.pop('mo_ta', None)
         entry.pop('ket_qua', None)
         entry.pop('phu_trach_o', None)
     return output, report
@@ -1177,8 +1202,10 @@ async def table_spec(
         cached = _normalize_spec(dict(cached))
         if edited:
             return cached, ['dùng bản mô tả đã sửa tay']
-        notes.append('dùng lại bản mô tả đã lưu')
-        return await _corrected(name, sheets, cached, '', notes), notes
+        if 'mo_ta' in (cached.get('cot') or {}):
+            notes.append('dùng lại bản mô tả đã lưu')
+            return await _corrected(name, sheets, cached, '', notes), notes
+        notes.append('bản mô tả cũ chưa có cột mô tả việc: model mô tả lại')
     described = describe_sheets(sheets)
     spec = _normalize_spec(await _ask_json(SPEC_PROMPT.format(name=name, sheets=described), max_tokens=3000))
     notes.append('model mô tả bảng' if spec else 'model không trả được bản mô tả')
