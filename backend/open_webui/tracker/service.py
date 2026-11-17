@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from dataclasses import replace
 from typing import Optional
@@ -58,6 +59,24 @@ async def unprocessed_files(channel_id: str) -> list[str]:
     return lines
 
 
+_MODEL_MENTION_RE = re.compile(r'<@M:([^|>]+)(?:\|([^>]+))?>')
+_OTHER_MENTION_RE = re.compile(r'<@[A-Z]:([^|>]+)(?:\|([^>]+))?>')
+
+
+def ai_mentions(content: str) -> list[str]:
+    """Names (label and id) of the AI models mentioned in a message."""
+    names = []
+    for model_id, label in _MODEL_MENTION_RE.findall(content or ''):
+        names += [model_id] + ([label] if label else [])
+    return names
+
+
+def _readable(content: str) -> str:
+    """Mentions as the reader sees them: an AI model as a request to the assistant, a person as @Name."""
+    content = _MODEL_MENTION_RE.sub(lambda m: f'[gọi trợ lý AI "{m.group(2) or m.group(1)}"]', content or '')
+    return _OTHER_MENTION_RE.sub(lambda m: '@' + (m.group(2) or m.group(1)), content)
+
+
 async def _to_prompt_messages(messages: list[Message], edited_ids: set[str]) -> list[PromptMessage]:
     user_ids = list({m.user_id for m in messages if m.user_id})
     names = {u.id: u.name for u in await Users.get_users_by_user_ids(user_ids)} if user_ids else {}
@@ -75,10 +94,11 @@ async def _to_prompt_messages(messages: list[Message], edited_ids: set[str]) -> 
                 id=m.id,
                 created_at=m.created_at,
                 user_name=name,
-                content=m.content or '',
+                content=_readable(m.content or ''),
                 parent_id=m.parent_id,
                 edited=m.id in edited_ids,
                 files=_file_names(m),
+                asks_ai=bool(ai_mentions(m.content or '')),
             )
         )
     return result
@@ -209,6 +229,38 @@ def _watermark_before(messages: list[Message], stop: Message, fallback: int) -> 
     return max(earlier) if earlier else fallback
 
 
+async def _ai_names(messages: list[Message]) -> set[str]:
+    """Names an AI model goes by here: mentioned in the batch, or any model configured in Open WebUI."""
+    names = {normalize_key(n) for m in messages for n in ai_mentions(m.content or '')}
+    try:
+        from open_webui.models.models import Models
+
+        for model in await Models.get_all_models():
+            names |= {normalize_key(model.id), normalize_key(model.name or '')}
+    except Exception as error:
+        log.warning('Tracker: model names unavailable (%s)', error)
+    return {n for n in names if n} | {'tro ly ai'}
+
+
+def _drop_ai_tasks(state, old_state, messages: list[Message], names: set[str]) -> None:
+    """Guard after the update LLM: an AI model is never an owner, and a new item that only comes from requests
+    to the assistant ("@Knight lọc các việc hạn tháng 11") is a question, not a project task."""
+    asks = {f'msg:{m.id}' for m in messages if ai_mentions(m.content or '') and not _file_names(m)}
+    known = {item.id for item in old_state.hang_muc}
+    kept = []
+    for item in state.hang_muc:
+        owners = [o for o in item.phu_trach if normalize_key(o) not in names]
+        had_ai = len(owners) != len(item.phu_trach)
+        item.phu_trach = owners
+        if item.id not in known and item.nguon and set(item.nguon) <= asks and (had_ai or not owners):
+            log.info('Tracker: dropped "%s", a request to the AI assistant', item.ten)
+            continue
+        kept.append(item)
+    state.hang_muc = kept
+    for step in state.viec_tiep_theo:
+        step.phu_trach = [o for o in step.phu_trach if normalize_key(o) not in names]
+
+
 def _drop_sources(state: dict, source_ids: set[str]) -> dict:
     for key in ('hang_muc', 'quyet_dinh', 'rui_ro', 'viec_tiep_theo'):
         for entry in state.get(key) or []:
@@ -300,6 +352,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             if delta.tom_tat_lo:
                 summaries.append(delta.tom_tat_lo)
 
+        _drop_ai_tasks(state, old_state, candidates, await _ai_names(candidates))
         link_owners(state, people)
         stored = {**state.model_dump(), 'schema_version': SCHEMA_VERSION}
         _drop_sources(stored, {f'msg:{d.get("id")}' for d in deletions})

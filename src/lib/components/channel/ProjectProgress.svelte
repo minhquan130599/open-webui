@@ -284,6 +284,20 @@
 	const sourceIds = (sources: string[] = []) =>
 		sources.filter((s) => s.startsWith('msg:')).map((s) => s.slice(4));
 
+	// Rows of an imported task table ("table:<sheet>:<code>#<part>"), shown by their code so an item can be
+	// traced back to the row (feedback, ticket...) it came from.
+	const tableRefs = (sources: string[] = []) => [
+		...new Map(
+			sources
+				.filter((s) => s.startsWith('table:'))
+				.map((s) => {
+					const [, sheet, ...rest] = s.split(':');
+					const code = rest.join(':').replace(/#\d+$/, '');
+					return [code, { code, sheet }] as [string, { code: string; sheet: string }];
+				})
+		).values()
+	];
+
 	const load = async () => {
 		if (!channel?.id) return;
 		try {
@@ -739,6 +753,12 @@
 									{:else if !item.han && !isDone(item)}
 										<span class="text-[0.6875rem] text-gray-400">{$i18n.t('No due date')}</span>
 									{/if}
+									{#each tableRefs(item.nguon) as ref (ref.code)}
+										<span
+											class="whitespace-nowrap rounded-full bg-gray-100 px-1.5 py-0.5 font-mono text-[0.6875rem] dark:bg-gray-800"
+											title={`${ref.sheet} · ${ref.code}`}>{ref.code}</span
+										>
+									{/each}
 									{#each sourceIds(item.nguon) as id, i}
 										<button
 											type="button"

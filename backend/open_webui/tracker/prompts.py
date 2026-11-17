@@ -25,8 +25,9 @@ Quy tắc:
 7. phu_trach ghi họ tên người như trong tin nhắn (người được giao, hoặc người tự báo cáo việc của mình). Đối chiếu với THÀNH VIÊN KÊNH: tên người có thể viết thường hoặc không dấu ("giao triển làm X" là giao cho Triển làm X, không phải "triển khai X"). Tên người không thuộc tên công việc. Người gửi tin chỉ là người phụ trách khi tự nhận hoặc tự báo cáo việc; tin giao việc cho người khác thì người được giao mới là phu_trach. Dòng bắt đầu bằng "↳" là tóm tắt tệp hoặc ảnh đính kèm của tin nhắn ngay trên, dùng như bằng chứng của tin nhắn đó; đầu việc liệt kê trong tệp cũng phải được ghi nhận.
 8. nguon: mã tin nhắn MỚI (m1, m2, ...) là bằng chứng cho thay đổi đó.
 9. tong_quan: 1-3 câu về tình hình chung, chỉ ghi khi cần cập nhật. tom_tat_lo: 1-3 câu tóm tắt riêng các tin nhắn mới.
-10. quyet_dinh_moi: quyết định mới trong lô này. rui_ro và viec_tiep_theo: nếu có thay đổi thì ghi lại TOÀN BỘ danh sách mới; nếu không đổi thì bỏ trường đó.
-11. Viết tiếng Việt, ngắn gọn. Chỉ trả về một đối tượng JSON, bỏ các trường không có thay đổi:
+10. Tin nhắn có thẻ (hỏi trợ lý AI) là câu hỏi hoặc yêu cầu gửi cho trợ lý AI (tra cứu, lọc, tổng hợp, soạn báo cáo...), KHÔNG phải giao việc cho dự án: không tạo hạng mục từ yêu cầu đó; chỉ ghi nhận nếu chính tin đó báo một tiến độ thật của dự án. Trợ lý AI không bao giờ là phu_trach.
+11. quyet_dinh_moi: quyết định mới trong lô này. rui_ro và viec_tiep_theo: nếu có thay đổi thì ghi lại TOÀN BỘ danh sách mới; nếu không đổi thì bỏ trường đó.
+12. Viết tiếng Việt, ngắn gọn. Chỉ trả về một đối tượng JSON, bỏ các trường không có thay đổi:
 {"tong_quan": str, "hang_muc_moi": [{"ten", "phu_trach": [str], "trang_thai", "tien_do", "han", "vuong_mac", "nguon": [str]}], "cap_nhat": [{"id", "ten", "phu_trach", "trang_thai", "tien_do", "han", "vuong_mac", "nguon"}], "gop": [{"vao": id, "tu": [id]}], "quyet_dinh_moi": [{"noi_dung", "ngay", "nguon"}], "rui_ro": [{"noi_dung", "muc_do", "nguon"}], "viec_tiep_theo": [{"noi_dung", "phu_trach", "han", "nguon"}], "tom_tat_lo": str}"""
 
 
@@ -44,6 +45,8 @@ class PromptMessage:
     attachments: list[str] = field(default_factory=list)
     # "2/5" when a long message is read in parts over several updates
     part: Optional[str] = None
+    # The message mentions an AI model: a question or request to the assistant, not a task for the project.
+    asks_ai: bool = False
 
 
 def is_trivial(content: str, files: list[str]) -> bool:
@@ -82,6 +85,8 @@ def format_message_line(ref: str, message: PromptMessage, tz, parent_ref: Option
         tags.append('đã xóa')
     if message.part:
         tags.append(f'phần {message.part} của tin nhắn dài')
+    if message.asks_ai:
+        tags.append('hỏi trợ lý AI')
     if message.parent_id:
         tags.append(f'trả lời trong luồng {parent_ref}' if parent_ref else 'trả lời trong luồng')
     tag = f' ({", ".join(tags)})' if tags else ''

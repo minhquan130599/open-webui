@@ -111,6 +111,19 @@ Thông tin các sheet:
 Sửa bản mô tả cho đúng và trả về đúng một JSON cùng định dạng (đủ các khóa loai, sheet, dong_tieu_de, cot, trang_thai,
 tach_phu_trach, ngay, ly_do)."""
 
+SPLIT_PROMPT = """Mỗi mục dưới đây là ô việc cần làm của một dòng trong bảng "{name}", kèm người phụ trách và hạn của dòng.
+Hôm nay là {today}.
+<tai_lieu>
+{rows}
+</tai_lieu>
+
+Tách mỗi ô thành các đầu việc riêng: mỗi hành động cụ thể (ai đó sẽ làm gì) là một việc. Câu chỉ là nhận định, đánh giá,
+hạn chế hay khó khăn thì KHÔNG phải việc: ghi vào vuong_mac của dòng. Trả về đúng một JSON:
+{{"dong": [{{"ma": "mã trong ngoặc vuông", "viec": [{{"ten": "tên việc ngắn gọn, giữ tên đơn vị, khách hàng, sản phẩm",
+  "phu_trach": ["chỉ khi đoạn gốc nêu rõ ai làm; chọn trong người phụ trách của dòng"],
+  "han": "YYYY-MM-DD nếu đoạn gốc nêu hạn riêng cho việc này, không thì null",
+  "trich_dan": "đoạn gốc chép nguyên văn (tối đa 200 ký tự)"}}], "vuong_mac": "hạn chế, khó khăn hoặc null"}}]}}"""
+
 SAME_PROMPT = """Các cặp đầu việc dưới đây có tên gần giống nhau. Với mỗi cặp, cho biết có phải CÙNG MỘT việc không
 (cùng nội dung công việc, chỉ khác cách viết hoặc đã cập nhật thêm).
 {pairs}
@@ -389,6 +402,10 @@ def _find_sheet(sheets: list[dict], name) -> Optional[dict]:
     return None
 
 
+def _unbullet(text: str) -> str:
+    return '\n'.join(line.strip().lstrip('•▪◦-*+').strip() for line in text.splitlines() if line.strip())
+
+
 def apply_spec(sheets: list[dict], spec: dict) -> dict:
     """Items from every data row as the spec says, and how well it went: {'items', 'stats', 'issues', 'bad_rows'}."""
     from open_webui.file_pipeline.tables import column_letter, parse_date, parse_number, table_rows
@@ -417,7 +434,7 @@ def apply_spec(sheets: list[dict], spec: dict) -> dict:
     named = date_filled = date_ok = status_filled = 0
     unmapped: dict[str, int] = {}
     for number, row in data:
-        title = ' – '.join(v.lstrip('•-*+ \t') for v in (cell(row, i) for i in name_idx) if v)[:300]
+        title = ' – '.join(_unbullet(v) for v in (cell(row, i) for i in name_idx) if v)[:3000]
         if not title:
             bad_rows.append((number, row))
             continue
@@ -525,6 +542,79 @@ async def _rows_by_model(name: str, sheet: dict, header: int, today: str, concur
     return dedupe_items([item for batch in results for item in batch])
 
 
+SPLIT_MIN_CHARS = 80
+SPLIT_BATCH_CHARS = 8000
+
+
+async def split_actions(name: str, items: list[dict], today: str, concurrency: int = 4) -> tuple[list[dict], dict]:
+    """Rows whose task cell holds several actions (bullets, lines) become one item per action, each checked
+    against the cell text, keeping the row key with a suffix (table:<sheet>:<code>#2) so the row stays traceable.
+    Statements, limits and difficulties go to vuong_mac. A row the model cannot split stays as one item."""
+    long = [i for i in items if '\n' in i['ten'] or ';' in i['ten'] or len(i['ten']) > SPLIT_MIN_CHARS]
+    report = {'rows': len(long), 'tasks': 0, 'dropped': 0}
+    if not long:
+        return items, report
+    batches, current = [], []
+    for item in long:
+        if current and sum(len(i['ten']) for i in current) + len(item['ten']) > SPLIT_BATCH_CHARS:
+            batches.append(current)
+            current = []
+        current.append(item)
+    batches.append(current)
+    semaphore = asyncio.Semaphore(max(concurrency, 1))
+
+    async def run(batch: list[dict]) -> dict:
+        rows = '\n\n'.join(
+            f'[{i["khoa"]}] phụ trách: {", ".join(i["phu_trach"]) or "-"}; hạn: {i["han"] or "-"}\n{i["ten"]}' for i in batch
+        )
+        async with semaphore:
+            return await _ask_json(SPLIT_PROMPT.format(name=name, today=today, rows=rows))
+
+    answers = await asyncio.gather(*(run(b) for b in batches))
+    by_key = {}
+    for answer in answers:
+        for row in answer.get('dong') or []:
+            if isinstance(row, dict) and row.get('ma'):
+                by_key[str(row['ma']).strip('[] ')] = row
+    def whole(item: dict, blocker=None) -> dict:
+        # Not split: the whole cell on one line, nothing dropped.
+        return {**item, 'ten': '; '.join(item['ten'].splitlines())[:600], 'vuong_mac': blocker or item['vuong_mac']}
+
+    result = []
+    for item in items:
+        row = by_key.get(item['khoa']) if item in long else None
+        if not row:
+            result.append(whole(item) if item in long else item)
+            continue
+        owners = {normalize_key(o): o for o in item['phu_trach']}
+        blocker = str(row.get('vuong_mac') or '').strip() or None
+        subs = []
+        for raw in row.get('viec') or []:
+            sub = _clean_item(raw)
+            if not sub or not sub['trich_dan'] or locate_quote(item['ten'], sub['trich_dan']) is None:
+                report['dropped'] += 1
+                continue
+            named = [owners[normalize_key(o)] for o in sub['phu_trach'] if normalize_key(o) in owners]
+            subs.append(
+                {
+                    **item,
+                    'ten': sub['ten'][:300],
+                    'phu_trach': named or item['phu_trach'],
+                    'han': sub['han'] or item['han'],
+                    'vuong_mac': blocker or item['vuong_mac'],
+                    'trich_dan': sub['trich_dan'],
+                    'khoa': f'{item["khoa"]}#{len(subs) + 1}',
+                    'xac_minh': True,
+                }
+            )
+        if subs:
+            result += subs
+            report['tasks'] += len(subs)
+        else:
+            result.append(whole(item, blocker))
+    return result, report
+
+
 async def table_spec(name: str, sheets: list[dict], cached: Optional[dict] = None) -> tuple[dict, list[str]]:
     """The table description to use: the cached one when given, else the model's (corrected once if poor).
     Returns (spec, notes about how it was made)."""
@@ -566,12 +656,13 @@ async def extract_table(
     if kind == 'bang_viec':
         result = apply_spec(sheets, spec)
         if result['items'] and (not result['issues'] or len(result['items']) >= result['stats'].get('rows', 0) * 0.5):
+            items, split = await split_actions(name, result['items'], today, concurrency)
             return {
                 'kind': 'table',
-                'items': dedupe_items(result['items']),
+                'items': dedupe_items(items),
                 'quyet_dinh': [],
                 'rui_ro': [],
-                'report': {**report, 'mode': 'spec', 'stats': result['stats'], 'issues': result['issues']},
+                'report': {**report, 'mode': 'spec', 'stats': result['stats'], 'issues': result['issues'], 'split': split},
             }
         notes.append('bản mô tả đọc được quá ít dòng, chuyển sang đọc theo lô: ' + '; '.join(result['issues']))
     sheet = _find_sheet(sheets, spec.get('sheet')) or max(sheets, key=lambda s: len(s['rows']))
@@ -700,4 +791,6 @@ def item_line(item: dict) -> str:
     if item.get('han'):
         parts.append(f'hạn: {item["han"]}')
     where = f' [tr.{item["trang"]}]' if item.get('trang') else (f' [dòng {item["dong"]}]' if item.get('dong') else '')
+    if item.get('khoa'):
+        where += f' [{item["khoa"].split(":", 2)[-1]}]'
     return f'- {item["ten"]} ({"; ".join(parts)}){where}'
