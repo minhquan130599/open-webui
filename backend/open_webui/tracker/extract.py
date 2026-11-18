@@ -26,7 +26,7 @@ from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 30
+EXTRACT_VERSION = 31
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 # Names this alike (trigrams) or sharing this share of the shorter name's words are shown to the model, which says
@@ -391,8 +391,9 @@ async def extract_document(name: str, content: str, structure: dict, today: str,
     parts = await asyncio.gather(*(read(i + 1, s, e) for i, (s, e) in enumerate(segments)))
     items = await dedupe_items([item for part in parts for item in part['items']])
     quotes = {o: i.get('trich_dan') or '' for i in items for o in i.get('phu_trach') or []}
-    teams, outside = await classify_owners(name, list(quotes), quotes)
+    teams, outside, labels = await classify_owners(name, list(quotes), quotes, content[:OPENING_CHARS])
     for item in items:
+        item['phu_trach'] = [o for o in item.get('phu_trach') or [] if o not in labels]
         item['doi_nhom'] = [o for o in item.get('phu_trach') or [] if o in teams]
         item['ben_ngoai'] = [o for o in item.get('phu_trach') or [] if o in outside]
     return {
@@ -554,34 +555,100 @@ Trả về đúng một JSON: {{"sua": [{{"so": 1, "chi_tiet": ["..."]}}], "tach
 
 TEAMS_PROMPT = """Các tên người phụ trách dưới đây lấy từ file "{name}" (đối chiếu với câu gốc khi cần):
 {names}
+{opening}
 Người dùng hệ thống làm việc tại: {company}.
 - "nhom": tên nào là team, phòng ban, nhóm hoặc chức vụ / vai trò trong nội bộ (vd SOC, PM, PM2, AM1, BA, DevOps, BE Lead,
   QA Lead, Phòng KD, Blue team, Mua hàng), không phải tên riêng của một người.
 - "ben_ngoai": tên nào là người hoặc đơn vị BÊN NGOÀI tổ chức đó: khách hàng, chủ đầu tư, đối tác, cơ quan nhà nước, sở,
   ban, nhà cung cấp, đầu mối phía khách.
+  Xét theo tổ chức của người dùng, không theo bên soạn văn bản (văn bản có thể do khách hàng soạn): bản thân tổ chức đó,
+  tên viết tắt của nó và vai trò nó giữ trong văn bản (vd nó là "Nhà thầu" / "Bên B" thì các tên đó chỉ nó) là nội bộ,
+  ghi vào "nhom"; mọi đơn vị của bên kia (kể cả phòng / ban của họ) là bên ngoài.
+- "khong_phai_ten": tên nào không chỉ ai cả, chỉ là nhãn của mẫu / tên cột / chỗ ký / ô điền tên còn trống (vd "Họ tên",
+  "Người thực hiện", "Người ký").
 Tên riêng của người trong nội bộ (vd Long, Triển, Hằng Nguyễn) không thuộc danh sách nào.
-Trả về đúng một JSON: {{"nhom": ["..."], "ben_ngoai": ["..."]}}"""
+Trả về đúng một JSON: {{"nhom": ["..."], "ben_ngoai": ["..."], "khong_phai_ten": ["..."]}}"""
+
+OWNERS_PROMPT = """File bảng tính "{name}". Người dùng hệ thống làm việc tại: {company}.
+Các phần của file được đọc riêng nhau. Dưới đây là thông tin đầu trang của các sheet và các đầu việc đã lập (số thứ tự,
+sheet, dòng, tên việc, người phụ trách).
+<dau_trang>
+{heads}
+</dau_trang>
+<viec>
+{tasks}
+</viec>
+Rà người phụ trách của cả file:
+- "nhom": tên nào là team, phòng ban, nhóm hoặc chức vụ / vai trò trong nội bộ (vd SOC, PM, PM2, AM1, BA, DevOps, BE Lead,
+  QA Lead, Phòng KD, Blue team, Mua hàng), không phải tên riêng của một người.
+- "ben_ngoai": tên nào là người hoặc đơn vị BÊN NGOÀI tổ chức đó: khách hàng, chủ đầu tư, đối tác, cơ quan nhà nước, sở,
+  ban, nhà cung cấp, đầu mối phía khách.
+  Xét theo tổ chức của người dùng, không theo bên soạn văn bản (văn bản có thể do khách hàng soạn): bản thân tổ chức đó,
+  tên viết tắt của nó và vai trò nó giữ trong văn bản (vd nó là "Nhà thầu" / "Bên B" thì các tên đó chỉ nó) là nội bộ,
+  ghi vào "nhom"; mọi đơn vị của bên kia (kể cả phòng / ban của họ) là bên ngoài.
+- "khong_phai_ten": tên nào không chỉ ai cả, chỉ là nhãn của mẫu / tên cột / chỗ ký / ô điền tên còn trống (vd "Họ tên",
+  "Người thực hiện", "Người ký").
+- "sua": việc mà người phụ trách cần sửa: (1) khác các việc cùng loại trong cùng sheet trong khi dòng của nó không ghi
+  người khác (phần đọc riêng đã hiểu sai thông tin đầu trang); (2) có "tên đã đọc nhưng không khớp chữ trong file" (tên bị
+  rút gọn, đổi dấu, bỏ phần viết liền): ghi lại đúng như file viết nếu đó đúng là người được giao. {{"i": số thứ tự,
+  "phu_trach": ["tên chép đúng như trong file"]}}. Không sửa việc mà dòng ghi rõ người phụ trách; không đoán khi file
+  không ghi.
+Tên riêng của người trong nội bộ không thuộc "nhom", "ben_ngoai", "khong_phai_ten".
+Trả về đúng một JSON: {{"nhom": ["..."], "ben_ngoai": ["..."], "khong_phai_ten": ["..."], "sua": [{{"i": 3, "phu_trach": ["..."]}}]}}"""
+OWNERS_BATCH_CHARS = 16_000
+
+SHEET_OWNER_PROMPT = """File bảng tính "{name}", sheet "{sheet}".
+Các dòng đầu của sheet:
+<dau_trang>
+{head}
+</dau_trang>
+Các việc sau của sheet chưa ghi người phụ trách:
+{tasks}
+Theo tên file, tên sheet và các dòng đầu, file / sheet này có giao các việc trên cho một người, team hoặc phòng cụ thể
+không (vd kế hoạch, báo cáo, chỉ tiêu của riêng một người hoặc một phòng)? Nếu có, ghi tên đó chép đúng như trong tên file,
+tên sheet hoặc các dòng đầu; nếu file không cho biết thì để trống.
+Trả về đúng một JSON: {{"phu_trach": ["..."], "ly_do": "..."}}"""
+OPENING_CHARS = 2500
 
 
-async def classify_owners(name: str, owners: list[str], quotes: dict[str, str] | None = None) -> tuple[set, set]:
-    """(teams or roles, people or bodies outside the company) among a file's owner names, asked once for the whole
-    file so every row and paragraph reads them alike."""
+async def classify_owners(
+    name: str, owners: list[str], quotes: dict[str, str] | None = None, opening: str = ''
+) -> tuple[set, set, set]:
+    """(teams or roles, people or bodies outside the company, labels that name no one) among a file's owner names,
+    asked once for the whole file so every row and paragraph reads them alike."""
     from open_webui.tracker.config import TRACKER_COMPANY_NAME
 
     names = sorted({o for o in owners if o})
     if not names:
-        return set(), set()
+        return set(), set(), set()
     listed = '\n'.join(f'- {o}' + (f'  (câu gốc: {quotes[o][:120]})' if quotes and quotes.get(o) else '') for o in names)
     try:
-        answer = await _ask_json(TEAMS_PROMPT.format(name=name, names=listed, company=TRACKER_COMPANY_NAME), max_tokens=1500)
+        answer = await _ask_json(TEAMS_PROMPT.format(
+            name=name, names=listed, company=TRACKER_COMPANY_NAME,
+            opening=f'Đầu văn bản (thường giới thiệu các bên):\n<dau_van_ban>\n{opening}\n</dau_van_ban>' if opening else ''), max_tokens=1500)
     except llm.TrackerLLMError:
         raise
     except Exception as error:
         log.warning('Tracker: owner kinds not read for %s (%s)', name, error)
-        return set(), set()
-    teams = {str(v).strip() for v in answer.get('nhom') or []} & set(names)
-    outside = {str(v).strip() for v in answer.get('ben_ngoai') or []} & set(names)
-    return teams - outside, outside
+        return set(), set(), set()
+    return _owner_kinds(answer, names)
+
+
+def _owner_kinds(answer: dict, names) -> tuple[set, set, set]:
+    from open_webui.tracker.config import TRACKER_COMPANY_NAME
+
+    names = set(names)
+    # The user's own company, named as in the configuration, is internal whatever the model says.
+    # (the whole name, a part of it such as the short name in brackets, or a long enough piece of it).
+    parts = {normalize_key(p) for p in TRACKER_COMPANY_NAME.replace('(', '|').replace(')', '|').split('|') if p.strip()}
+    company = f' {normalize_key(TRACKER_COMPANY_NAME)} '
+    own = {n for n in names if normalize_key(n) in parts
+           or (len(normalize_key(n).split()) >= 4 and f' {normalize_key(n)} ' in company)}
+    teams = ({str(v).strip() for v in answer.get('nhom') or []} & names) | own
+    outside = {str(v).strip() for v in answer.get('ben_ngoai') or []} & names
+    labels = {str(v).strip() for v in answer.get('khong_phai_ten') or []} & names
+    outside -= own
+    return teams - outside - labels, outside - labels, labels
 
 OVERVIEW_PROMPT = """File bảng tính "{name}" lớn, sẽ được đọc theo từng phần. Dưới đây là các dòng đầu của mỗi sheet
 (số dòng, các ô theo chữ cái cột).
@@ -659,7 +726,7 @@ def _checked_date(iso, written, folded: str) -> tuple[Optional[str], bool]:
     if plain and read and read != plain and read == f'{plain[:4]}-{plain[8:10]}-{plain[5:7]}':
         return read, False
     date = plain or read
-    return date, not date
+    return date, bool(iso) and not date
 
 
 def _render_row(number: int, row: list[str]) -> str:
@@ -824,6 +891,93 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
                 tasks.append(task)
         pending.clear()
 
+    async def sheet_owners() -> None:
+        """Tasks without an owner, per sheet: does the file / sheet name or its head say whose they are (one person's
+        or one department's plan)? The name must be written there."""
+        blank: dict[str, list[dict]] = {}
+        for task in tasks:
+            if not task['phu_trach']:
+                blank.setdefault(task['sheet'], []).append(task)
+
+        async def one(sheet_name: str, group: list[dict]) -> None:
+            head_rows = head_of(sheet_name)
+            prompt = SHEET_OWNER_PROMPT.format(
+                name=name, sheet=sheet_name, head='\n'.join(_render_row(n, r) for n, r in head_rows)[:3000] or '(không có)',
+                tasks='\n'.join(f'- dòng {t["dong"]}: {t["ten"]}' for t in group[:40]))
+            answer = await ask(prompt, 600)
+            head = '\n'.join('\n'.join(v for v in r if v) for _, r in head_rows)
+            folded = f' {normalize_key(chr(10).join([head, sheet_name, name]))} '
+            owners = list(dict.fromkeys(' '.join(str(o).split()) for o in answer.get('phu_trach') or [] if str(o).strip()))
+            kept = [o for o in owners if _written_in(o, folded)]
+            for o in owners:
+                if o not in kept:
+                    _note_rejected(report, sheet_name, group[0]['dong'], 'phu_trach (cả sheet)', o)
+            if kept:
+                for task in group:
+                    task['phu_trach'] = list(kept)
+                report['owners_from_sheet'] = report.get('owners_from_sheet', 0) + len(group)
+
+        await asyncio.gather(*(one(s, g) for s, g in blank.items()))
+
+    async def review_owners() -> None:
+        from open_webui.tracker.config import TRACKER_COMPANY_NAME
+
+        def line(i: int, task: dict) -> str:
+            owners = ', '.join(task['phu_trach']) or '(chưa ghi)'
+            unmatched = task.get('chua_khop') or []
+            note = f' | tên đã đọc nhưng không khớp chữ trong file: {", ".join(unmatched)}' if unmatched else ''
+            return f'[{i}] sheet "{task["sheet"]}" dòng {task["dong"]} | {task["ten"]} | phụ trách: {owners}{note}'
+
+        batches, current, size = [], [], 0
+        for i, task in sorted(enumerate(tasks), key=lambda e: (e[1]['sheet'], e[1]['dong'])):
+            text = line(i, task)
+            if current and size + len(text) > OWNERS_BATCH_CHARS:
+                batches.append(current)
+                current, size = [], 0
+            current.append((i, text))
+            size += len(text) + 1
+        if current:
+            batches.append(current)
+
+        async def review(batch) -> tuple[list, dict]:
+            heads = []
+            for sheet_name in dict.fromkeys(tasks[i]['sheet'] for i, _ in batch):
+                head = '\n'.join(_render_row(n, r) for n, r in head_of(sheet_name))[:3000]
+                heads.append(f'### Sheet "{sheet_name}"\n{head or "(không có)"}')
+            prompt = OWNERS_PROMPT.format(name=name, company=TRACKER_COMPANY_NAME, heads='\n'.join(heads),
+                                          tasks='\n'.join(text for _, text in batch))
+            return batch, await ask(prompt, 4000)
+
+        teams, outside, labels = set(), set(), set()
+        for batch, answer in await asyncio.gather(*(review(b) for b in batches)):
+            indexes = {i for i, _ in batch}
+            for fix in answer.get('sua') or []:
+                if not isinstance(fix, dict) or fix.get('i') not in indexes:
+                    continue
+                task = tasks[fix['i']]
+                rows = [task['dong'], *task['cac_dong']]
+                head = '\n'.join('\n'.join(v for v in r if v) for _, r in head_of(task['sheet']))
+                folded = f' {normalize_key(chr(10).join([*(row_text.get((task["sheet"], n), "") for n in rows), head, task["sheet"], name]))} '
+                owners = list(dict.fromkeys(' '.join(str(o).split()) for o in fix.get('phu_trach') or [] if str(o).strip()))
+                if owners and owners != task['phu_trach'] and all(_written_in(o, folded) for o in owners):
+                    task['phu_trach'] = owners
+                    task['doi_nhom'] = [t for t in task['doi_nhom'] if t in owners]
+                    report['owners_fixed'] = report.get('owners_fixed', 0) + 1
+                elif owners and owners != task['phu_trach']:
+                    for o in owners:
+                        _note_rejected(report, task['sheet'], task['dong'], 'phu_trach (rà cả file)', o)
+            kinds = _owner_kinds(answer, {o for i in indexes for o in tasks[i]['phu_trach']})
+            teams |= kinds[0]
+            outside |= kinds[1]
+            labels |= kinds[2]
+        teams -= outside | labels
+        for task in tasks:
+            task['phu_trach'] = [o for o in task['phu_trach'] if o not in labels]
+            task['doi_nhom'] = list(dict.fromkeys([
+                *(t for t in task['doi_nhom'] if t in task['phu_trach'] and t not in outside),
+                *(o for o in task['phu_trach'] if o in teams)]))
+            task['ben_ngoai'] = [o for o in task['phu_trach'] if o in outside]
+
     def sheet_of(value, part: dict) -> Optional[str]:
         value = str(value or '').strip()
         names = sheets_in(part)
@@ -983,16 +1137,19 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
             dropped = [pairs[i][0] for i in same]
             tasks[:] = [t for t in tasks if not any(t is d for d in dropped)]
             report['cross_sheet_duplicates'] = len(dropped)
-    # Which owner names are teams or roles is asked once for the whole file, so every row reads them alike (a row
-    # read alone often leaves "BE Lead" or "PM dự án" as a person's name).
-    owner_names = sorted({o for t in tasks for o in t['phu_trach']})
-    if owner_names:
-        report['calls'] += 1
-        teams, outside = await classify_owners(name, owner_names)
-        for task in tasks:
-            task['doi_nhom'] = list(dict.fromkeys(
-                [*(t for t in task['doi_nhom'] if t not in outside), *(o for o in task['phu_trach'] if o in teams)]))
-            task['ben_ngoai'] = [o for o in task['phu_trach'] if o in outside]
+    # A code is a key only when it is one row's own: the model sometimes takes a numbering column ("1", "2" restarting
+    # in every group) for an ID.
+    for task in tasks:
+        if task['ma']:
+            same = sum(1 for n, r in data_rows[task['sheet']] if any(' '.join(v.split()) == task['ma'] for v in r if v))
+            if same > 1:
+                task['ma'] = None
+    # The owners are reviewed once for the whole file, so every part reads them alike: which names are teams or roles,
+    # outside, or only a form's label, and which task names its owner unlike the same kind of tasks (a part read
+    # alone). A corrected owner must still be written in the task's rows, the sheet's head, or the sheet's / file's name.
+    if tasks:
+        await sheet_owners()
+        await review_owners()
     items = _items_from(tasks, gaps, report)
     return {'kind': 'table', 'items': items, 'quyet_dinh': [], 'rui_ro': [], 'report': report}
 
@@ -1009,7 +1166,7 @@ def _checked_task(
     title = _title(str(raw.get('ten') or '').strip())
     if not title:
         return None
-    owners, teams = [], []
+    owners, teams, unmatched = [], [], []
     for value in raw.get('phu_trach') or []:
         value = ' '.join(str(value).split())
         if _written_in(value, folded):
@@ -1017,12 +1174,16 @@ def _checked_task(
                 owners.append(value)
         elif value:
             report['owners_rejected'] += 1
+            unmatched.append(value)
+            _note_rejected(report, sheet_name, number, 'phu_trach', value)
     for value in raw.get('nhom') or []:
         value = ' '.join(str(value).split())
         if value in owners and value not in teams:
             teams.append(value)
     due, rejected = _checked_date(raw.get('han'), raw.get('han_goc'), folded)
     report['due_rejected'] += rejected
+    if rejected:
+        _note_rejected(report, sheet_name, number, 'han', raw.get('han_goc') or raw.get('han'))
     done, _ = _checked_date(raw.get('hoan_thanh_luc'), raw.get('hoan_thanh_goc'), folded)
     progress = None
     if raw.get('tien_do') is not None:
@@ -1048,11 +1209,18 @@ def _checked_task(
         'sheet': sheet_name, 'dong': number, 'cac_dong': rows[1:], 'ma': code if code and _written_in(code, folded) else None,
         'ten': title,
         'chi_tiet': [' '.join(str(d).split())[:300] for d in raw.get('chi_tiet') or [] if str(d).strip()][:MAX_DETAILS],
-        'phu_trach': owners, 'doi_nhom': teams, 'han': due, 'trang_thai': status, 'tien_do': progress,
+        'phu_trach': owners, 'doi_nhom': teams, 'chua_khop': unmatched, 'han': due, 'trang_thai': status, 'tien_do': progress,
         'hoan_thanh_luc': done if status == 'hoan_thanh' else None,
         'vuong_mac': ' '.join(str(raw.get('vuong_mac') or '').split())[:300] or None,
         'trich_dan': clip(source.replace('\n', ' | '), QUOTE_CHARS),
     }
+
+
+def _note_rejected(report: dict, sheet_name: str, number: int, field: str, value) -> None:
+    """A value the model read that is not written in its rows, kept (a few) for tracing."""
+    notes = report.setdefault('rejected_values', [])
+    if len(notes) < 40:
+        notes.append({'sheet': sheet_name, 'dong': number, 'truong': field, 'gia_tri': str(value)[:120]})
 
 
 def _items_from(tasks: list[dict], gaps: list[dict], report: dict) -> list[dict]:

@@ -390,3 +390,24 @@ Bỏ bước "mô tả bảng" (chọn sheet, dòng tiêu đề, vai trò cột)
 - Dòng vẫn chưa đọc được sau lượt hỏi lại theo nhóm được hỏi lại từng dòng (tối đa 20).
 - Tên người phụ trách bỏ danh xưng và mô tả kèm ("anh Việt system onsite" → "Việt"), bảng và văn bản.
 - Lượt rà lại xử lý nhất quán các dòng cùng loại (là việc / không phải việc). EXTRACT_VERSION 30.
+- Kiểm tra v30 với model thật (18/11): KHCV đọc đủ 7/7 sheet của từng người (89 việc, người lấy từ tên sheet), NganTT
+  đọc sheet kế hoạch tháng 11, Lịch đào tạo giữ hạn 20/11/2026 ở đầu trang cho cả 25 việc, KPI_PM / KPI_Presale không
+  còn việc từ dòng tiêu đề nhóm. Còn: KPI_PM 1 việc nhận "Người nhận chỉ tiêu" (nhãn của mẫu) làm người phụ trách và
+  phần đó khác các phần khác (PM HCM); KPI_Presale 10 việc trống người dù đầu trang ghi "Phòng: SCX HCM"; NganTT 50 việc
+  trống người; cột STT ("1" lặp lại theo nhóm) bị lấy làm mã khóa.
+- Sửa: rà người phụ trách một lần cho cả file bảng (thay câu hỏi team / bên ngoài): model xem thông tin đầu trang của các
+  sheet và mọi việc đã lập, cho biết tên nào là team / chức vụ, bên ngoài, hoặc chỉ là nhãn của mẫu (bỏ đi), và việc
+  nào cần sửa người phụ trách (khác các việc cùng loại, hoặc trống khi đầu trang / tên sheet / tên file cho biết người
+  nhận); tên sửa vẫn phải có trong dòng, đầu trang, tên sheet hoặc tên file. Văn bản cũng bỏ tên chỉ là nhãn. Mã chỉ làm
+  khóa khi đúng một dòng trong sheet mang mã đó. Hạn không phải ngày ("Hàng tháng") không tính là hạn bị loại; giá trị
+  bị loại được ghi vào report (rejected_values) để truy vết. EXTRACT_VERSION 31.
+- Kiểm tra lại với model thật: KPI_PM đủ 6 chỉ tiêu cho PM HCM (không còn "Người nhận chỉ tiêu"). KPI_Presale vẫn trống
+  người: câu hỏi rà cả file nhiều mục, model chọn không điền. Sửa: việc chưa có người được hỏi riêng theo từng sheet
+  ("file / sheet này có giao các việc cho một người / team / phòng cụ thể không"), tên trả về phải có trong đầu trang,
+  tên sheet hoặc tên file; hỏi riêng thì model trả "SCX HCM" kèm lý do "Phòng: SCX HCM". NganTT: model thấy "có thể là
+  NganTT" nhưng không khẳng định vì file không ghi rõ, để trống (chấp nhận).
+- Biên bản điều chỉnh thanh toán (do khách hàng soạn): model coi NCS / "Nhà thầu" là bên ngoài và Ban CNTT Hải quan là
+  nội bộ. Sửa: câu hỏi loại tên ghi rõ xét theo tổ chức của người dùng, không theo bên soạn văn bản; vai trò tổ chức giữ
+  trong văn bản (Nhà thầu / Bên B) là nội bộ; gửi kèm đầu văn bản (nơi giới thiệu các bên). Tên trùng tên công ty trong
+  cấu hình (cả tên, tên viết tắt trong ngoặc, hoặc đoạn từ 4 chữ trở lên) luôn là nội bộ. Hai lần hỏi đều ra Hải quan /
+  Chủ đầu tư bên ngoài, Nhà thầu nội bộ.
