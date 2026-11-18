@@ -375,3 +375,18 @@ Bỏ bước "mô tả bảng" (chọn sheet, dòng tiêu đề, vai trò cột)
   nhóm A / B / III, tổng, chữ ký) nhưng thừa 2 việc từ dòng tiêu đề nhóm "I", "II" (file chia 2 phần, model đọc 2 phần
   không nhất quán). Sửa: lượt rà lại được bỏ các việc lập từ dòng không giao việc (tiêu đề nhóm, tổng, chữ ký), xét
   nhất quán với các dòng cùng loại đã bỏ. EXTRACT_VERSION 29.
+
+## Sửa theo rà soát production (18/11, bản v27)
+
+- Bỏ sót sheet có việc thật (KHCV_Tháng 11: 7/8 sheet kế hoạch của từng người bị bỏ vì "trùng cấu trúc"; NganTT bỏ sheet
+  kế hoạch tháng 11): hướng dẫn "chỉ đọc MỘT sheet gốc" đổi thành "chỉ bỏ sheet lặp lại ĐÚNG CÁC VIỆC của sheet khác;
+  sheet cùng mẫu nhưng chứa việc khác phải đọc; không chắc thì đọc" (việc trùng giữa sheet vẫn do model xác nhận sau).
+- Người phụ trách ghi ở tên sheet bị loại: tên sheet được đối chiếu như tên file.
+- Thông tin đầu trang không được đối chiếu ở phần đầu (Lịch đào tạo: 16 hạn 20/11/2026 bị loại; KPI_PM: 7 người): việc
+  được đối chiếu với các dòng của sheet phía trên dòng đầu tiên model coi là việc (đầu trang, tiêu đề như model thấy).
+- Chức vụ (PM1-6, AM1-3, BE Lead) và đơn vị ngoài công ty (Hải quan, các Sở, chủ đầu tư) bị tính "chưa liên kết": sau
+  khi đọc MỌI loại file, hỏi model một lần tên nào là team / chức vụ, tên nào là bên ngoài (TRACKER_COMPANY_NAME cho biết
+  tổ chức của người dùng); việc mang doi_nhom / ben_ngoai, ghép vào kênh giữ cả hai.
+- Dòng vẫn chưa đọc được sau lượt hỏi lại theo nhóm được hỏi lại từng dòng (tối đa 20).
+- Tên người phụ trách bỏ danh xưng và mô tả kèm ("anh Việt system onsite" → "Việt"), bảng và văn bản.
+- Lượt rà lại xử lý nhất quán các dòng cùng loại (là việc / không phải việc). EXTRACT_VERSION 30.

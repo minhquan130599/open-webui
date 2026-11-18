@@ -61,6 +61,11 @@ TRACKER_TAIL_LIMIT = _int_env('TRACKER_TAIL_LIMIT', 50)
 TRACKER_TAIL_MAX_CHARS = _int_env('TRACKER_TAIL_MAX_CHARS', 8_000)
 
 TRACKER_TIMEZONE = os.getenv('TRACKER_TIMEZONE', 'Asia/Ho_Chi_Minh')
+# The organization the users work for: tells the file reader who is inside (teams, roles) and who is outside
+# (customers, investors, agencies) among the owners a file names.
+TRACKER_COMPANY_NAME = os.getenv(
+    'TRACKER_COMPANY_NAME', 'NCS (Công ty cổ phần Công nghệ An ninh mạng Quốc gia Việt Nam)'
+)
 
 # Attachments (P2). Files use the text Open WebUI already extracted; images go to the same model as vision input.
 TRACKER_ENABLE_FILES = _bool_env('TRACKER_ENABLE_FILES', True)

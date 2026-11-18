@@ -26,7 +26,7 @@ from open_webui.tracker.schema import STATUSES, WorkItem, _clean_date, normalize
 
 log = logging.getLogger(__name__)
 
-EXTRACT_VERSION = 29
+EXTRACT_VERSION = 30
 SEGMENT_CHARS = 12_000
 QUOTE_CHARS = 240
 # Names this alike (trigrams) or sharing this share of the shorter name's words are shown to the model, which says
@@ -46,7 +46,9 @@ IMAGE_TEXT_PROMPT = (
     'viết trong ảnh. Ảnh không có chữ thì trả lời đúng: (không có chữ)'
 )
 
-ITEM_FORMAT = """{{"hang_muc": [{{"ten": "tên việc ngắn gọn, đủ nghĩa", "phu_trach": ["người hoặc đơn vị"], "han": "YYYY-MM-DD hoặc null",
+ITEM_FORMAT = """{{"hang_muc": [{{"ten": "tên việc ngắn gọn, đủ nghĩa",
+  "phu_trach": ["tên người hoặc đơn vị được giao, bỏ danh xưng và mô tả kèm theo (vd 'anh Việt system onsite' -> 'Việt')"],
+  "han": "YYYY-MM-DD hoặc null",
   "han_goc": "chép đúng chữ ghi hạn trong văn bản hoặc null",
   "trang_thai": "chua_bat_dau|dang_lam|bi_chan|tam_dung|hoan_thanh", "tien_do": số phần trăm hoặc null,
   "tien_do_goc": "chép đúng chữ ghi tiến độ trong văn bản hoặc null",
@@ -388,6 +390,11 @@ async def extract_document(name: str, content: str, structure: dict, today: str,
 
     parts = await asyncio.gather(*(read(i + 1, s, e) for i, (s, e) in enumerate(segments)))
     items = await dedupe_items([item for part in parts for item in part['items']])
+    quotes = {o: i.get('trich_dan') or '' for i in items for o in i.get('phu_trach') or []}
+    teams, outside = await classify_owners(name, list(quotes), quotes)
+    for item in items:
+        item['doi_nhom'] = [o for o in item.get('phu_trach') or [] if o in teams]
+        item['ben_ngoai'] = [o for o in item.get('phu_trach') or [] if o in outside]
     return {
         'kind': 'document',
         'items': items,
@@ -477,8 +484,9 @@ TABLE_PROMPT = """File bảng tính "{name}". Hôm nay là {today}.
 việc, dòng nào là tiêu đề (có thể nhiều tầng, hoặc bảng không có tiêu đề), thông tin đầu trang (phòng ban, người nhận,
 kỳ, dự án) áp dụng cho các dòng, và dòng nào là việc. Mỗi dòng ghi "dòng N" với các ô theo chữ cái cột.
 - Sheet chỉ là tổng hợp / biểu đồ / tra cứu / hướng dẫn / bảng giá / danh sách không giao việc: ghi vào "sheet_khong_doc".
-  Nhiều sheet có thể là các góc nhìn của CÙNG danh sách việc (danh sách chi tiết, tiến độ theo tuần / Gantt, tổng quan,
-  dashboard): chỉ đọc MỘT sheet gốc đầy đủ nhất, các sheet lặp lại ghi vào "sheet_khong_doc".
+  Chỉ bỏ một sheet việc khi nó lặp lại ĐÚNG CÁC VIỆC của sheet khác (bản tiến độ tuần / Gantt / tổng quan / dashboard
+  của cùng các việc). Các sheet cùng mẫu nhưng chứa việc khác (kế hoạch của từng người, từng tháng, từng dự án, bảng
+  chi tiết hóa thành việc nhỏ hơn) đều phải đọc. Khi không chắc thì đọc: việc trùng giữa các sheet sẽ được kiểm tra sau.
 - MỌI dòng của phần cần đọc phải có mặt đúng một chỗ: trong "viec" (theo "dong", hoặc "cac_dong" khi một việc ghi trên
   nhiều dòng liền nhau) hoặc trong "khong_phai_viec" (dòng tiêu đề, tiêu đề phụ, tiêu đề nhóm / mục, dòng tổng, chữ ký /
   người duyệt, ghi chú chung, phản hồi chỉ khen hoặc nhận xét không đòi hỏi gì, dòng không có nội dung việc).
@@ -490,10 +498,11 @@ kỳ, dự án) áp dụng cho các dòng, và dòng nào là việc. Mỗi dòn
   phải làm trước, con số và tên quan trọng. Không tự nghĩ thêm bước, phạm vi, mục đích. Không đưa các ô chỉ để phân
   loại hay quản lý bảng (mã, giai đoạn, hạng mục, nhóm, segment, mức ưu tiên, ngày bắt đầu, ước tính, trạng thái, số
   ngày còn lại, cảnh báo tự tính).
-- "phu_trach": người hoặc team ĐƯỢC GIAO làm, CHÉP ĐÚNG chữ trong dòng hoặc thông tin đầu trang hoặc tên file (kế hoạch cá nhân). Người góp ý, người
-  yêu cầu, khách hàng, đầu mối phía khách, người duyệt không phải người phụ trách; câu mô tả cách làm ("PM phối hợp")
-  không phải giao việc. Ô nhiều tên ("BA / FE Lead", "Hà, Nam") tách từng tên. "nhom": những tên trong "phu_trach" là
-  team, phòng ban hoặc chức vụ (SOC, PM, BA, DevOps, BE Lead, Phòng KD). "Long (BE)" là người "Long".
+- "phu_trach": người hoặc team ĐƯỢC GIAO làm, lấy từ dòng, thông tin đầu trang, tên sheet hoặc tên file (kế hoạch của
+  một người). Chỉ ghi TÊN như được gọi trong bảng, bỏ danh xưng và mô tả kèm theo ("anh Việt system onsite thực hiện" →
+  "Việt"; "Long (BE)" → "Long"). Người góp ý, người yêu cầu, khách hàng, đầu mối phía khách, người duyệt không phải người
+  phụ trách; câu mô tả cách làm ("PM phối hợp") không phải giao việc. Ô nhiều tên ("BA / FE Lead", "Hà, Nam") tách từng
+  tên. "nhom": những tên trong "phu_trach" là team, phòng ban hoặc chức vụ.
 - "han_goc": chép đúng chữ ghi hạn của việc; "han": ngày đó dạng YYYY-MM-DD. Hạn không phải một ngày ("Hàng tháng",
   "Khi đóng dự án") thì "han" null và ghi vào chi tiết. Ngày bắt đầu không phải hạn. Excel có thể đã đảo ngày / tháng
   (ô 2026-02-11 trong khi các ô khác là tháng 11): khi chắc chắn, ghi ngày đúng vào "han" và chép ô gốc vào "han_goc".
@@ -536,16 +545,43 @@ Rà lại như người kiểm tra:
 - Đề xuất nào không có yêu cầu thật trong dòng thì ghi số thứ tự vào "bo_de_xuat".
 - Dòng nào bị coi là không phải việc nhưng thật ra giao hoặc yêu cầu việc thì ghi vào "la_viec".
 - Đầu việc nào lập từ dòng KHÔNG giao việc (tiêu đề nhóm / mục chỉ có mã nhóm, tên nhóm, tổng trọng số; dòng tổng cộng;
-  dòng chữ ký) thì ghi số thứ tự vào "khong_phai_viec"; xét nhất quán với các dòng cùng loại đã bị coi là không phải việc.
+  dòng chữ ký) thì ghi số thứ tự vào "khong_phai_viec".
+- Xử lý NHẤT QUÁN các dòng cùng loại (cùng cấp trong bảng, cùng các cột có dữ liệu, cùng kiểu nội dung): nếu cùng loại
+  với dòng đã là việc thì là việc ("la_viec"), cùng loại với dòng đã bị bỏ thì bỏ ("khong_phai_viec").
 Trả về đúng một JSON: {{"sua": [{{"so": 1, "chi_tiet": ["..."]}}], "tach": [2], "khong_phai_viec": [4],
  "de_xuat_moi": [{{"sheet": "...", "dong": 19, "ten": "...", "yeu_cau": "..."}}], "bo_de_xuat": [3],
  "la_viec": [{{"sheet": "...", "dong": 14}}]}}"""
 
-TEAMS_PROMPT = """Các tên người phụ trách dưới đây lấy từ file "{name}":
+TEAMS_PROMPT = """Các tên người phụ trách dưới đây lấy từ file "{name}" (đối chiếu với câu gốc khi cần):
 {names}
-Tên nào là team, phòng ban, nhóm hoặc chức vụ / vai trò (vd SOC, PM, PM dự án, BA, DevOps, BE Lead, QA Lead, AI Engineer,
-Phòng KD, Blue team), không phải tên riêng của một người (vd Long, Triển, Nguyễn Văn A, Hằng Nguyễn)?
-Trả về đúng một JSON: {{"nhom": ["..."]}}"""
+Người dùng hệ thống làm việc tại: {company}.
+- "nhom": tên nào là team, phòng ban, nhóm hoặc chức vụ / vai trò trong nội bộ (vd SOC, PM, PM2, AM1, BA, DevOps, BE Lead,
+  QA Lead, Phòng KD, Blue team, Mua hàng), không phải tên riêng của một người.
+- "ben_ngoai": tên nào là người hoặc đơn vị BÊN NGOÀI tổ chức đó: khách hàng, chủ đầu tư, đối tác, cơ quan nhà nước, sở,
+  ban, nhà cung cấp, đầu mối phía khách.
+Tên riêng của người trong nội bộ (vd Long, Triển, Hằng Nguyễn) không thuộc danh sách nào.
+Trả về đúng một JSON: {{"nhom": ["..."], "ben_ngoai": ["..."]}}"""
+
+
+async def classify_owners(name: str, owners: list[str], quotes: dict[str, str] | None = None) -> tuple[set, set]:
+    """(teams or roles, people or bodies outside the company) among a file's owner names, asked once for the whole
+    file so every row and paragraph reads them alike."""
+    from open_webui.tracker.config import TRACKER_COMPANY_NAME
+
+    names = sorted({o for o in owners if o})
+    if not names:
+        return set(), set()
+    listed = '\n'.join(f'- {o}' + (f'  (câu gốc: {quotes[o][:120]})' if quotes and quotes.get(o) else '') for o in names)
+    try:
+        answer = await _ask_json(TEAMS_PROMPT.format(name=name, names=listed, company=TRACKER_COMPANY_NAME), max_tokens=1500)
+    except llm.TrackerLLMError:
+        raise
+    except Exception as error:
+        log.warning('Tracker: owner kinds not read for %s (%s)', name, error)
+        return set(), set()
+    teams = {str(v).strip() for v in answer.get('nhom') or []} & set(names)
+    outside = {str(v).strip() for v in answer.get('ben_ngoai') or []} & set(names)
+    return teams - outside, outside
 
 OVERVIEW_PROMPT = """File bảng tính "{name}" lớn, sẽ được đọc theo từng phần. Dưới đây là các dòng đầu của mỗi sheet
 (số dòng, các ô theo chữ cái cột).
@@ -556,8 +592,9 @@ Với mỗi sheet, cho biết sheet có phải là DANH SÁCH VIỆC không: m�
 chỉ tiêu hay phản hồi cần xử lý mà người ta giao và theo dõi (kế hoạch, tiến độ, phân công, KPI, việc cần làm). Bảng DỮ
 LIỆU thì không, kể cả khi có thể suy ra việc từ nó: danh sách thiết bị / máy / client / tài khoản / khách hàng / nhân sự,
 log, giao dịch, số liệu đo, bảng giá, xuất dữ liệu từ phần mềm, tra cứu, tổng hợp, biểu đồ, hướng dẫn. "doc": true chỉ với
-danh sách việc. Nhiều sheet có thể là các góc nhìn của CÙNG danh sách việc (danh sách chi tiết, tiến độ theo tuần / Gantt,
-tổng quan, dashboard): chỉ chọn MỘT sheet gốc đầy đủ nhất ("doc": true), các sheet lặp lại "doc": false. Cho biết thêm dòng
+danh sách việc. Chỉ đặt "doc": false cho một sheet việc khi nó lặp lại ĐÚNG CÁC VIỆC của sheet khác (bản tiến độ tuần /
+Gantt / tổng quan / dashboard của cùng các việc); các sheet cùng mẫu nhưng chứa việc khác (kế hoạch của từng người, từng
+tháng, từng dự án, bảng chi tiết hóa thành việc nhỏ hơn) đều "doc": true. Khi không chắc thì đọc. Cho biết thêm dòng
 dữ liệu đầu tiên (dòng sau tiêu đề; các dòng phía trên nó là tiêu đề và thông tin đầu
 trang, sẽ được gửi kèm mỗi phần để hiểu cột).
 Trả về đúng một JSON: {{"sheets": [{{"sheet": "...", "doc": true, "dong_du_lieu_dau": 2, "ly_do": "..."}}]}}"""
@@ -704,6 +741,7 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
     row_text = {(s, n): '\n'.join(v for v in r if v) for s, rows in data_rows.items() for n, r in rows}
     total_chars = sum(len(_render_row(n, r)) for rows in data_rows.values() for n, r in rows)
     skipped_sheets: dict[str, str] = {}
+    first_data: dict[str, int] = {}
     row_count = sum(len(rows) for rows in data_rows.values())
     if total_chars <= TABLE_SEGMENT_CHARS and row_count <= TABLE_SEGMENT_ROWS:
         # A small file is read whole: every sheet, every row, in one call.
@@ -713,7 +751,6 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
         # A big file: the model first says which sheets to read and where their data starts.
         answer = await _ask_json(OVERVIEW_PROMPT.format(name=name, sheets=describe_sheets(sheets)), max_tokens=2000)
         report['calls'] += 1
-        first_data: dict[str, int] = {}
         for entry in answer.get('sheets') or []:
             if not isinstance(entry, dict) or entry.get('sheet') not in data_rows:
                 continue
@@ -770,6 +807,22 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
     tasks: list[dict] = []
     gaps: list[dict] = []
     not_tasks: set[tuple[str, int]] = set()
+    pending: list[tuple[dict, str, int]] = []
+    first_task_row: dict[str, int] = {}
+
+    def head_of(sheet_name: str) -> list:
+        first = first_data.get(sheet_name) or first_task_row.get(sheet_name)
+        return [(n, r) for n, r in data_rows[sheet_name] if first and n < first][-25:]
+
+    def verify_pending() -> None:
+        """The tasks read so far, checked once the start of each sheet's tasks is known."""
+        for _, sheet_name, number in pending:
+            first_task_row[sheet_name] = min(first_task_row.get(sheet_name, number), number)
+        for raw, sheet_name, number in pending:
+            task = _checked_task(raw, sheet_name, number, row_text, head_of(sheet_name), report, name)
+            if task:
+                tasks.append(task)
+        pending.clear()
 
     def sheet_of(value, part: dict) -> Optional[str]:
         value = str(value or '').strip()
@@ -794,9 +847,7 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
             sheet_name = sheet_of(raw.get('sheet'), part)
             if (sheet_name, int(raw['dong'])) not in row_text:
                 continue
-            task = _checked_task(raw, sheet_name, int(raw['dong']), row_text, part['heads'].get(sheet_name), report, name)
-            if task:
-                tasks.append(task)
+            pending.append((raw, sheet_name, int(raw['dong'])))
         for raw in answer.get('de_xuat') or []:
             if not isinstance(raw, dict) or not str(raw.get('dong') or '').isdigit():
                 continue
@@ -808,6 +859,7 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
 
     for part, answer in zip(parts, await asyncio.gather(*(read(p) for p in parts))):
         collect(answer, part)
+    verify_pending()
 
     def covered() -> set:
         return {(t['sheet'], n) for t in tasks for n in [t['dong'], *t['cac_dong']]} | not_tasks
@@ -826,6 +878,14 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
         report['retried'] = len(missing)
         for part, answer in zip(again, await asyncio.gather(*(read(p) for p in again))):
             collect(answer, part)
+        verify_pending()
+        seen = covered()
+        alone = [{'entries': [e], 'heads': {e[0]: head_of(e[0])}} for e in missing if (e[0], e[1]) not in seen][:20]
+        if alone:
+            report['retried_alone'] = len(alone)
+            for part, answer in zip(alone, await asyncio.gather(*(read(p) for p in alone))):
+                collect(answer, part)
+            verify_pending()
 
     # Review: a second reader checks each part's tasks against its rows.
     async def review(part: dict) -> None:
@@ -885,10 +945,12 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
             again_part = {'entries': [e for e in part['entries'] if (e[0], e[1]) in split], 'heads': part['heads']}
             note = 'Các dòng dưới đây giao các phần cho người khác nhau hoặc ghi hạn khác nhau: lập MỖI phần một việc.\n'
             collect(await read(again_part, note), again_part)
+            verify_pending()
         if restored:
             report['rows_restored'] += len(restored)
             again_part = {'entries': [e for e in part['entries'] if (e[0], e[1]) in restored], 'heads': part['heads']}
             collect(await read(again_part), again_part)
+            verify_pending()
 
     await asyncio.gather(*(review(p) for p in parts))
 
@@ -925,21 +987,25 @@ async def extract_table(name: str, sheets: list[dict], today: str, concurrency: 
     # read alone often leaves "BE Lead" or "PM dự án" as a person's name).
     owner_names = sorted({o for t in tasks for o in t['phu_trach']})
     if owner_names:
-        answer = await ask(TEAMS_PROMPT.format(name=name, names='\n'.join(f'- {o}' for o in owner_names)), 1500)
-        teams = {str(v).strip() for v in answer.get('nhom') or []} & set(owner_names)
+        report['calls'] += 1
+        teams, outside = await classify_owners(name, owner_names)
         for task in tasks:
-            task['doi_nhom'] = list(dict.fromkeys([*task['doi_nhom'], *(o for o in task['phu_trach'] if o in teams)]))
+            task['doi_nhom'] = list(dict.fromkeys(
+                [*(t for t in task['doi_nhom'] if t not in outside), *(o for o in task['phu_trach'] if o in teams)]))
+            task['ben_ngoai'] = [o for o in task['phu_trach'] if o in outside]
     items = _items_from(tasks, gaps, report)
     return {'kind': 'table', 'items': items, 'quyet_dinh': [], 'rui_ro': [], 'report': report}
 
 
-def _checked_task(raw: dict, sheet_name: str, number: int, row_text: dict, head_rows, report: dict, file_name: str = '') -> Optional[dict]:
+def _checked_task(
+    raw: dict, sheet_name: str, number: int, row_text: dict, head_rows, report: dict, file_name: str = ''
+) -> Optional[dict]:
     """One task the model read, with its facts checked against its rows (and the sheet's head rows)."""
     rows = [number] + [int(n) for n in raw.get('cac_dong') or [] if str(n).isdigit() and (sheet_name, int(n)) in row_text]
     source = '\n'.join(row_text[(sheet_name, n)] for n in rows)
     head = '\n'.join('\n'.join(v for v in r if v) for _, r in head_rows or [])
-    # The file's own name counts too: a personal plan names its owner there ("KHCV Tháng 11 Thục Anh.xlsx").
-    folded = f' {normalize_key(source + chr(10) + head + chr(10) + file_name)} '
+    # The sheet's and the file's names count too: a personal plan names its owner there ("…_Tuấn Linh").
+    folded = f' {normalize_key(chr(10).join([source, head, sheet_name, file_name]))} '
     title = _title(str(raw.get('ten') or '').strip())
     if not title:
         return None
@@ -1007,6 +1073,7 @@ def _items_from(tasks: list[dict], gaps: list[dict], report: dict) -> list[dict]
         index_of[base] = index_of.get(base, 0) + 1
         output.append({
             'ten': task['ten'], 'chi_tiet': task['chi_tiet'], 'phu_trach': task['phu_trach'], 'doi_nhom': task['doi_nhom'],
+            'ben_ngoai': task.get('ben_ngoai') or [],
             'han': task['han'], 'trang_thai': task['trang_thai'], 'tien_do': task['tien_do'],
             'hoan_thanh_luc': task['hoan_thanh_luc'], 'vuong_mac': task['vuong_mac'], 'chua_giao': not task['phu_trach'],
             'trich_dan': task['trich_dan'], 'dong': task['dong'], 'khoa': f'{base}#{index_of[base]}', 'xac_minh': True,
@@ -1144,8 +1211,10 @@ def merge_into_state(
                 existing.tien_do = item['tien_do']
             existing.vuong_mac = item['vuong_mac'] or existing.vuong_mac
             existing.chi_tiet = details or existing.chi_tiet
-            if item.get('doi_nhom') is not None and item.get('khoa'):
+            if item.get('doi_nhom') is not None:
                 existing.doi_nhom = [t for t in item.get('doi_nhom') or [] if t in existing.phu_trach]
+            if item.get('ben_ngoai') is not None:
+                existing.ben_ngoai = [t for t in item.get('ben_ngoai') or [] if t in existing.phu_trach]
             existing.nguon = _add_sources(existing.nguon, sources)
             existing.cap_nhat_luc = today
             updated += 1
@@ -1157,6 +1226,7 @@ def merge_into_state(
                 'chi_tiet': details,
                 'chua_giao': bool(item.get('chua_giao')),
                 'doi_nhom': list(item.get('doi_nhom') or []),
+                'ben_ngoai': list(item.get('ben_ngoai') or []),
                 'id': new_item_id(),
                 'nguon': sources,
                 'tao_luc': today,
