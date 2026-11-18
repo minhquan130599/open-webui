@@ -3411,10 +3411,12 @@ async def query_table(
     __metadata__: dict = None,
 ) -> str:
     """
-    Query a spreadsheet (xlsx, csv) attached to the chat: filter, sort, pick columns, or count rows per value.
-    Exact, fast and done on the server: use it instead of the terminal for questions like "tasks due in
-    December", "rows where Owner is SOC", "how many per status". Dates and numbers compare as values
-    (30/11/2026 and 2026-11-30 are the same date).
+    Read a spreadsheet (xlsx, csv) attached to the chat cell by cell: any sheet, columns by header name or letter
+    (A, B, R), each row returned with its row number in the sheet, so a value can be located exactly (e.g. sheet
+    "Kanban", column A, row 2). Also filters, sorts, picks columns, or counts rows per value. Exact, fast and done
+    on the server: this is how to read a spreadsheet by sheet, column and cell, and to check that it can be read
+    that way, for questions like "tasks due in December", "rows where Owner is SOC", "how many per status".
+    Dates and numbers compare as values (30/11/2026 and 2026-11-30 are the same date).
 
     :param file_id: The ID of the spreadsheet file
     :param sheet: Sheet name or 1-based number (default: the first sheet); see the sheets listed for the file
@@ -3528,9 +3530,10 @@ async def open_in_terminal(
     __event_call__: callable = None,
 ) -> str:
     """
-    Copy an attached file into the terminal so code can work on the original file: spreadsheets by sheet and
-    cell, pandas analysis, or filling a Word/Excel report template. Then use the returned terminal_path in
-    terminal commands, and deliver created files with attach_terminal_file.
+    Copy an attached file into the terminal so code can work on the original file: pandas analysis, formulas
+    and formatting, or filling a Word/Excel report template (reading a spreadsheet's cells and rows is
+    query_table). Attached files are not in the terminal before this call. Then use the returned terminal_path
+    in terminal commands, and deliver created files with attach_terminal_file.
 
     :param file_id: The ID of the attached file
     :return: JSON with the file's terminal_path

@@ -411,3 +411,9 @@ Bỏ bước "mô tả bảng" (chọn sheet, dòng tiêu đề, vai trò cột)
   trong văn bản (Nhà thầu / Bên B) là nội bộ; gửi kèm đầu văn bản (nơi giới thiệu các bên). Tên trùng tên công ty trong
   cấu hình (cả tên, tên viết tắt trong ngoặc, hoặc đoạn từ 4 chữ trở lên) luôn là nội bộ. Hai lần hỏi đều ra Hải quan /
   Chủ đầu tư bên ngoài, Nhà thầu nội bộ.
+- Knight (kênh, dev 18/11) kết luận "xlsx chỉ đọc được dạng văn bản, không đọc được theo ô" rồi chuyển sang CSV: trace
+  cho thấy model không gọi query_table mà chạy lệnh terminal khi file chưa được đưa vào terminal (open_in_terminal),
+  lệnh lỗi nên model hiểu là không đọc được. Sửa mô tả (không thêm luật): query_table đọc bảng theo sheet, cột (tên
+  hoặc chữ cái) và dòng, trả giá trị ô kèm số dòng, là cách đọc / kiểm tra đọc xlsx theo ô; open_in_terminal dành cho
+  code trên file gốc (pandas, công thức, điền mẫu), file chưa có trong terminal trước lệnh này; hướng dẫn khối file:
+  lệnh terminal không thấy file không có nghĩa file không đọc được.

@@ -191,13 +191,15 @@ def format_attachment_block(
         )
     if any(info.get('spreadsheet') for info in infos):
         guide.append(
-            'Spreadsheets (their sheets and columns are listed in tables="..."): filter, count or look up rows with '
-            'query_table, in one call; do not use the terminal for that.'
+            'Spreadsheets (their sheets and columns are listed in tables="..."): read them by sheet, column (name or '
+            'letter) and row with query_table, which returns the cell values with their row numbers; filter, count '
+            'or look up rows with it in one call; do not use the terminal for that.'
         )
     if terminal:
         guide.append(
             'Use the terminal only to create a file or fill a Word/Excel template: call open_in_terminal with the '
-            'file id first and use the returned terminal_path.'
+            'file id first and use the returned terminal_path. Attached files are not in the terminal until then, '
+            'so a terminal command failing to find a file says nothing about whether the file can be read.'
         )
     return '\n'.join(parts) + '\n' + ' '.join(guide)
 
