@@ -35,6 +35,7 @@ if ssl_query_params:
     target_db_url = reattach_ssl_params_to_url(base_url, ssl_query_params)
 if target_db_url:
     alembic_config.set_main_option('sqlalchemy.url', target_db_url.replace('%', '%%'))
+MIGRATION_LOCK_ID = 731947206  # Postgres advisory lock held while one worker migrates
 
 
 def run_migrations_offline() -> None:
@@ -79,6 +80,11 @@ def run_migrations_online() -> None:
     live_connectable = _get_engine_connectable()
     enable_iam_token_auth(live_connectable)
     with live_connectable.connect() as live_connection:
+        # Every app worker runs the migrations at startup: one at a time, so the others wait and then find the
+        # database already at head instead of creating the same tables and failing (released with the connection).
+        if live_connection.dialect.name == 'postgresql':
+            live_connection.exec_driver_sql(f'SELECT pg_advisory_lock({MIGRATION_LOCK_ID})')
+            live_connection.commit()
         if DATABASE_SCHEMA and live_connection.dialect.name == 'postgresql':
             inspector = inspect(live_connection)
             if not inspector.has_schema(DATABASE_SCHEMA):

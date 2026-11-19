@@ -496,3 +496,11 @@ Chờ trích xuất chữ 161 giây; đọc file tới giới hạn đọc; summ
   mới; Cài đặt quản trị: mục "Viết sẵn trước giờ gửi" và chế độ gửi email.
 - Test (SQLite thật cho bảng hàng đợi, LLM / mail giả): 20/20 hàng đợi, 6/6 đo tải LLM (server vLLM giả), 8/8 gửi,
   5/5 Telegram.
+
+## Migration chạy một worker một lúc
+
+- Mỗi worker uvicorn (`UVICORN_WORKERS=4`) đều chạy migration khi khởi động. Có migration mới thì các worker cùng tạo
+  một bảng, worker chậm hơn lỗi `duplicate key value violates unique constraint "pg_type_typname_nsp_index"`, chết
+  rồi được khởi động lại (vô hại vì migration chạy trong transaction, nhưng log như hỏng).
+- `migrations/env.py`: trên Postgres giữ `pg_advisory_lock` trong lúc migrate; worker khác chờ, sau đó thấy database
+  đã ở bản mới nhất nên không làm gì. Khóa tự nhả khi đóng kết nối.
