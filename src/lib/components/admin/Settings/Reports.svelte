@@ -148,6 +148,16 @@
 				<AdminSettingRow label={$i18n.t("Only send to the company's domain (the sender's domain)")} let:labelId>
 					<Switch ariaLabelledbyId={labelId} bind:state={values['reports.email.internal_only']} />
 				</AdminSettingRow>
+				<AdminSettingRow
+					label={$i18n.t('Several recipients')}
+					description={$i18n.t('One email for all recipients uses far less of the mailbox sending limit (Microsoft 365: about 30 emails a minute).')}
+				>
+					<select class="rounded-lg border border-gray-100 bg-transparent px-2 py-1 text-xs dark:border-gray-850" bind:value={values['reports.email.mode']}>
+						<option value="bcc">{$i18n.t('One email, recipients hidden (Bcc)')}</option>
+						<option value="to">{$i18n.t('One email, recipients visible (To)')}</option>
+						<option value="separate">{$i18n.t('One email per recipient')}</option>
+					</select>
+				</AdminSettingRow>
 			</AdminSettingSection>
 
 			<AdminSettingSection title="Telegram">
@@ -195,6 +205,34 @@
 					<label class="flex flex-col gap-1 text-xs text-gray-500">
 						{$i18n.t('Comment length limit (characters)')}
 						<input type="number" min="300" max="10000" class={inputClass} bind:value={values['reports.max_chars']} />
+					</label>
+				</div>
+			</AdminSettingSection>
+
+			<AdminSettingSection title={$i18n.t('Writing ahead')}>
+				<p class="text-xs text-gray-500">
+					{$i18n.t('Reports are queued before their send time; the AI writes the comments only while the model is not busy, so chats are not slowed down. At the send time the figures are counted again and sent with the comments written ahead.')}
+				</p>
+				<div class="grid grid-cols-2 gap-3">
+					<label class="flex flex-col gap-1 text-xs text-gray-500">
+						{$i18n.t('Queue this many minutes before the send time')}
+						<input type="number" min="5" max="720" class={inputClass} bind:value={values['reports.prepare_minutes']} />
+					</label>
+					<label class="flex flex-col gap-1 text-xs text-gray-500">
+						{$i18n.t('Reports written at the same time')}
+						<input type="number" min="1" max="4" class={inputClass} bind:value={values['reports.workers']} />
+					</label>
+					<label class="flex flex-col gap-1 text-xs text-gray-500">
+						{$i18n.t('Model busy when more requests than this wait in its queue')}
+						<input type="number" min="0" max="100" class={inputClass} bind:value={values['reports.busy_waiting']} />
+					</label>
+					<label class="flex flex-col gap-1 text-xs text-gray-500">
+						{$i18n.t('Or when the first token takes longer than (seconds)')}
+						<input type="number" min="3" max="120" class={inputClass} bind:value={values['reports.busy_seconds']} />
+					</label>
+					<label class="flex flex-col gap-1 text-xs text-gray-500">
+						{$i18n.t('Not written this many minutes after the send time: send without comments')}
+						<input type="number" min="0" max="240" class={inputClass} bind:value={values['reports.late_minutes']} />
 					</label>
 				</div>
 			</AdminSettingSection>

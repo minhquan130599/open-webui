@@ -29,14 +29,20 @@ class TelegramError(Exception):
 async def call(token: str, method: str, timeout: int = 30, **params) -> dict:
     if not token:
         raise TelegramError('Chưa cấu hình bot token Telegram')
-    try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
-            async with session.post(f'{API}/bot{token}/{method}', json=params) as response:
-                body = await response.json(content_type=None)
-    except asyncio.TimeoutError:
-        raise TelegramError('Telegram không trả lời (hết thời gian chờ)')
-    except aiohttp.ClientError as error:
-        raise TelegramError(f'Không kết nối được Telegram: {error}')
+    for attempt in range(3):
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
+                async with session.post(f'{API}/bot{token}/{method}', json=params) as response:
+                    body = await response.json(content_type=None)
+        except asyncio.TimeoutError:
+            raise TelegramError('Telegram không trả lời (hết thời gian chờ)')
+        except aiohttp.ClientError as error:
+            raise TelegramError(f'Không kết nối được Telegram: {error}')
+        # Too many messages: Telegram says how long to wait before sending again.
+        wait = (body.get('parameters') or {}).get('retry_after') if body.get('error_code') == 429 else None
+        if not wait or wait > 60 or attempt == 2:
+            break
+        await asyncio.sleep(wait + 1)
     if not body.get('ok'):
         raise TelegramError(body.get('description') or f'Telegram trả lỗi {response.status}')
     return body.get('result')

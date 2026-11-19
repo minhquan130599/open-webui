@@ -147,12 +147,14 @@ async def update_schedule(schedule_id: str, form: ScheduleForm, user=Depends(get
     schedule = await Schedules.update(
         schedule_id, name=data['name'], enabled=form.enabled, config=data['config'], next_run_at=next_run(data['config'])
     )
+    await service.cancel_jobs(schedule_id)
     return _view(schedule)
 
 
 @router.delete('/{schedule_id}')
 async def delete_schedule(schedule_id: str, user=Depends(get_verified_user)):
     await _own(schedule_id, user)
+    await service.cancel_jobs(schedule_id)
     return {'ok': await Schedules.delete(schedule_id)}
 
 
@@ -312,6 +314,7 @@ async def admin_set_enabled(schedule_id: str, enabled: bool, user=Depends(get_ad
     if not schedule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Không có lịch báo cáo này')
     await Schedules.update(schedule_id, enabled=enabled, next_run_at=next_run(schedule.config) if enabled else schedule.next_run_at)
+    await service.cancel_jobs(schedule_id)
     return {'ok': True}
 
 
@@ -325,4 +328,5 @@ async def admin_run(schedule_id: str, user=Depends(get_admin_user)):
 
 @router.delete('/admin/schedules/{schedule_id}')
 async def admin_delete(schedule_id: str, user=Depends(get_admin_user)):
+    await service.cancel_jobs(schedule_id)
     return {'ok': await Schedules.delete(schedule_id)}

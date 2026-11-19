@@ -87,7 +87,10 @@ _token: dict = {}  # {'key': (tenant, client_id), 'value': str, 'expires': float
 
 
 class MailError(RuntimeError):
-    pass
+    def __init__(self, message: str, transient: bool = False):
+        super().__init__(message)
+        # The server is limiting or briefly unavailable: worth sending again a little later.
+        self.transient = transient
 
 
 async def settings() -> dict:
@@ -155,11 +158,12 @@ def _html_to_text(body: str) -> str:
     return re.sub(r'\n{3,}', '\n\n', '\n'.join(line.strip() for line in text.splitlines())).strip()
 
 
-def _send_smtp(s: dict, to: str, subject: str, html_body: str) -> None:
-    """Blocking SMTP send (run in a thread). Raises MailError with a readable reason."""
+def _send_smtp(s: dict, to: list[str], subject: str, html_body: str, bcc: list[str] = ()) -> list[str]:
+    """Blocking SMTP send (run in a thread); returns the recipients the server refused while taking the others.
+    Raises MailError with a readable reason."""
     message = EmailMessage()
     message['From'] = formataddr((s['sender_name'], s['sender'])) if s.get('sender_name') else s['sender']
-    message['To'] = to
+    message['To'] = ', '.join(to)
     message['Subject'] = subject
     message['Message-ID'] = make_msgid(domain=s['sender'].rsplit('@', 1)[-1] or None)
     message.set_content(_html_to_text(html_body) or subject)
@@ -184,31 +188,51 @@ def _send_smtp(s: dict, to: str, subject: str, html_body: str) -> None:
                 server.ehlo()
             if s.get('smtp_username'):
                 server.login(s['smtp_username'], s.get('smtp_password') or '')
-            server.send_message(message)
-    except smtplib.SMTPAuthenticationError as e:
-        raise MailError(f'Máy chủ SMTP {where} từ chối đăng nhập: sai tài khoản/mật khẩu, hoặc tài khoản chưa được '
-                        f'phép gửi qua SMTP ({e.smtp_code} {e.smtp_error.decode(errors="replace") if isinstance(e.smtp_error, bytes) else e.smtp_error})'[:400])
-    except smtplib.SMTPSenderRefused as e:
-        raise MailError(f'Máy chủ SMTP không cho gửi từ {s["sender"]}: địa chỉ gửi phải là tài khoản đăng nhập '
-                        f'hoặc địa chỉ được phép gửi thay ({e.smtp_code})'[:400])
-    except smtplib.SMTPRecipientsRefused as e:
-        raise MailError(f'Máy chủ SMTP từ chối người nhận {to}: có thể cần đăng nhập để gửi ra ngoài (relay) '
-                        f'({", ".join(str(v[0]) for v in e.recipients.values())})'[:400])
-    except smtplib.SMTPNotSupportedError:
-        raise MailError(f'Máy chủ {where} không hỗ trợ STARTTLS hoặc đăng nhập: đổi kiểu mã hóa (cổng 465 → SSL, '
-                        '587/25 → STARTTLS) hoặc bỏ tài khoản nếu máy chủ không cần đăng nhập')
-    except ssl.SSLCertVerificationError as e:
-        raise MailError(f'Chứng chỉ TLS của {where} không hợp lệ ({e.verify_message}); máy chủ nội bộ dùng chứng chỉ '
-                        'tự ký thì tắt "Kiểm tra chứng chỉ TLS"')
-    except ssl.SSLError as e:
-        raise MailError(f'Lỗi TLS với {where} ({e.reason}): thường do sai kiểu mã hóa so với cổng '
-                        '(465 → SSL, 587 → STARTTLS, 25 → STARTTLS hoặc không mã hóa)')
-    except (socket.timeout, TimeoutError):
-        raise MailError(f'Hết thời gian kết nối {where}: kiểm tra địa chỉ, cổng và firewall từ server NCS AI')
-    except (ConnectionRefusedError, socket.gaierror, OSError) as e:
-        raise MailError(f'Không kết nối được máy chủ SMTP {where}: {e}')
-    except smtplib.SMTPException as e:
-        raise MailError(f'Máy chủ SMTP {where} báo lỗi: {e}'[:400])
+            # Bcc addresses are given to the server only, never written in the message.
+            refused = server.send_message(message, to_addrs=[*to, *bcc])
+            return sorted(refused or {})
+    except Exception as e:
+        raise _smtp_error(e, s, to, where) from e
+
+
+def _smtp_text(e: smtplib.SMTPResponseException) -> str:
+    return e.smtp_error.decode(errors='replace') if isinstance(e.smtp_error, bytes) else str(e.smtp_error)
+
+
+def _smtp_error(e: Exception, s: dict, to: list[str], where: str) -> MailError:
+    """A readable reason for an SMTP failure; limits and dropped connections are marked worth retrying."""
+    if isinstance(e, MailError):
+        return e
+    if isinstance(e, smtplib.SMTPAuthenticationError):
+        return MailError(f'Máy chủ SMTP {where} từ chối đăng nhập: sai tài khoản/mật khẩu, hoặc tài khoản chưa được '
+                         f'phép gửi qua SMTP ({e.smtp_code} {_smtp_text(e)})'[:400])
+    if isinstance(e, smtplib.SMTPResponseException) and 400 <= e.smtp_code < 500:
+        return MailError(f'Máy chủ SMTP {where} tạm từ chối ({e.smtp_code} {_smtp_text(e)})'[:400], transient=True)
+    if isinstance(e, smtplib.SMTPSenderRefused):
+        return MailError(f'Máy chủ SMTP không cho gửi từ {s["sender"]}: địa chỉ gửi phải là tài khoản đăng nhập '
+                         f'hoặc địa chỉ được phép gửi thay ({e.smtp_code})'[:400])
+    if isinstance(e, smtplib.SMTPRecipientsRefused):
+        return MailError(f'Máy chủ SMTP từ chối người nhận {", ".join(to)}: có thể cần đăng nhập để gửi ra ngoài (relay) '
+                         f'({", ".join(str(v[0]) for v in e.recipients.values())})'[:400])
+    if isinstance(e, smtplib.SMTPNotSupportedError):
+        return MailError(f'Máy chủ {where} không hỗ trợ STARTTLS hoặc đăng nhập: đổi kiểu mã hóa (cổng 465 → SSL, '
+                         '587/25 → STARTTLS) hoặc bỏ tài khoản nếu máy chủ không cần đăng nhập')
+    if isinstance(e, ssl.SSLCertVerificationError):
+        return MailError(f'Chứng chỉ TLS của {where} không hợp lệ ({e.verify_message}); máy chủ nội bộ dùng chứng chỉ '
+                         'tự ký thì tắt "Kiểm tra chứng chỉ TLS"')
+    if isinstance(e, ssl.SSLError):
+        return MailError(f'Lỗi TLS với {where} ({e.reason}): thường do sai kiểu mã hóa so với cổng '
+                         '(465 → SSL, 587 → STARTTLS, 25 → STARTTLS hoặc không mã hóa)')
+    if isinstance(e, (socket.timeout, TimeoutError)):
+        return MailError(f'Hết thời gian kết nối {where}: kiểm tra địa chỉ, cổng và firewall từ server NCS AI',
+                         transient=True)
+    if isinstance(e, smtplib.SMTPServerDisconnected):
+        return MailError(f'Máy chủ SMTP {where} ngắt kết nối giữa chừng: {e}'[:400], transient=True)
+    if isinstance(e, smtplib.SMTPException):
+        return MailError(f'Máy chủ SMTP {where} báo lỗi: {e}'[:400])
+    if isinstance(e, OSError):
+        return MailError(f'Không kết nối được máy chủ SMTP {where}: {e}')
+    return MailError(f'Gửi mail qua {where} lỗi: {e}'[:400])
 
 
 async def _access_token(s: dict) -> str:
@@ -242,21 +266,28 @@ async def _access_token(s: dict) -> str:
     return body['access_token']
 
 
-async def send(to: str, subject: str, html_body: str, s: Optional[dict] = None) -> None:
-    """Send one HTML email from the shared mailbox. Raises MailError with a readable reason."""
+async def send(
+    to: str | list[str], subject: str, html_body: str, s: Optional[dict] = None, bcc: Optional[list[str]] = None
+) -> list[str]:
+    """Send one HTML email from the shared mailbox, to one or several addresses (bcc: hidden from the others).
+
+    Returns the addresses an SMTP server refused while taking the others. Raises MailError with a readable reason.
+    """
     s = s or await settings()
     lacking = missing(s)
     if lacking:
         raise MailError(f'Chưa cấu hình: {", ".join(lacking)}')
+    to = [to] if isinstance(to, str) else list(to)
+    bcc = list(bcc or [])
     if s.get('method') == 'smtp':
-        await asyncio.to_thread(_send_smtp, s, to, subject, html_body)
-        return
+        return await asyncio.to_thread(_send_smtp, s, to, subject, html_body, bcc)
     token = await _access_token(s)
     payload = {
         'message': {
             'subject': subject,
             'body': {'contentType': 'HTML', 'content': html_body},
-            'toRecipients': [{'emailAddress': {'address': to}}],
+            'toRecipients': [{'emailAddress': {'address': a}} for a in to],
+            **({'bccRecipients': [{'emailAddress': {'address': a}} for a in bcc]} if bcc else {}),
         },
         'saveToSentItems': False,
     }
@@ -265,7 +296,7 @@ async def send(to: str, subject: str, html_body: str, s: Optional[dict] = None) 
         async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
             async with session.post(url, json=payload, headers={'Authorization': f'Bearer {token}'}) as response:
                 if response.status == 202:
-                    return
+                    return []
                 try:
                     error = (await response.json(content_type=None)).get('error') or {}
                 except Exception:
@@ -274,7 +305,7 @@ async def send(to: str, subject: str, html_body: str, s: Optional[dict] = None) 
     except MailError:
         raise
     except Exception as e:
-        raise MailError(f'Không kết nối được Microsoft Graph: {e}')
+        raise MailError(f'Không kết nối được Microsoft Graph: {e}', transient=True)
     if status == 401:
         _token.clear()
     hint = {
@@ -284,7 +315,10 @@ async def send(to: str, subject: str, html_body: str, s: Optional[dict] = None) 
         404: f'không tìm thấy hộp thư gửi {s["sender"]} (cần là hộp thư người dùng có license Exchange Online hoặc shared mailbox)',
         429: 'Microsoft đang giới hạn tốc độ gửi',
     }.get(status, 'Microsoft Graph báo lỗi')
-    raise MailError(f'Gửi mail lỗi HTTP {status} ({hint}): {error.get("code", "")} {error.get("message", "")}'[:400])
+    raise MailError(
+        f'Gửi mail lỗi HTTP {status} ({hint}): {error.get("code", "")} {error.get("message", "")}'[:400],
+        transient=status in (429, 500, 502, 503, 504),
+    )
 
 
 REMINDER_GROUPS = (

@@ -902,6 +902,9 @@ async def reports_update_schedule(schedule_id: str, form: ReportScheduleForm, x_
     if form.config is not None or form.enabled:
         fields['next_run_at'] = next_run(config)
     await Schedules.update(schedule_id, **fields)
+    from open_webui.reports.service import cancel_jobs
+
+    await cancel_jobs(schedule_id)
     return {'status': True}
 
 
@@ -921,8 +924,19 @@ async def reports_run(schedule_id: str, x_monitor_key: Optional[str] = Header(No
 async def reports_delete(schedule_id: str, x_monitor_key: Optional[str] = Header(None)):
     _check(x_monitor_key)
     from open_webui.reports.models import Schedules
+    from open_webui.reports.service import cancel_jobs
 
+    await cancel_jobs(schedule_id)
     return {'status': await Schedules.delete(schedule_id)}
+
+
+@router.get('/reports/queue')
+async def reports_queue(x_monitor_key: Optional[str] = Header(None)):
+    """Sends queued, being written, written ahead, and the latest finished ones."""
+    _check(x_monitor_key)
+    from open_webui.reports.service import queue_view
+
+    return await queue_view()
 
 
 class ReportTelegramTestForm(BaseModel):

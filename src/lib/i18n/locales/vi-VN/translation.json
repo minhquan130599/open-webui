@@ -4924,5 +4924,17 @@
 	"saved; leave empty to keep it": "đã lưu; để trống để giữ nguyên",
 	"settings.admin.reports.title": "Báo cáo định kỳ",
 	"{{channels}} channels · {{open}} open · {{overdue}} overdue · {{done}} done in the period": "{{channels}} kênh · {{open}} việc mở · {{overdue}} quá hạn · {{done}} hoàn thành trong kỳ",
-	"{{count}} channels": "{{count}} kênh"
+	"{{count}} channels": "{{count}} kênh",
+	"Several recipients": "Nhiều người nhận",
+	"One email for all recipients uses far less of the mailbox sending limit (Microsoft 365: about 30 emails a minute).": "Gửi một email cho tất cả người nhận tốn ít lượt gửi của hộp thư hơn nhiều (Microsoft 365 giới hạn khoảng 30 email/phút).",
+	"One email, recipients hidden (Bcc)": "Một email, ẩn danh sách người nhận (Bcc)",
+	"One email, recipients visible (To)": "Một email, mọi người thấy nhau (To)",
+	"One email per recipient": "Mỗi người nhận một email riêng",
+	"Writing ahead": "Viết sẵn trước giờ gửi",
+	"Reports are queued before their send time; the AI writes the comments only while the model is not busy, so chats are not slowed down. At the send time the figures are counted again and sent with the comments written ahead.": "Báo cáo được đưa vào hàng đợi trước giờ gửi; AI chỉ viết phần nhận xét khi model đang rảnh để không làm chậm chat. Đến giờ, số liệu được tính lại tới thời điểm gửi và gửi kèm nhận xét đã viết sẵn.",
+	"Queue this many minutes before the send time": "Đưa vào hàng đợi trước giờ gửi (phút)",
+	"Reports written at the same time": "Số báo cáo viết cùng lúc (toàn hệ thống)",
+	"Model busy when more requests than this wait in its queue": "Coi model bận khi số request đang chờ lớn hơn",
+	"Or when the first token takes longer than (seconds)": "Hoặc khi chờ token đầu lâu hơn (giây, dùng khi không đọc được metrics)",
+	"Not written this many minutes after the send time: send without comments": "Quá giờ gửi bấy nhiêu phút mà chưa viết xong thì gửi không kèm nhận xét"
 }

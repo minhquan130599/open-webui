@@ -28,6 +28,13 @@ SETTINGS: list[tuple[str, str, Any]] = [
     ('reports.default_prompt', 'text', DEFAULT_PROMPT),
     ('reports.model', 'text', ''),
     ('reports.max_chars', 'int:300-10000', 1500),
+    # Queue: comments are written ahead of the send time, only while the model is not busy.
+    ('reports.prepare_minutes', 'int:5-720', 60),
+    ('reports.workers', 'int:1-4', 1),
+    ('reports.busy_waiting', 'int:0-100', 0),
+    ('reports.busy_seconds', 'int:3-120', 15),
+    ('reports.late_minutes', 'int:0-240', 10),
+    ('reports.email.mode', 'enum:bcc|to|separate', 'bcc'),
 ]
 BY_KEY = {key: (kind, default) for key, kind, default in SETTINGS}
 

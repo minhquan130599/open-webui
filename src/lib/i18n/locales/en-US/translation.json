@@ -4834,5 +4834,17 @@
 	"saved; leave empty to keep it": "",
 	"settings.admin.reports.title": "Scheduled reports",
 	"{{channels}} channels · {{open}} open · {{overdue}} overdue · {{done}} done in the period": "",
-	"{{count}} channels": ""
+	"{{count}} channels": "",
+	"Several recipients": "",
+	"One email for all recipients uses far less of the mailbox sending limit (Microsoft 365: about 30 emails a minute).": "",
+	"One email, recipients hidden (Bcc)": "",
+	"One email, recipients visible (To)": "",
+	"One email per recipient": "",
+	"Writing ahead": "",
+	"Reports are queued before their send time; the AI writes the comments only while the model is not busy, so chats are not slowed down. At the send time the figures are counted again and sent with the comments written ahead.": "",
+	"Queue this many minutes before the send time": "",
+	"Reports written at the same time": "",
+	"Model busy when more requests than this wait in its queue": "",
+	"Or when the first token takes longer than (seconds)": "",
+	"Not written this many minutes after the send time: send without comments": ""
 }

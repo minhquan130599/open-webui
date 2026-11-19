@@ -472,3 +472,27 @@ Chờ trích xuất chữ 161 giây; đọc file tới giới hạn đọc; summ
   trang khi tắt sửa OCR, ngưỡng tóm tắt sẵn khi tắt tóm tắt sẵn, % ngữ cảnh khi đặt giới hạn đọc file cố định.
 - Key, giá trị mặc định không đổi (`file_pipeline/settings.py`: thêm `section`, `advanced`, `show_if`,
   `FILE_SETTINGS_SECTIONS`; API `/retrieval/files/settings` trả thêm `sections`).
+
+## Báo cáo định kỳ: hàng đợi viết sẵn, chờ LLM rảnh, gửi một lần
+
+- Sửa lỗi gửi trùng: trước đây một worker nhận 5 lịch, giữ 15 phút cho cả 5 nhưng chạy lần lượt; LLM chậm thì lịch
+  cuối hết hạn giữ và worker khác gửi lần nữa.
+- Bảng `report_job` (migration f4c6e8a0b2d3), mỗi lần gửi của một lịch là một việc (duy nhất theo lịch + giờ gửi):
+  `queued → writing → ready → sending → sent | skipped | error`, `cancelled` khi lịch đổi.
+  - Trước giờ gửi `reports.prepare_minutes` (60) phút: đưa vào hàng đợi.
+  - Viết: tối đa `reports.workers` (1) báo cáo cùng lúc cho cả hệ thống (khóa `report_writer:N`). Trước mỗi báo cáo
+    hỏi `reports/load.py`: đọc `/metrics` của vLLM (`num_requests_waiting` > `reports.busy_waiting` = bận); không
+    đọc được metrics thì gửi 1 request 1 token, token đầu chậm hơn `reports.busy_seconds` (15 s) = bận. Bận thì không
+    viết, ghi lý do vào việc. Viết lỗi: thử lại sau 2 rồi 10 phút. Số liệu không đổi + "bỏ qua kỳ không đổi": không
+    gọi AI.
+  - Gửi: đến giờ, số liệu tính lại tới lúc gửi, ghép nhận xét viết sẵn. Chưa viết xong sau `reports.late_minutes`
+    (10) phút thì gửi số liệu kèm ghi chú chưa có nhận xét. Việc bị lỡ khi app tắt được tính trễ từ lúc vào hàng đợi.
+  - Mỗi bước giành việc bằng lease trên dòng: không gửi trùng; gửi bị cắt giữa chừng thì báo lỗi, không gửi lại.
+  - Sửa / tạm dừng / xóa lịch: bỏ việc chưa gửi, vòng sau xếp lại theo cài đặt mới.
+- Email: `reports.email.mode` = `bcc` (mặc định: 1 email / 50 người nhận, To = người tạo nếu nhận, không thì hộp thư
+  gửi), `to`, `separate`. Máy chủ giới hạn (SMTP 4xx, ngắt kết nối, Graph 429/5xx) thì chờ 30 s, 120 s rồi gửi lại;
+  SMTP trả về người nhận bị từ chối mà vẫn gửi người khác. Telegram 429 chờ `retry_after` rồi gửi lại.
+- Monitor tab Báo cáo định kỳ: bảng "Hàng đợi gửi" (trạng thái, lý do chờ, nhận xét đã viết, kết quả) và các cài đặt
+  mới; Cài đặt quản trị: mục "Viết sẵn trước giờ gửi" và chế độ gửi email.
+- Test (SQLite thật cho bảng hàng đợi, LLM / mail giả): 20/20 hàng đợi, 6/6 đo tải LLM (server vLLM giả), 8/8 gửi,
+  5/5 Telegram.

@@ -1655,6 +1655,7 @@
     ['reports.allow_outside', 'Cho thêm người nhận ngoài thành viên kênh', 'bool'],
     ['reports.email.enable', 'Gửi qua email (dùng cấu hình Email nhắc việc)', 'bool'],
     ['reports.email.internal_only', 'Chỉ gửi email trong tên miền công ty', 'bool'],
+    ['reports.email.mode', 'Email có nhiều người nhận', 'enum', [['bcc', 'Một email, ẩn người nhận (Bcc)'], ['to', 'Một email, mọi người thấy nhau (To)'], ['separate', 'Mỗi người nhận một email']]],
     ['reports.telegram.enable', 'Gửi qua Telegram', 'bool'],
     ['reports.telegram.bot_token', 'Bot token Telegram (để trống = giữ token đã lưu)', 'secret'],
     ['reports.telegram.allow_groups', 'Cho gửi vào nhóm Telegram', 'bool'],
@@ -1663,7 +1664,13 @@
     ['reports.default_prompt', 'Mẫu báo cáo mặc định (khi người tạo để trống yêu cầu)', 'textarea'],
     ['reports.model', 'Model viết báo cáo (trống = model của tracker)', 'text'],
     ['reports.max_chars', 'Độ dài tối đa phần nhận xét (ký tự)', 'int'],
+    ['reports.prepare_minutes', 'Đưa vào hàng đợi trước giờ gửi (phút)', 'int'],
+    ['reports.workers', 'Số báo cáo viết cùng lúc (toàn hệ thống)', 'int'],
+    ['reports.busy_waiting', 'Coi LLM bận khi số request đang chờ lớn hơn', 'int'],
+    ['reports.busy_seconds', 'Hoặc khi chờ token đầu lâu hơn (giây, khi không đọc được metrics)', 'int'],
+    ['reports.late_minutes', 'Quá giờ gửi bấy nhiêu phút chưa viết xong thì gửi không kèm nhận xét', 'int'],
   ];
+  const RP_JOB = { queued: ['', 'Chờ viết'], writing: ['', 'Đang viết'], ready: ['ok', 'Đã viết sẵn'], sending: ['', 'Đang gửi'], sent: ['ok', 'Đã gửi'], skipped: ['', 'Bỏ qua'], error: ['err', 'Lỗi'], cancelled: ['', 'Đã hủy'] };
   const rpTime = (ns) => (ns ? when(ns / 1e6) : '—');
 
   function rpSettingsHtml() {
@@ -1705,7 +1712,10 @@
   }
 
   async function renderReports() {
-    rp.items = (await api('/api/reports/schedules')).items || [];
+    const [schedules, queue] = await Promise.all([api('/api/reports/schedules'), api('/api/reports/queue').catch(() => ({ items: [] }))]);
+    rp.items = schedules.items || [];
+    const jobs = queue.items || [];
+    const waiting = jobs.filter((j) => ['queued', 'writing', 'ready', 'sending'].includes(j.status));
     const editing = rp.items.find((r) => r.id === rp.edit);
     const via = (c) => [c.email?.enabled ? `Email${c.email.self ? ' (người tạo)' : ''}${(c.email.to || []).length ? ` +${c.email.to.length}` : ''}` : '', c.telegram?.enabled ? 'Telegram' : ''].filter(Boolean).join(', ');
     return `${rp.note ? `<div class="card">${esc(rp.note)}</div>` : ''}
@@ -1720,7 +1730,15 @@
         { label: 'Lần tới', render: (r) => (r.enabled ? rpTime(r.next_run_at) : '—') },
         { label: 'Lần gửi gần nhất', render: (r) => { const [cls, label] = RP_STATUS[r.last_status] || ['', '—']; return `${rpTime(r.last_run_at)} ${r.last_status ? `<span class="pill ${cls}" title="${esc(r.last_error || '')}">${label}</span>` : ''}${r.last_error ? `<div class="muted" style="max-width:320px;overflow-wrap:anywhere">${esc(r.last_error)}</div>` : ''}`; } },
         { label: '', render: (r) => `<span class="row" style="gap:4px;flex-wrap:nowrap"><button class="btn" type="button" data-rp-run="${esc(r.id)}">Gửi ngay</button><button class="btn" type="button" data-rp-edit="${esc(r.id)}">Sửa</button><button class="btn" type="button" data-rp-toggle="${esc(r.id)}">${r.enabled ? 'Tạm dừng' : 'Bật lại'}</button><button class="btn" type="button" data-rp-delete="${esc(r.id)}">Xóa</button></span>` },
-      ], rp.items, 'Chưa có lịch báo cáo nào.'), 'người dùng tạo ở trang Báo cáo định kỳ trong NCS AI')}`;
+      ], rp.items, 'Chưa có lịch báo cáo nào.'), 'người dùng tạo ở trang Báo cáo định kỳ trong NCS AI')}
+      ${card(`Hàng đợi gửi (${waiting.length} chưa gửi)`, table([
+        { label: 'Báo cáo', render: (j) => `<b>${esc(j.name)}</b>` },
+        { label: 'Giờ gửi', render: (j) => rpTime(j.run_at) },
+        { label: 'Trạng thái', render: (j) => { const [cls, label] = RP_JOB[j.status] || ['', j.status]; return `<span class="pill ${cls}">${label}</span>${j.attempts > 1 ? ` <span class="muted">lần ${j.attempts}</span>` : ''}`; } },
+        { label: 'Ghi chú', render: (j) => `<div style="max-width:420px;overflow-wrap:anywhere">${esc(j.note || '')}</div>` },
+        { label: 'Nhận xét AI', render: (j) => (j.has_comment ? `<span title="${esc(j.comment || '')}">có (${rpTime(j.written_at)})</span>` : '<span class="muted">chưa</span>') },
+        { label: 'Kết quả', render: (j) => (j.result ? `${(j.result.sent || []).length} nơi nhận${(j.result.errors || []).length ? ` · <span title="${esc((j.result.errors || []).join('; '))}">${j.result.errors.length} lỗi</span>` : ''}` : '—') },
+      ], jobs, 'Hàng đợi trống.'), 'báo cáo được đưa vào trước giờ gửi, AI viết nhận xét khi LLM rảnh; số liệu tính lại lúc gửi')}`;
   }
 
   async function rpClick(b) {

@@ -240,7 +240,7 @@ def _comment_lines(text: str) -> list[str]:
     return [re.sub(r'^\s*(?:[-*•]|\d+[.)])\s*', '', line).strip() for line in (text or '').splitlines() if line.strip()]
 
 
-def email_html(name: str, owner_name: str, config: dict, data: dict, comment: str, link: str) -> str:
+def email_html(name: str, owner_name: str, config: dict, data: dict, comment: str, link: str, note: str = '') -> str:
     t = data['totals']
     stat = lambda value, label, bg, fg: (  # noqa: E731
         f'<td style="padding:4px"><div style="background:{bg};border-radius:8px;padding:10px">'
@@ -283,6 +283,8 @@ def email_html(name: str, owner_name: str, config: dict, data: dict, comment: st
             + ''.join(f'<li>{_inline(line)}</li>' for line in lines)
             + '</ul></div>'
         )
+    elif note:
+        comment_html = f'<div style="font-size:12px;color:#667085;margin-top:12px">{html.escape(note)}</div>'
     button = (
         f'<table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px 0 2px"><tr><td style="border-radius:8px;background:#101828">'
         f'<a href="{html.escape(link)}" style="display:inline-block;padding:10px 18px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none">Mở bảng tiến độ</a></td></tr></table>'
@@ -312,7 +314,7 @@ def email_html(name: str, owner_name: str, config: dict, data: dict, comment: st
 </table></td></tr></table></body></html>"""
 
 
-def telegram_text(name: str, data: dict, comment: str) -> str:
+def telegram_text(name: str, data: dict, comment: str, note: str = '') -> str:
     t = data['totals']
     out = [
         f'<b>{html.escape(name)}</b> ({_vn(data["since"])} – {_vn(data["today"])})',
@@ -322,6 +324,8 @@ def telegram_text(name: str, data: dict, comment: str) -> str:
     if lines:
         out.append('\n<b>Nhận xét</b>')
         out += [f'• {_inline(line)}' for line in lines]
+    elif note:
+        out.append(f'<i>{html.escape(note)}</i>')
     out.append('\n<b>Theo kênh</b>')
     for p in data['projects']:
         pct = f' · {p["progress"]}%' if p['progress'] is not None else ''
@@ -336,28 +340,38 @@ def telegram_text(name: str, data: dict, comment: str) -> str:
     return '\n'.join(out)
 
 
-async def build(schedule_name: str, owner, config: dict, settings: dict, last_run_at: Optional[int] = None) -> dict:
-    """Everything one send needs: data, AI comments, email and Telegram renderings."""
+async def figures(owner, config: dict, settings: dict, last_run_at: Optional[int] = None) -> tuple[dict, str]:
+    """The data counted now and its text for the AI (no AI call)."""
     data = await gather(owner, config, settings, last_run_at)
-    text = data_text(data, config.get('sections') or [])
-    try:
-        comment = await comments(schedule_name, config, settings, text) if data['projects'] else ''
-    except Exception as error:
-        log.warning('Report "%s": AI comments failed (%s)', schedule_name, error)
-        comment = ''
+    return data, data_text(data, config.get('sections') or [])
+
+
+async def render(schedule_name: str, owner, config: dict, data: dict, text: str, comment: str, note: str = '') -> dict:
+    """Email and Telegram renderings of the figures with the comments (written now or ahead of time)."""
     base = await public_url()
     link = f'{base}/my-work?mode=team' if base else ''
     subject = f'{schedule_name} – {_vn(data["since"])} đến {_vn(data["today"])}'
     return {
         'subject': subject,
-        'html': email_html(schedule_name, owner.name, config, data, comment, link),
-        'telegram': telegram_text(schedule_name, data, comment),
+        'html': email_html(schedule_name, owner.name, config, data, comment, link, note),
+        'telegram': telegram_text(schedule_name, data, comment, note),
         'link': link,
         'digest': digest(text),
         'totals': data['totals'],
         'channels': len(data['projects']),
         'comment': comment,
     }
+
+
+async def build(schedule_name: str, owner, config: dict, settings: dict, last_run_at: Optional[int] = None) -> dict:
+    """Everything one send needs, the comments written now (preview, test, send now)."""
+    data, text = await figures(owner, config, settings, last_run_at)
+    try:
+        comment = await comments(schedule_name, config, settings, text) if data['projects'] else ''
+    except Exception as error:
+        log.warning('Report "%s": AI comments failed (%s)', schedule_name, error)
+        comment = ''
+    return await render(schedule_name, owner, config, data, text, comment)
 
 
 async def owner_of(schedule) -> Optional[object]:

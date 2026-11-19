@@ -27,6 +27,16 @@ async def schedules():
     return {'items': result}
 
 
+@router.get('/api/reports/queue')
+async def queue():
+    from open_webui.monitoring.server.app import webui
+
+    result = await webui('/reports/queue', timeout=30)
+    if isinstance(result, dict) and result.get('error'):
+        raise HTTPException(502, result['error'])
+    return {'items': result}
+
+
 @router.get('/api/admin/reports/settings')
 async def get_settings(token: str = Depends(require_session)):
     from open_webui.monitoring.server.app import webui
