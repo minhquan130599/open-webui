@@ -965,12 +965,13 @@ class ConfigForm(BaseModel):
 @router.get('/files/settings')
 async def get_file_pipeline_settings(user=Depends(get_admin_user)):
     """File processing settings (OCR scoring, vision repair, structure index, summaries) with current values."""
-    from open_webui.file_pipeline.settings import FILE_SETTINGS, FILE_SETTINGS_GROUP, file_settings
+    from open_webui.file_pipeline.settings import FILE_SETTINGS, FILE_SETTINGS_GROUP, FILE_SETTINGS_SECTIONS, file_settings
 
     values = await file_settings()
     return {
         'title': FILE_SETTINGS_GROUP[1],
         'note': FILE_SETTINGS_GROUP[2],
+        'sections': [{'id': id, 'title': title, 'note': note} for id, title, note in FILE_SETTINGS_SECTIONS],
         'settings': [{**setting, 'value': values[setting['key']]} for setting in FILE_SETTINGS],
     }
 

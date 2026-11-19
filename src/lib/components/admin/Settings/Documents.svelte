@@ -170,6 +170,8 @@
 		}
 	};
 
+	let filePipeline: FilePipelineSettings;
+
 	const submitHandler = async () => {
 		if (
 			RAGConfig.CONTENT_EXTRACTION_ENGINE === 'external' &&
@@ -323,6 +325,9 @@
 		});
 		if (res) {
 			config.set(await getBackendConfig());
+		}
+		if (filePipeline && !(await filePipeline.save())) {
+			return;
 		}
 		dispatch('save');
 	};
@@ -1824,7 +1829,7 @@
 				</div>
 			</AdminSettingSection>
 
-			<FilePipelineSettings {inputClass} />
+			<FilePipelineSettings bind:this={filePipeline} {inputClass} />
 
 			<AdminSettingSection title={$i18n.t('settings.admin.documents.sections.integration.title')}>
 				<AdminSettingRow

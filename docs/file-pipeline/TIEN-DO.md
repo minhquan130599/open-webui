@@ -461,3 +461,14 @@ Chờ trích xuất chữ 161 giây; đọc file tới giới hạn đọc; summ
 - Backend: `open_webui/reports/` (bảng `report_schedule`, `report_telegram_link`, `report_lock`, migration
   e3b5d7f9a1c2); vòng chạy mỗi phút, mỗi lịch đến giờ chỉ một worker nhận (lease); một worker đọc tin bot Telegram
   (lease) để liên kết chat.
+
+## Gọn trang cài đặt xử lý file (Cài đặt → Tài liệu)
+
+- Bỏ nút "Lưu" riêng của mục Xử lý file: nút Lưu cuối trang lưu cả cài đặt Tài liệu lẫn cài đặt xử lý file; có dòng
+  nhắc số thay đổi chưa lưu.
+- 35 thiết lập chia 5 nhóm (Chung, OCR và sửa trang lỗi, Tóm tắt file, Đọc và tìm trong file khi chat, Ngữ cảnh
+  model). Mỗi nhóm chỉ hiện thiết lập chính (12 tất cả); còn lại nằm trong "Thiết lập nâng cao", có báo số thiết lập
+  đang khác mặc định. Thiết lập con ẩn khi công tắc cha tắt (`show_if`, cùng quy tắc với monitor): các thiết lập sửa
+  trang khi tắt sửa OCR, ngưỡng tóm tắt sẵn khi tắt tóm tắt sẵn, % ngữ cảnh khi đặt giới hạn đọc file cố định.
+- Key, giá trị mặc định không đổi (`file_pipeline/settings.py`: thêm `section`, `advanced`, `show_if`,
+  `FILE_SETTINGS_SECTIONS`; API `/retrieval/files/settings` trả thêm `sections`).
