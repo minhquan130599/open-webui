@@ -441,3 +441,23 @@ Chờ trích xuất chữ 161 giây; đọc file tới giới hạn đọc; summ
   lại một lần với ngữ cảnh nhỏ hơn, không tool.
 - Ghi chú giữa các bước cùng ngôn ngữ câu hỏi (cả chat thường có file đính kèm).
 - Công tắc sửa OCR bằng model vision: files.repair.enable (đã có), tắt thì không gọi model vision, vẫn tóm tắt.
+
+## Báo cáo định kỳ (19/11)
+
+- Trang mới **Báo cáo định kỳ** (`/reports`) ở sidebar ngay sau "Công việc của tôi": người dùng đặt lịch (hằng ngày /
+  hằng tuần chọn ngày / hằng tháng / tùy chỉnh nhiều mốc giờ), chọn kênh (tất cả kênh dự án đã tham gia hoặc chọn
+  từng kênh), khoảng thời gian, các mục, yêu cầu riêng cho AI (trống = mẫu mặc định của admin), gửi qua email (bản
+  thân + người nhận khác) và / hoặc Telegram (chat riêng hoặc nhóm liên kết bằng mã một lần). Có xem trước (email +
+  Telegram), gửi thử cho mình, danh sách báo cáo đang nhận và ngừng nhận.
+- Số liệu (số việc, quá hạn, hoàn thành, tiến độ) luôn lấy từ bảng tiến độ; AI chỉ viết phần nhận xét. Bỏ qua kỳ
+  không thay đổi (dấu nội dung). Chỉ đọc kênh người tạo đang tham gia (chế độ "chủ kênh": kênh họ quản lý), kiểm tra
+  lại mỗi lần gửi.
+- Cài đặt quản trị (Cài đặt → Báo cáo định kỳ, mặc định mọi người dùng được tạo): ai được tạo, người không có quyền
+  thấy gì, cho yêu cầu riêng, cho người nhận ngoài kênh, email (chỉ tên miền công ty), Telegram (bot token, kiểm tra,
+  cho nhóm), giới hạn số lịch / số kênh, mẫu mặc định, model, độ dài nhận xét; bảng tất cả lịch (gửi ngay, tạm dừng,
+  xóa).
+- Trang giám sát: tab "Báo cáo định kỳ" xem mọi lịch, sửa (tên, bật / tắt, lịch, nội dung, người nhận, yêu cầu AI),
+  gửi ngay, tạm dừng, xóa, và cài đặt (cần phiên xác thực như các cài đặt khác).
+- Backend: `open_webui/reports/` (bảng `report_schedule`, `report_telegram_link`, `report_lock`, migration
+  e3b5d7f9a1c2); vòng chạy mỗi phút, mỗi lịch đến giờ chỉ một worker nhận (lease); một worker đọc tin bot Telegram
+  (lease) để liên kết chat.

@@ -56,6 +56,7 @@
 	import AdminDocuments from '$lib/components/admin/Settings/Documents.svelte';
 	import AdminWebSearch from '$lib/components/admin/Settings/WebSearch.svelte';
 	import AdminCodeExecution from '$lib/components/admin/Settings/CodeExecution.svelte';
+	import AdminReports from '$lib/components/admin/Settings/Reports.svelte';
 	import AdminInterface from '$lib/components/admin/Settings/Interface.svelte';
 	import AdminAudio from '$lib/components/admin/Settings/Audio.svelte';
 	import AdminImages from '$lib/components/admin/Settings/Images.svelte';
@@ -172,6 +173,7 @@
 		'admin:images': $i18n.t('Tools'),
 		'admin:web': $i18n.t('Tools'),
 		'admin:code-execution': $i18n.t('Tools'),
+		'admin:reports': $i18n.t('Tools'),
 		'admin:pipelines': $i18n.t('Tools'),
 		'admin:evaluations': $i18n.t('Quality'),
 		'admin:analytics': $i18n.t('Quality'),
@@ -347,6 +349,12 @@
 			titleKey: 'settings.admin.codeExecution.title',
 			title: $i18n.t('settings.admin.codeExecution.title'),
 			searchPrefixes: ['settings.admin.codeExecution.']
+		},
+		{
+			id: 'admin:reports',
+			titleKey: 'settings.admin.reports.title',
+			title: $i18n.t('settings.admin.reports.title'),
+			searchPrefixes: ['settings.admin.reports.']
 		},
 		{
 			id: 'admin:pipelines',
@@ -939,6 +947,8 @@
 				<AdminWebSearch saveHandler={adminConfigSaveHandler} />
 			{:else if selectedTab === 'admin:code-execution'}
 				<AdminCodeExecution saveHandler={adminConfigSaveHandler} />
+			{:else if selectedTab === 'admin:reports'}
+				<AdminReports saveHandler={adminConfigSaveHandler} />
 			{:else if selectedTab === 'admin:interface'}
 				<AdminInterface
 					saveHandler={() => {

@@ -814,3 +814,129 @@ async def tracker_channel_manager(channel_id: str, form: ChannelManagerForm, x_m
     if not await team.set_manager(channel_id, form.user_id, form.manager):
         raise HTTPException(status_code=404, detail='Người này không phải thành viên kênh')
     return {'status': True}
+
+
+# ---------------------------------------------------------------- scheduled reports
+
+
+class ReportSettingsForm(BaseModel):
+    changes: dict
+
+
+class ReportScheduleForm(BaseModel):
+    name: Optional[str] = None
+    enabled: Optional[bool] = None
+    config: Optional[dict] = None
+
+
+@router.get('/reports/settings')
+async def reports_settings(x_monitor_key: Optional[str] = Header(None)):
+    _check(x_monitor_key)
+    from open_webui.reports.settings import get_settings, public
+
+    return public(await get_settings())
+
+
+@router.post('/reports/settings')
+async def reports_save_settings(form: ReportSettingsForm, x_monitor_key: Optional[str] = Header(None)):
+    _check(x_monitor_key)
+    from open_webui.reports.router import _refresh_bot
+    from open_webui.reports.settings import public, save_settings
+
+    try:
+        values = await save_settings(form.changes)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    return public(await _refresh_bot(values))
+
+
+@router.get('/reports/schedules')
+async def reports_schedules(x_monitor_key: Optional[str] = Header(None)):
+    _check(x_monitor_key)
+    from open_webui.models.channels import Channels
+    from open_webui.models.users import Users
+    from open_webui.reports.models import Schedules, TelegramLinks
+    from open_webui.reports.router import _view
+
+    schedules = await Schedules.list()
+    users = {u.id: u for u in await Users.get_users_by_user_ids(list({s.user_id for s in schedules}))} if schedules else {}
+    out = []
+    for schedule in schedules:
+        view = _view(schedule, users)
+        ids = (schedule.config or {}).get('channel_ids') or []
+        names = []
+        for channel_id in ids:
+            channel = await Channels.get_channel_by_id(channel_id)
+            names.append(channel.name if channel else channel_id)
+        view['channel_names'] = names
+        links = await TelegramLinks.by_ids(((schedule.config or {}).get('telegram') or {}).get('link_ids') or [])
+        view['telegram_chats'] = [{'id': l.id, 'title': l.chat_title, 'type': l.chat_type} for l in links]
+        out.append(view)
+    return out
+
+
+@router.put('/reports/schedules/{schedule_id}')
+async def reports_update_schedule(schedule_id: str, form: ReportScheduleForm, x_monitor_key: Optional[str] = Header(None)):
+    """Edit any schedule (name, on/off, settings); the settings are checked like the owner's own edit."""
+    _check(x_monitor_key)
+    from open_webui.reports.models import Schedules
+    from open_webui.reports.schedule import next_run, normalize_config
+
+    schedule = await Schedules.get(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail='Không có lịch báo cáo này')
+    fields = {}
+    if form.name is not None:
+        if not form.name.strip():
+            raise HTTPException(status_code=400, detail='Tên báo cáo trống')
+        fields['name'] = form.name.strip()[:200]
+    config = schedule.config
+    if form.config is not None:
+        try:
+            config = normalize_config({**schedule.config, **form.config})
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error))
+        fields['config'] = config
+    if form.enabled is not None:
+        fields['enabled'] = form.enabled
+    if form.config is not None or form.enabled:
+        fields['next_run_at'] = next_run(config)
+    await Schedules.update(schedule_id, **fields)
+    return {'status': True}
+
+
+@router.post('/reports/schedules/{schedule_id}/run')
+async def reports_run(schedule_id: str, x_monitor_key: Optional[str] = Header(None)):
+    _check(x_monitor_key)
+    from open_webui.reports import service
+    from open_webui.reports.models import Schedules
+
+    schedule = await Schedules.get(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail='Không có lịch báo cáo này')
+    return await service.run(schedule, force=True)
+
+
+@router.delete('/reports/schedules/{schedule_id}')
+async def reports_delete(schedule_id: str, x_monitor_key: Optional[str] = Header(None)):
+    _check(x_monitor_key)
+    from open_webui.reports.models import Schedules
+
+    return {'status': await Schedules.delete(schedule_id)}
+
+
+class ReportTelegramTestForm(BaseModel):
+    token: str = ''
+
+
+@router.post('/reports/telegram/test')
+async def reports_telegram_test(form: ReportTelegramTestForm, x_monitor_key: Optional[str] = Header(None)):
+    _check(x_monitor_key)
+    from open_webui.reports import telegram
+    from open_webui.reports.settings import get_settings
+
+    token = form.token or (await get_settings())['reports.telegram.bot_token']
+    try:
+        return {'ok': True, **(await telegram.bot_info(token))}
+    except telegram.TelegramError as error:
+        return {'ok': False, 'error': str(error)}

@@ -876,6 +876,10 @@ from open_webui.monitoring.server.tracker_files import router as tracker_files_r
 
 app.include_router(tracker_files_router, dependencies=[Depends(require_login)])
 
+from open_webui.monitoring.server.reports import router as reports_router  # noqa: E402
+
+app.include_router(reports_router, dependencies=[Depends(require_login)])
+
 
 @app.get('/healthz')
 async def health():

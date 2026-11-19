@@ -176,7 +176,7 @@
 (() => {
   const TABS = [
     ['overview', 'Tổng quan'], ['trace', 'Chi tiết lượt'], ['load', 'Người dùng & tải'], ['tokens', 'Token'], ['models', 'Tốc độ model'], ['tools', 'Function call'],
-    ['knowledge', 'Kiến thức'], ['files', 'Xử lý file'], ['tracker', 'Tracker'], ['system', 'Thành phần & tài nguyên'],
+    ['knowledge', 'Kiến thức'], ['files', 'Xử lý file'], ['tracker', 'Tracker'], ['reports', 'Báo cáo định kỳ'], ['system', 'Thành phần & tài nguyên'],
   ];
   const RANGES = [['1h', '1 giờ'], ['24h', '24 giờ'], ['7d', '7 ngày'], ['30d', '30 ngày'], ['90d', '90 ngày']];
   const TASK_LABELS = {
@@ -1641,7 +1641,146 @@
     fp.detail = null; load();
   }
 
-  const RENDER = { files: renderFiles, trace: renderTrace, overview: renderOverview, load: renderLoad, tokens: renderTokens, models: renderModels, tools: renderTools, knowledge: renderKnowledge, tracker: renderTracker, system: renderSystem };
+
+  // ---------- scheduled reports ----------
+  const rp = { items: [], edit: null, settings: null, note: '', telegram: '' };
+  const RP_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+  const RP_FREQ = { daily: 'Hằng ngày', weekly: 'Hằng tuần', monthly: 'Hằng tháng', custom: 'Tùy chỉnh' };
+  const RP_STATUS = { sent: ['ok', 'Đã gửi'], skipped: ['', 'Bỏ qua (không đổi)'], error: ['err', 'Lỗi'] };
+  const RP_SETTINGS = [
+    ['reports.enable', 'Bật báo cáo định kỳ', 'bool'],
+    ['reports.who', 'Ai được tạo báo cáo', 'enum', [['all', 'Mọi người dùng'], ['owners', 'Chủ kênh và quản trị viên'], ['admins', 'Chỉ quản trị viên']]],
+    ['reports.hidden_mode', 'Người không có quyền', 'enum', [['receiving', 'Chỉ thấy báo cáo họ đang nhận'], ['hidden', 'Ẩn hẳn trang Báo cáo định kỳ']]],
+    ['reports.allow_prompt', 'Cho viết yêu cầu riêng cho AI', 'bool'],
+    ['reports.allow_outside', 'Cho thêm người nhận ngoài thành viên kênh', 'bool'],
+    ['reports.email.enable', 'Gửi qua email (dùng cấu hình Email nhắc việc)', 'bool'],
+    ['reports.email.internal_only', 'Chỉ gửi email trong tên miền công ty', 'bool'],
+    ['reports.telegram.enable', 'Gửi qua Telegram', 'bool'],
+    ['reports.telegram.bot_token', 'Bot token Telegram (để trống = giữ token đã lưu)', 'secret'],
+    ['reports.telegram.allow_groups', 'Cho gửi vào nhóm Telegram', 'bool'],
+    ['reports.max_schedules', 'Số lịch tối đa mỗi người', 'int'],
+    ['reports.max_channels', 'Số kênh tối đa mỗi báo cáo', 'int'],
+    ['reports.default_prompt', 'Mẫu báo cáo mặc định (khi người tạo để trống yêu cầu)', 'textarea'],
+    ['reports.model', 'Model viết báo cáo (trống = model của tracker)', 'text'],
+    ['reports.max_chars', 'Độ dài tối đa phần nhận xét (ký tự)', 'int'],
+  ];
+  const rpTime = (ns) => (ns ? when(ns / 1e6) : '—');
+
+  function rpSettingsHtml() {
+    const v = rp.settings;
+    const field = ([key, label, type, options]) => {
+      const id = `rp-${key.replace(/\./g, '-')}`;
+      if (type === 'bool') return `<label class="row" style="gap:8px"><input type="checkbox" id="${id}" data-rp-key="${key}" ${v[key] ? 'checked' : ''}> ${esc(label)}</label>`;
+      if (type === 'enum') return `<label style="display:flex;flex-direction:column;gap:4px">${esc(label)}<select class="btn" data-rp-key="${key}">${options.map(([o, l]) => `<option value="${o}" ${v[key] === o ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
+      if (type === 'textarea') return `<label style="display:flex;flex-direction:column;gap:4px">${esc(label)}<textarea class="btn" rows="4" data-rp-key="${key}" style="text-align:left">${esc(v[key] || '')}</textarea></label>`;
+      if (type === 'secret') return `<label style="display:flex;flex-direction:column;gap:4px">${esc(label)}${v['reports.telegram.bot_token_set'] ? ' · <span class="muted">đã lưu</span>' : ''}<span class="row" style="gap:6px"><input class="btn" type="password" autocomplete="off" data-rp-key="${key}" style="min-width:280px"><button class="btn" type="button" data-rp-tg-test>Kiểm tra bot</button></span>${rp.telegram ? `<span class="muted">${esc(rp.telegram)}</span>` : ''}${v['reports.telegram.bot_username'] ? `<span class="muted">Bot: @${esc(v['reports.telegram.bot_username'])}</span>` : ''}</label>`;
+      return `<label style="display:flex;flex-direction:column;gap:4px">${esc(label)}<input class="btn" ${type === 'int' ? 'type="number"' : ''} data-rp-key="${key}" value="${esc(v[key] ?? '')}"></label>`;
+    };
+    return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">${RP_SETTINGS.map(field).join('')}</div>
+      <div class="row" style="margin-top:12px;gap:8px"><button class="btn primary" type="button" data-rp-settings-save>Lưu cài đặt</button><button class="btn" type="button" data-rp-settings-close>Đóng</button></div>`;
+  }
+
+  function rpEditHtml(r) {
+    const c = r.config || {};
+    const days = RP_DAYS.map((d, i) => `<label class="chip"><input type="checkbox" data-rp-day="${i}" ${(c.weekdays || []).includes(i) ? 'checked' : ''}> ${d}</label>`).join('');
+    const opt = (value, options) => options.map(([o, l]) => `<option value="${o}" ${String(value) === String(o) ? 'selected' : ''}>${esc(l)}</option>`).join('');
+    return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">
+      <label style="display:flex;flex-direction:column;gap:4px">Tên báo cáo<input class="btn" data-rp-f="name" value="${esc(r.name)}"></label>
+      <label class="row" style="gap:8px"><input type="checkbox" data-rp-f="enabled" ${r.enabled ? 'checked' : ''}> Đang bật</label>
+      <label style="display:flex;flex-direction:column;gap:4px">Tần suất<select class="btn" data-rp-f="frequency">${opt(c.frequency, Object.entries(RP_FREQ))}</select></label>
+      <label style="display:flex;flex-direction:column;gap:4px">Giờ gửi (nhiều mốc cách nhau dấu phẩy khi tùy chỉnh)<input class="btn" data-rp-f="times" value="${esc((c.times || []).join(', '))}"></label>
+      <div style="display:flex;flex-direction:column;gap:4px">Ngày trong tuần (hằng tuần / tùy chỉnh)<div class="row" style="gap:4px;flex-wrap:wrap">${days}</div></div>
+      <label class="row" style="gap:8px"><input type="checkbox" data-rp-f="workdays_only" ${c.workdays_only ? 'checked' : ''}> Hằng ngày: chỉ T2–T6</label>
+      <label style="display:flex;flex-direction:column;gap:4px">Ngày trong tháng (hằng tháng)<select class="btn" data-rp-f="month_day">${opt(c.month_day, [...Array.from({ length: 28 }, (_, i) => [i + 1, String(i + 1)]), [-1, 'Ngày cuối tháng']])}</select></label>
+      <label style="display:flex;flex-direction:column;gap:4px">Khoảng thời gian<select class="btn" data-rp-f="period">${opt(c.period, [['since_last', 'Từ lần gửi trước'], ['7d', '7 ngày gần nhất'], ['last_month', 'Tháng trước']])}</select></label>
+      <label class="row" style="gap:8px"><input type="checkbox" data-rp-f="skip_unchanged" ${c.skip_unchanged ? 'checked' : ''}> Bỏ qua kỳ không có thay đổi</label>
+      <div>Kênh: ${c.scope === 'pick' ? (r.channel_names || []).map((x) => `<span class="chip">#${esc(x)}</span>`).join('') : '<span class="chip">Tất cả kênh của người tạo</span>'}<div class="muted" style="font-size:12px">Người tạo đổi kênh trong trang Báo cáo định kỳ.</div></div>
+      <label class="row" style="gap:8px"><input type="checkbox" data-rp-f="email_enabled" ${c.email?.enabled ? 'checked' : ''}> Gửi email</label>
+      <label class="row" style="gap:8px"><input type="checkbox" data-rp-f="email_self" ${c.email?.self ? 'checked' : ''}> Gửi cho người tạo (${esc(r.owner?.email || '')})</label>
+      <label style="display:flex;flex-direction:column;gap:4px">Người nhận email khác (cách nhau dấu phẩy)<input class="btn" data-rp-f="email_to" value="${esc((c.email?.to || []).join(', '))}"></label>
+      <label class="row" style="gap:8px"><input type="checkbox" data-rp-f="telegram_enabled" ${c.telegram?.enabled ? 'checked' : ''}> Gửi Telegram: ${(r.telegram_chats || []).map((x) => esc(x.title)).join(', ') || '<span class="muted">chưa liên kết chat</span>'}</label>
+      <label style="display:flex;flex-direction:column;gap:4px;grid-column:1/-1">Yêu cầu riêng cho AI (trống = mẫu mặc định)<textarea class="btn" rows="3" data-rp-f="prompt" style="text-align:left">${esc(c.prompt || '')}</textarea></label>
+    </div>
+    <div class="row" style="margin-top:12px;gap:8px"><button class="btn primary" type="button" data-rp-save="${esc(r.id)}">Lưu</button><button class="btn" type="button" data-rp-close>Đóng</button></div>`;
+  }
+
+  async function renderReports() {
+    rp.items = (await api('/api/reports/schedules')).items || [];
+    const editing = rp.items.find((r) => r.id === rp.edit);
+    const via = (c) => [c.email?.enabled ? `Email${c.email.self ? ' (người tạo)' : ''}${(c.email.to || []).length ? ` +${c.email.to.length}` : ''}` : '', c.telegram?.enabled ? 'Telegram' : ''].filter(Boolean).join(', ');
+    return `${rp.note ? `<div class="card">${esc(rp.note)}</div>` : ''}
+      ${card(`Cài đặt báo cáo định kỳ ${rp.settings ? '' : '<button class="btn" type="button" data-rp-settings>Mở cài đặt</button>'}`, rp.settings ? rpSettingsHtml() : '<div class="muted">Quyền tạo báo cáo, kênh gửi (email / Telegram), giới hạn và mẫu báo cáo mặc định. Cần xác thực để xem và sửa.</div>')}
+      ${editing ? card(`Sửa: ${esc(editing.name)} <small>của ${esc(editing.owner?.name || '')}</small>`, rpEditHtml(editing)) : ''}
+      ${card(`Tất cả lịch báo cáo (${rp.items.length})`, table([
+        { label: 'Báo cáo', render: (r) => `<b>${esc(r.name)}</b>${r.enabled ? '' : ' <span class="pill">tạm dừng</span>'}` },
+        { label: 'Người tạo', render: (r) => esc(r.owner?.name || '—') },
+        { label: 'Lịch', render: (r) => esc(r.when) },
+        { label: 'Kênh', render: (r) => (r.config?.scope === 'pick' ? esc((r.channel_names || []).map((x) => '#' + x).join(', ')) : 'Tất cả kênh của người tạo') },
+        { label: 'Gửi qua', render: (r) => esc(via(r.config || {})) },
+        { label: 'Lần tới', render: (r) => (r.enabled ? rpTime(r.next_run_at) : '—') },
+        { label: 'Lần gửi gần nhất', render: (r) => { const [cls, label] = RP_STATUS[r.last_status] || ['', '—']; return `${rpTime(r.last_run_at)} ${r.last_status ? `<span class="pill ${cls}" title="${esc(r.last_error || '')}">${label}</span>` : ''}${r.last_error ? `<div class="muted" style="max-width:320px;overflow-wrap:anywhere">${esc(r.last_error)}</div>` : ''}`; } },
+        { label: '', render: (r) => `<span class="row" style="gap:4px;flex-wrap:nowrap"><button class="btn" type="button" data-rp-run="${esc(r.id)}">Gửi ngay</button><button class="btn" type="button" data-rp-edit="${esc(r.id)}">Sửa</button><button class="btn" type="button" data-rp-toggle="${esc(r.id)}">${r.enabled ? 'Tạm dừng' : 'Bật lại'}</button><button class="btn" type="button" data-rp-delete="${esc(r.id)}">Xóa</button></span>` },
+      ], rp.items, 'Chưa có lịch báo cáo nào.'), 'người dùng tạo ở trang Báo cáo định kỳ trong NCS AI')}`;
+  }
+
+  async function rpClick(b) {
+    const id = b.dataset.rpRun || b.dataset.rpEdit || b.dataset.rpToggle || b.dataset.rpDelete || b.dataset.rpSave;
+    if (b.dataset.rpSettings !== undefined) {
+      if (!(await ensureSession('xem cài đặt báo cáo định kỳ'))) return true;
+      try { rp.settings = await api('/api/admin/reports/settings', { headers: editHeaders() }); } catch (err) { rp.note = err.message; }
+      load(); return true;
+    }
+    if (b.dataset.rpSettingsClose !== undefined) { rp.settings = null; rp.telegram = ''; load(); return true; }
+    if (b.dataset.rpTgTest !== undefined) {
+      if (!(await ensureSession('kiểm tra bot Telegram'))) return true;
+      const token = document.querySelector('[data-rp-key="reports.telegram.bot_token"]')?.value || '';
+      try { const r = await api('/api/admin/reports/telegram/test', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ token }) }); rp.telegram = r.ok ? `Kết nối được bot @${r.username}` : `Lỗi: ${r.error}`; }
+      catch (err) { rp.telegram = `Lỗi: ${err.message}`; }
+      const el = b.parentElement.parentElement; const m = el.querySelector('.muted') || el.appendChild(document.createElement('span')); m.className = 'muted'; m.textContent = rp.telegram;
+      return true;
+    }
+    if (b.dataset.rpSettingsSave !== undefined) {
+      if (!(await ensureSession('lưu cài đặt báo cáo định kỳ'))) return true;
+      const changes = {};
+      document.querySelectorAll('[data-rp-key]').forEach((el) => { const key = el.dataset.rpKey; changes[key] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value; });
+      try { rp.settings = await api('/api/admin/reports/settings', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ changes }) }); rp.note = 'Đã lưu cài đặt báo cáo định kỳ.'; }
+      catch (err) { rp.note = `Không lưu được: ${err.message}`; }
+      load(); return true;
+    }
+    if (b.dataset.rpClose !== undefined) { rp.edit = null; load(); return true; }
+    if (!id) return false;
+    if (!(await ensureSession('quản lý báo cáo định kỳ'))) return true;
+    const item = rp.items.find((r) => r.id === id);
+    try {
+      if (b.dataset.rpEdit) { rp.edit = id; rp.note = ''; }
+      else if (b.dataset.rpToggle) { await api(`/api/admin/reports/schedules/${encodeURIComponent(id)}`, { method: 'PUT', headers: editHeaders(), body: JSON.stringify({ enabled: !item?.enabled }) }); }
+      else if (b.dataset.rpDelete) { if (!confirm(`Xóa lịch báo cáo "${item?.name}"? Sẽ không gửi nữa.`)) return true; await api(`/api/admin/reports/schedules/${encodeURIComponent(id)}`, { method: 'DELETE', headers: editHeaders() }); }
+      else if (b.dataset.rpRun) {
+        b.disabled = true; b.textContent = 'Đang gửi…';
+        const r = await api(`/api/admin/reports/schedules/${encodeURIComponent(id)}/run`, { method: 'POST', headers: editHeaders() });
+        rp.note = `${item?.name}: ${r.status === 'sent' ? 'đã gửi' : r.status}${(r.sent || []).length ? ` tới ${r.sent.join(', ')}` : ''}${(r.errors || []).length ? ` · lỗi: ${r.errors.join('; ')}` : ''}`;
+      } else if (b.dataset.rpSave) {
+        const f = (name) => document.querySelector(`[data-rp-f="${name}"]`);
+        const config = {
+          frequency: f('frequency').value,
+          times: f('times').value.split(/[,;\s]+/).filter(Boolean),
+          weekdays: [...document.querySelectorAll('[data-rp-day]')].filter((x) => x.checked).map((x) => +x.dataset.rpDay),
+          workdays_only: f('workdays_only').checked,
+          month_day: +f('month_day').value,
+          period: f('period').value,
+          skip_unchanged: f('skip_unchanged').checked,
+          prompt: f('prompt').value,
+          email: { ...(item?.config?.email || {}), enabled: f('email_enabled').checked, self: f('email_self').checked, to: f('email_to').value.split(/[,;\s]+/).filter(Boolean) },
+          telegram: { ...(item?.config?.telegram || {}), enabled: f('telegram_enabled').checked },
+        };
+        await api(`/api/admin/reports/schedules/${encodeURIComponent(id)}`, { method: 'PUT', headers: editHeaders(), body: JSON.stringify({ name: f('name').value, enabled: f('enabled').checked, config }) });
+        rp.edit = null; rp.note = `Đã lưu "${f('name').value}".`;
+      }
+    } catch (err) { rp.note = `Lỗi: ${err.message}`; }
+    load(); return true;
+  }
+
+  const RENDER = { files: renderFiles, trace: renderTrace, overview: renderOverview, load: renderLoad, tokens: renderTokens, models: renderModels, tools: renderTools, knowledge: renderKnowledge, tracker: renderTracker, reports: renderReports, system: renderSystem };
 
   async function load() {
     const main = $('#main');
@@ -1667,7 +1806,7 @@
   function schedule() {
     clearInterval(timer);
     // Skip a refresh while the viewer is typing (search, reveal key), so the input is not wiped.
-    if ($('#auto').checked) timer = setInterval(() => document.visibilityState === 'visible' && !document.activeElement?.matches('input, select') && !(tab === 'system' && editor.open) && !(tab === 'knowledge' && filePanels.tab.viewer) && !(tab === 'files' && fp.view) && load(), 30000);
+    if ($('#auto').checked) timer = setInterval(() => document.visibilityState === 'visible' && !document.activeElement?.matches('input, select') && !(tab === 'system' && editor.open) && !(tab === 'knowledge' && filePanels.tab.viewer) && !(tab === 'files' && fp.view) && !(tab === 'reports' && (rp.edit || rp.settings)) && load(), 30000);
   }
 
   document.addEventListener('input', (e) => {
@@ -1684,6 +1823,7 @@
     if (fpCheck) { const page = +fpCheck.dataset.fpSelect; if (fpCheck.checked) fp.selected.add(page); else fp.selected.delete(page); const btn = document.querySelector('[data-fp-repair-selected]'); if (btn) { btn.disabled = !fp.selected.size; btn.textContent = `Sửa lại ${fp.selected.size || ''} trang đã chọn`; } return; }
     const b = e.target.closest('button');
     if (!b) return;
+    if (tab === 'reports' && Object.keys(b.dataset).some((k) => k.startsWith('rp')) && (await rpClick(b))) return;
     if (b.dataset.txTeam) {
       if (!(await ensureSession('quản lý chủ kênh / người quản lý'))) return;
       try { tx.team = { ...(await api(`/api/admin/tracker/channels/${encodeURIComponent(b.dataset.txTeam)}/team`, { headers: editHeaders() })), id: b.dataset.txTeam }; }

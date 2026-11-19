@@ -477,6 +477,10 @@ async def lifespan(app: FastAPI):
         from open_webui.tracker.reminders import reminder_loop
 
         app.state.tracker_reminder_loop = asyncio.create_task(reminder_loop())
+        # Scheduled reports read the progress tables, so they run with the tracker.
+        from open_webui.reports.service import report_loop
+
+        app.state.report_loop = asyncio.create_task(report_loop())
 
     if await Config.get('models.base_models_cache'):
         try:
@@ -576,6 +580,8 @@ async def lifespan(app: FastAPI):
         app.state.file_pipeline_loop.cancel()
     if hasattr(app.state, 'tracker_reminder_loop'):
         app.state.tracker_reminder_loop.cancel()
+    if hasattr(app.state, 'report_loop'):
+        app.state.report_loop.cancel()
     if hasattr(app.state, 'perf_load_sampler'):
         app.state.perf_load_sampler.cancel()
     if hasattr(app.state, 'monitor_config_watch'):
@@ -896,6 +902,9 @@ from open_webui.monitoring import router as monitor_router
 from open_webui.tracker.config import ENABLE_PROJECT_TRACKER
 
 app.include_router(tracker_router.router, prefix='/api/v1/tracker', tags=['tracker'])
+from open_webui.reports import router as reports_router
+
+app.include_router(reports_router.router, prefix='/api/v1/reports', tags=['reports'])
 # Internal API for the separate monitor container (X-Monitor-Key); not used by the interface.
 app.include_router(monitor_router.router, prefix='/api/v1/monitor', tags=['monitor'], include_in_schema=False)
 app.include_router(chats.router, prefix='/api/v1/chats', tags=['chats'])

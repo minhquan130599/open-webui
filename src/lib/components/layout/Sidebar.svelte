@@ -107,6 +107,8 @@
 	import WorkspaceIcon from './Sidebar/icons/Workspace.svelte';
 	import HelpCircleIcon from './Sidebar/icons/HelpCircle.svelte';
 	import TaskListIcon from '../icons/TaskList.svelte';
+	import ScheduledReportIcon from '../icons/ScheduledReport.svelte';
+	import { getReportAccess } from '$lib/apis/reports';
 	import HotkeyHint from '../common/HotkeyHint.svelte';
 	import Dropdown from '../common/Dropdown.svelte';
 	import DropdownMenu from '../common/DropdownMenu.svelte';
@@ -800,6 +802,15 @@
 		return () => socketInstance?.off('connect', initChannels);
 	});
 
+	let reportsVisible = false;
+	onMount(async () => {
+		if ($config?.features?.enable_project_tracker) {
+			getReportAccess(localStorage.token)
+				.then((access) => (reportsVisible = access.show))
+				.catch(() => (reportsVisible = false));
+		}
+	});
+
 	onMount(async () => {
 		try {
 			const width = Number(localStorage.getItem('sidebarWidth'));
@@ -1265,6 +1276,34 @@
 						</div>
 					{/if}
 
+					{#if ($config?.features?.enable_project_tracker ?? false) && reportsVisible}
+						<div class="">
+							<Tooltip content={$i18n.t('Scheduled reports')} placement="right">
+								<a
+									class=" cursor-pointer flex size-8 items-center justify-center transition group"
+									href="/reports"
+									on:click={async (e) => {
+										e.stopImmediatePropagation();
+										e.preventDefault();
+										goto('/reports');
+										itemClickHandler();
+									}}
+									draggable="false"
+									aria-label={$i18n.t('Scheduled reports')}
+								>
+									<div
+										class="self-center flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition {$page
+											.url.pathname === '/reports'
+											? 'bg-black/[0.035] dark:bg-white/[0.045]'
+											: 'group-hover:bg-gray-100 dark:group-hover:bg-gray-900'}"
+									>
+										<ScheduledReportIcon className="size-4" />
+									</div>
+								</a>
+							</Tooltip>
+						</div>
+					{/if}
+
 					<div class="">
 						<Tooltip content={$i18n.t('User Guide')} placement="right">
 							<a
@@ -1563,6 +1602,33 @@
 									<div class="flex self-center translate-y-[0.5px]">
 										<div class=" self-center text-[0.8125rem] leading-5">
 											{$i18n.t('My work')}
+										</div>
+									</div>
+								</a>
+							</div>
+						{/if}
+
+						{#if ($config?.features?.enable_project_tracker ?? false) && reportsVisible}
+							<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
+								<a
+									id="sidebar-reports-button"
+									class="grow flex items-center space-x-2 rounded-xl px-2 py-1.5 transition {$page
+										.url.pathname === '/reports'
+										? ($settings?.highContrastMode ?? false)
+											? 'bg-black/[0.035] dark:bg-white/[0.06]'
+											: 'bg-black/[0.035] dark:bg-white/[0.045]'
+										: 'hover:bg-gray-100 dark:hover:bg-gray-900'}"
+									href="/reports"
+									on:click={itemClickHandler}
+									draggable="false"
+									aria-label={$i18n.t('Scheduled reports')}
+								>
+									<div class="self-center flex size-4 shrink-0 items-center justify-center">
+										<ScheduledReportIcon className="size-4" />
+									</div>
+									<div class="flex self-center translate-y-[0.5px]">
+										<div class=" self-center text-[0.8125rem] leading-5">
+											{$i18n.t('Scheduled reports')}
 										</div>
 									</div>
 								</a>
