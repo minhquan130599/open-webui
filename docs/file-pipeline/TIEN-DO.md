@@ -417,3 +417,27 @@ Bỏ bước "mô tả bảng" (chọn sheet, dòng tiêu đề, vai trò cột)
   hoặc chữ cái) và dòng, trả giá trị ô kèm số dòng, là cách đọc / kiểm tra đọc xlsx theo ô; open_in_terminal dành cho
   code trên file gốc (pandas, công thức, điền mẫu), file chưa có trong terminal trước lệnh này; hướng dẫn khối file:
   lệnh terminal không thấy file không có nghĩa file không đọc được.
+
+## Tóm tắt song song với OCR, giới hạn thời gian, chặn tràn ngữ cảnh (19/11)
+
+Trace production f3ad7eeb (18/11, so sánh hồ sơ cấp độ 2 với TCVN 14423 / NĐ 331): 2.206 giây, không có câu trả lời.
+Chờ trích xuất chữ 161 giây; đọc file tới giới hạn đọc; summarize_chat_file tóm tắt cả file ngay trong câu trả lời
+1.378 giây rồi 421 giây (quá 300 giây chờ bản nền thì tự tóm tắt lại, trùng với bản nền); lần gọi cuối 61.656 token
++ kết quả tóm tắt vượt ngữ cảnh 64.000 nên RunPod trả HTTP 400 và câu trả lời chết. Ngưỡng thu gọn ngữ cảnh mặc
+định 80.000 token, lớn hơn ngữ cảnh model, nên không bao giờ thu gọn.
+
+- Tóm tắt từng phần lưu riêng trên file (summary_parts, theo chữ của phần): một phần chỉ gửi model một lần. PDF chia
+  theo dải trang cố định (summary_plan, lập một lần), sửa một trang chỉ làm lại phần chứa trang đó.
+- Xử lý nền: trong lúc sửa OCR, các phần có trang đã ổn được tóm tắt ngay; lập chỉ mục và tóm tắt cuối chạy cùng
+  lúc. Job {"summary_only": true} chỉ tóm tắt tiếp phần còn lại.
+- summarize_chat_file: không bao giờ tóm tắt trùng với bản nền đang chạy; tối đa files.summary.wait_seconds (mặc
+  định 150 giây) mỗi câu trả lời, hết giờ thì trả các phần đã có (complete=false, ghi trang chưa có), phần đang chạy
+  tiếp và được lưu, rồi xếp job tóm tắt tiếp. Kết quả tóm tắt tính vào giới hạn đọc.
+- Cấu hình ngữ cảnh model (không cần sửa code khi đổi model): model.context_tokens (64.000), model.answer_reserve_tokens,
+  model.chars_per_token, model.image_tokens; giới hạn đọc file = 0 thì tự tính (files.read_budget_pct, 35%); ngưỡng
+  thu gọn ngữ cảnh tối đa 65% ngữ cảnh model.
+- Tool loop: trước mỗi lần gọi model, ước tính token; quá thì bỏ ảnh trang cũ, rút gọn kết quả tool cũ, cắt kết quả
+  mới nhất cho vừa; gần đầy (90%) thì dừng gọi tool, buộc viết câu trả lời; nếu vẫn bị từ chối vì quá dài thì gọi
+  lại một lần với ngữ cảnh nhỏ hơn, không tool.
+- Ghi chú giữa các bước cùng ngôn ngữ câu hỏi (cả chat thường có file đính kèm).
+- Công tắc sửa OCR bằng model vision: files.repair.enable (đã có), tắt thì không gọi model vision, vẫn tóm tắt.

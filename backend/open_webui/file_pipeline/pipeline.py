@@ -7,6 +7,11 @@
 4. index   the file's search chunks are rebuilt by article/section with their location and page.
 5. summary large files get their whole-file summary computed ahead, in the same cache the chat tool reads.
 
+The summary does not wait for the other stages: while pages are repaired, the parts whose pages are already final
+are summarized (each part is kept on its own), and the index and the rest of the summary run together at the end,
+so the final summary only sends the parts that changed. A job queued with {"summary_only": true} (an answer that
+could not wait for the whole summary) only finishes the summary.
+
 Every stage is safe to repeat: a job queued again re-runs from the start and keeps earlier repairs while the
 file text is the one this pipeline built.
 """
@@ -137,6 +142,17 @@ async def _page_rows(file, content: str, structure: dict, min_score: int, keep_e
     return await FilePages.list(file.id)
 
 
+def _repair_targets(rows: list, settings: dict, only_pages: Optional[list], force: bool) -> list:
+    """Page rows the repair stage sends to the vision model."""
+    if only_pages:
+        targets = [row for row in rows if row.page in set(only_pages)]
+    else:
+        # A manual re-run also retries pages a previous repair could not make good.
+        retry = ('low', 'unverified', 'failed') if force else ('low',)
+        targets = [row for row in rows if row.status in retry]
+    return targets[: settings['files.repair.max_pages']]
+
+
 async def _repair_pages(
     job: Job,
     file,
@@ -151,13 +167,7 @@ async def _repair_pages(
     from open_webui.tracker.llm import generate_text
 
     min_score = settings['files.ocr.min_score']
-    if only_pages:
-        targets = [row for row in rows if row.page in set(only_pages)]
-    else:
-        # A manual re-run also retries pages a previous repair could not make good.
-        retry = ('low', 'unverified', 'failed') if force else ('low',)
-        targets = [row for row in rows if row.status in retry]
-    targets = targets[: settings['files.repair.max_pages']]
+    targets = _repair_targets(rows, settings, only_pages, force)
     if not targets:
         return 0
     pdf_path = await asyncio.to_thread(Storage.get_file, file.path)
@@ -320,8 +330,18 @@ async def _index(app, file, content: str, structure: dict, settings: dict) -> in
     return len(docs)
 
 
-async def _summarize(job: Job, file, structure: dict, settings: dict) -> bool:
-    from open_webui.file_pipeline.summary import cached_summary, store_summary, summarize_file
+async def _summarize(
+    job: Job, file, structure: dict, settings: dict, ready=None, parts_only: bool = False
+) -> bool:
+    """Whole-file summary (or, with parts_only, the parts whose pages are ready), reusing parts made before."""
+    from open_webui.file_pipeline.summary import (
+        cached_parts,
+        cached_summary,
+        ensure_plan,
+        store_part,
+        store_summary,
+        summarize_file,
+    )
     from open_webui.tracker.llm import generate_text
 
     if cached_summary(file, None):
@@ -350,9 +370,16 @@ async def _summarize(job: Job, file, structure: dict, settings: dict) -> bool:
         ratio_pct=settings['files.summary.ratio_pct'],
         min_chars=settings['files.summary.min_chars'],
         emit=emit,
+        plan=await ensure_plan(file, structure, settings['files.summary.segment_chars']),
+        part_cache=cached_parts(file),
+        save_part=lambda key, text: store_part(file.id, key, text),
+        ready=ready,
+        parts_only=parts_only,
     )
-    await store_summary(file, None, result)
-    return True
+    if result.get('complete', True) and not parts_only:
+        await store_summary(file, None, result)
+        return True
+    return False
 
 
 async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
@@ -374,6 +401,34 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
         previous = await FileJobs.get(file_id)
         rebuilt_hash = ((previous.stats or {}) if previous else {}).get('rebuilt_hash')
         job.stats = {'chars': len(content), 'pdf': pdf}
+        spreadsheet = is_spreadsheet(file.filename, (file.meta or {}).get('content_type'))
+        # Spreadsheets get no prose summary: rows flattened into text make a slow, useless one; they are read
+        # with query_table and their task tables go to the tracker row by row.
+        wants_summary = not spreadsheet and (
+            bool(options.get('summary_only'))
+            or (settings['files.summary.precompute'] and len(content) >= settings['files.summary.precompute_min_chars'])
+        )
+
+        async def summary_stage(current_file, current_structure) -> None:
+            """5. summary: optional, the chat tool can still summarize on demand, so a failure does not fail the job."""
+            started = time.perf_counter()
+            try:
+                if await _summarize(job, current_file, current_structure, settings):
+                    job.stats['summary_ms'] = _ms(started)
+            except Exception as error:
+                log.warning('File %s: summary not precomputed (%s)', file_id, error)
+                job.stats['summary_error'] = f'{type(error).__name__}: {error}'[:500]
+                job.stats['summary_ms'] = _ms(started)
+
+        if options.get('summary_only'):
+            # An answer could not wait for the whole summary: finish it, keep the stats of the last full run.
+            job.stats = {**((previous.stats or {}) if previous else {}), **job.stats}
+            if wants_summary:
+                await job.stage('summary', 0, 'Tóm tắt tiếp phần còn lại')
+                await summary_stage(file, structure)
+            job.stats['total_ms'] = _ms(started_all)
+            await FileJobs.finish(file_id, lease_id, 'done', job.stats)
+            return
 
         # 1. pages
         rows = []
@@ -392,13 +447,32 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
             job.stats['low_pages'] = sum(row.status == 'low' for row in rows)
             job.stats['pages_ms'] = _ms(started)
 
-        # 2. repair
+        # 2. repair, with the summary of the parts whose pages are already final at the same time
         changed = 0
         if rows and settings['files.repair.enable'] and not options.get('rebuild'):
             started = time.perf_counter()
-            changed = await _repair_pages(
-                job, file, rows, settings, options.get('pages'), bool(options.get('force')), engine
-            )
+            targets = {row.page for row in _repair_targets(rows, settings, options.get('pages'), bool(options.get('force')))}
+            early = None
+            if wants_summary and targets:
+
+                async def early_parts() -> None:
+                    started_early = time.perf_counter()
+                    try:
+                        await _summarize(
+                            job, file, structure, settings, ready=lambda pages: not targets & set(pages), parts_only=True
+                        )
+                    except Exception as error:
+                        log.warning('File %s: early summary parts failed (%s)', file_id, error)
+                    job.stats['summary_early_ms'] = _ms(started_early)
+
+                early = asyncio.create_task(early_parts())
+            try:
+                changed = await _repair_pages(
+                    job, file, rows, settings, options.get('pages'), bool(options.get('force')), engine
+                )
+            finally:
+                if early:
+                    await early
             job.stats['repaired_pages'] = changed
             job.stats['repair_ms'] = _ms(started)
             rows = await FilePages.list(file_id)
@@ -427,30 +501,28 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
             except Exception as error:
                 log.warning('File %s: no table profile (%s)', file_id, error)
 
-        # 4. index
-        if changed or options.get('pages') or options.get('rebuild') or settings['files.chunk.by_structure']:
+        # 4. index and 5. summary together: the index uses the embedding service, the summary the model.
+        index_needed = bool(changed or options.get('pages') or options.get('rebuild') or settings['files.chunk.by_structure'])
+
+        async def index_stage() -> None:
             started = time.perf_counter()
-            await job.stage('index', 0, 'Lập chỉ mục theo Chương/Mục/Điều')
             job.stats['chunks'] = await _index(app, file, content, structure, settings)
             job.stats['index_ms'] = _ms(started)
 
-        # 5. summary: optional, the chat tool can still summarize on demand, so a failure does not fail the job.
-        # Spreadsheets get no prose summary: rows flattened into text make a slow, useless one; they are read
-        # with query_table and their task tables go to the tracker row by row.
-        if (
-            settings['files.summary.precompute']
-            and len(content) >= settings['files.summary.precompute_min_chars']
-            and not is_spreadsheet(file.filename, (file.meta or {}).get('content_type'))
-        ):
-            started = time.perf_counter()
-            await job.stage('summary', 0, 'Tóm tắt sẵn')
-            try:
-                if await _summarize(job, file, structure, settings):
-                    job.stats['summary_ms'] = _ms(started)
-            except Exception as error:
-                log.warning('File %s: summary not precomputed (%s)', file_id, error)
-                job.stats['summary_error'] = f'{type(error).__name__}: {error}'[:500]
-                job.stats['summary_ms'] = _ms(started)
+        stages = []
+        if index_needed:
+            stages.append(index_stage())
+        if wants_summary:
+            stages.append(summary_stage(file, structure))
+        if stages:
+            label = ' + '.join(
+                name for name, used in (('Lập chỉ mục theo Chương/Mục/Điều', index_needed), ('Tóm tắt sẵn', wants_summary)) if used
+            )
+            await job.stage('index' if index_needed else 'summary', 0, label)
+            results = await asyncio.gather(*stages, return_exceptions=True)
+            for result in results:
+                if isinstance(result, BaseException):
+                    raise result
 
         job.stats['total_ms'] = _ms(started_all)
         await FileJobs.finish(file_id, lease_id, 'done', job.stats)

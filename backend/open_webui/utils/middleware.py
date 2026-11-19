@@ -6465,19 +6465,73 @@ async def streaming_chat_response_handler(response, ctx):
                                 extra_params=extra_params,
                             )
 
-                        final_answer_requested = bool(stop_reason) or (
-                            max_tool_call_iterations is not None and tool_call_iterations >= max_tool_call_iterations
+                        # Keep the request inside the model's context (model.* file settings): tool results
+                        # are shortened when they would not fit, and a nearly full context ends the tool use so
+                        # the answer is written from what was read instead of the next call being refused.
+                        from open_webui.file_pipeline.settings import file_settings
+                        from open_webui.utils import context_fit
+
+                        fit_limits = context_fit.limits(await file_settings())
+                        new_form_data['messages'], _ = context_fit.fit(
+                            new_form_data.get('messages') or [],
+                            fit_limits['budget'],
+                            fit_limits['chars_per_token'],
+                            fit_limits['image_tokens'],
+                            new_form_data.get('tools'),
+                        )
+                        context_full = (
+                            context_fit.estimate(
+                                new_form_data['messages'],
+                                fit_limits['chars_per_token'],
+                                fit_limits['image_tokens'],
+                                new_form_data.get('tools'),
+                            )
+                            > fit_limits['budget'] * 0.9
+                        )
+
+                        final_answer_requested = (
+                            bool(stop_reason)
+                            or context_full
+                            or (max_tool_call_iterations is not None and tool_call_iterations >= max_tool_call_iterations)
                         )
                         if final_answer_requested:
                             new_form_data = final_answer_payload(new_form_data)
                         new_form_data = normalize_messages_for_model(new_form_data)
 
-                        res = await generate_chat_completion(
-                            request,
-                            new_form_data,
-                            user,
-                            bypass_system_prompt=True,
-                        )
+                        try:
+                            res = await generate_chat_completion(
+                                request,
+                                new_form_data,
+                                user,
+                                bypass_system_prompt=True,
+                            )
+                            context_refused = getattr(res, 'status_code', 200) >= 400 and context_fit.is_context_error(
+                                get_response_error_detail(res)
+                            )
+                        except Exception as error:
+                            if not context_fit.is_context_error(error):
+                                raise
+                            context_refused = True
+                        if context_refused:
+                            # The estimate was short of the provider's count: answer once more from a smaller
+                            # context, without tools, rather than ending with no answer.
+                            log.warning('Tool loop: request refused as too long; retrying smaller, without tools')
+                            smaller, _ = context_fit.fit(
+                                new_form_data.get('messages') or [],
+                                int(fit_limits['budget'] * 0.7),
+                                fit_limits['chars_per_token'],
+                                fit_limits['image_tokens'],
+                            )
+                            retry_form_data = {**new_form_data, 'messages': smaller}
+                            if not final_answer_requested:
+                                retry_form_data = final_answer_payload(retry_form_data)
+                            new_form_data = normalize_messages_for_model(retry_form_data)
+                            res = await generate_chat_completion(
+                                request,
+                                new_form_data,
+                                user,
+                                bypass_system_prompt=True,
+                            )
 
                         if isinstance(res, StreamingResponse):
                             # Reset response-relative output indices; keep prior output as the UI history prefix.

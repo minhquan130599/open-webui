@@ -47,9 +47,10 @@ FILE_SETTINGS: list[dict] = [
      'default': True},
     {'key': 'files.summary.precompute_min_chars', 'label': 'Tóm tắt sẵn khi file dài từ (ký tự)', 'type': 'int',
      'min': 0, 'max': 10_000_000, 'default': 30_000},
-    {'key': 'files.summary.wait_seconds', 'label': 'Chờ bản tóm tắt nền khi được hỏi (giây)', 'type': 'int',
-     'min': 0, 'max': 1800, 'default': 300,
-     'help': 'Khi đang tóm tắt sẵn file mà người dùng yêu cầu tóm tắt: chờ kết quả đó thay vì tóm tắt lại lần nữa.'},
+    {'key': 'files.summary.wait_seconds', 'label': 'Thời gian tối đa tóm tắt trong một câu trả lời (giây)', 'type': 'int',
+     'min': 10, 'max': 1800, 'default': 150,
+     'help': 'Model cần tóm tắt file trong lúc trả lời: dùng ngay các phần đã tóm tắt sẵn, chờ / tóm tắt phần còn lại '
+             'tối đa bấy nhiêu giây, rồi trả lời từ phần đã có; phần còn lại tóm tắt tiếp chạy nền.'},
     {'key': 'files.summary.model', 'label': 'Model tóm tắt nền', 'type': 'text',
      'default': '',
      'help': 'ID model của nhà cung cấp cho tóm tắt chạy nền. Trống = model của tracker.'},
@@ -75,8 +76,25 @@ FILE_SETTINGS: list[dict] = [
      'min': 0, 'max': 500_000, 'default': 45_000,
      'help': 'Tổng ký tự các file của một tin nhắn. Nhỏ hơn mức này thì model đọc ngay, không cần gọi tool. 0 = tắt.'},
     {'key': 'files.read_budget_chars', 'label': 'Giới hạn đọc file trong một câu trả lời (ký tự)', 'type': 'int',
-     'min': 0, 'max': 5_000_000, 'default': 60_000,
-     'help': 'Tổng ký tự view_file và query_chat_files trả về trong một câu trả lời. 0 = không giới hạn.'},
+     'min': 0, 'max': 5_000_000, 'default': 0,
+     'help': 'Tổng ký tự view_file, query_chat_files và summarize_chat_file trả về trong một câu trả lời. '
+             '0 = tự tính theo ngữ cảnh model (mục "Ngữ cảnh model" bên dưới).'},
+    {'key': 'files.read_budget_pct', 'label': 'Phần ngữ cảnh dành cho chữ đọc từ file (%)', 'type': 'int',
+     'min': 10, 'max': 90, 'default': 35,
+     'help': 'Khi giới hạn đọc file = 0: giới hạn = (ngữ cảnh − phần dành cho câu trả lời) × ký tự/token × % này.'},
+    {'key': 'model.context_tokens', 'label': 'Ngữ cảnh model: số token tối đa của model trả lời', 'type': 'int',
+     'min': 4000, 'max': 2_000_000, 'default': 64_000,
+     'help': 'Bằng max_model_len của model (vLLM). Đổi khi nâng model lên ngữ cảnh lớn hơn: giới hạn đọc file và '
+             'mức cắt bớt ngữ cảnh tự tính theo số này, không cần sửa code.'},
+    {'key': 'model.answer_reserve_tokens', 'label': 'Ngữ cảnh model: token dành cho câu trả lời', 'type': 'int',
+     'min': 500, 'max': 200_000, 'default': 6_000,
+     'help': 'Giữ trống cho model viết câu trả lời; phần còn lại mới dùng cho tin nhắn, file và kết quả tool.'},
+    {'key': 'model.chars_per_token', 'label': 'Ngữ cảnh model: số ký tự ước tính mỗi token', 'type': 'int',
+     'min': 1, 'max': 8, 'default': 3,
+     'help': 'Dùng để ước tính số token. Nhỏ hơn = ước tính dư, an toàn hơn (tiếng Việt thường 3).'},
+    {'key': 'model.image_tokens', 'label': 'Ngữ cảnh model: token ước tính mỗi ảnh', 'type': 'int',
+     'min': 100, 'max': 20_000, 'default': 2_500,
+     'help': 'Ảnh trang PDF gửi model (view_pdf_page) chiếm khoảng bấy nhiêu token.'},
     {'key': 'files.query_max_chars', 'label': 'Ký tự tối đa mỗi lần tìm trong file', 'type': 'int', 'min': 1000,
      'max': 200_000, 'default': 12_000},
     {'key': 'files.verify.enable', 'label': 'Kiểm tra số liệu trong câu trả lời với tài liệu', 'type': 'bool',
@@ -104,6 +122,14 @@ async def file_settings() -> dict:
     values = {key: stored[key] if stored.get(key) is not None else s['default'] for key, s in FILE_SETTINGS_BY_KEY.items()}
     _cache = (time.monotonic() + _CACHE_SECONDS, values)
     return values
+
+
+def read_budget_chars(settings: dict) -> int:
+    """Characters of file text one answer may read: the set value, or a share of the model's context."""
+    if settings['files.read_budget_chars']:
+        return settings['files.read_budget_chars']
+    usable = max(settings['model.context_tokens'] - settings['model.answer_reserve_tokens'], 1000)
+    return usable * settings['model.chars_per_token'] * settings['files.read_budget_pct'] // 100
 
 
 def reset_file_settings_cache() -> None:

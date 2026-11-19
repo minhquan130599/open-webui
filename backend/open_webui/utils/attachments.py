@@ -179,6 +179,10 @@ def format_attachment_block(
             'Pages listed in low_quality_pages have unreliable OCR text; call view_pdf_page to see the page image.'
         )
     guide.append(
+        'Write everything the user sees, including short notes between tool calls, in the language of the '
+        "user's question."
+    )
+    guide.append(
         'When you answer from these files, cite the page after each fact, like [tr.12] (add the article, e.g. '
         '[tr.12, Điều 5], when there is one), quote numbers and dates exactly as written, and say plainly when '
         'the files do not contain the answer instead of guessing.'

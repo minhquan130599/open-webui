@@ -230,10 +230,20 @@ async def _load_config() -> dict:
         'chat.context_compaction.prompt_template',
     )
     token_threshold = _parse_positive_int(values.get('chat.context_compaction.token_threshold')) or 80000
+    token_cap = _parse_positive_int(values.get('chat.context_compaction.token_cap')) or token_threshold
+    # A threshold above the model's own context (model.context_tokens, file settings) would never be reached
+    # before the provider refuses the request: compact at 65% of that context at the latest.
+    try:
+        from open_webui.file_pipeline.settings import file_settings
+
+        context_cap = (await file_settings())['model.context_tokens'] * 65 // 100
+        token_threshold, token_cap = min(token_threshold, context_cap), min(token_cap, context_cap)
+    except Exception:
+        pass
     return {
         'enable': bool(values.get('chat.context_compaction.enable', False)),
         'token_threshold': token_threshold,
-        'token_cap': _parse_positive_int(values.get('chat.context_compaction.token_cap')) or token_threshold,
+        'token_cap': token_cap,
         'retention_percentage': _clamp_retention_percentage(values.get('chat.context_compaction.retention_percentage')),
         'prompt_template': values.get('chat.context_compaction.prompt_template', '') or '',
     }
