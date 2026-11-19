@@ -1,5 +1,7 @@
 """Report schedules, Telegram chats linked to users, and a named lease (one Telegram poller across workers)."""
 
+from __future__ import annotations
+
 import secrets
 import time
 import uuid
