@@ -1,4 +1,9 @@
 {
+	"Mark as reference only": "Đánh dấu chỉ để tham khảo",
+	"Remove mark": "Gỡ đánh dấu",
+	"Reference only: no task updates": "Chỉ để tham khảo: không cập nhật đầu việc",
+	"marked from chat": "đánh dấu từ tin nhắn",
+	"Reading this file again to update tasks…": "Đang đọc lại tệp để cập nhật đầu việc…",
 	"- usage not recorded": "- mức sử dụng chưa được ghi nhận",
 	"- usage not recorded · * partial usage": "- mức sử dụng chưa được ghi nhận · * mức sử dụng được ghi nhận một phần",
 	"-1 for no limit, or a positive integer for a specific limit": "-1 không giới hạn, hoặc một số nguyên dương cho giới hạn cụ thể",

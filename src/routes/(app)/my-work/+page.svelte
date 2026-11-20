@@ -767,11 +767,7 @@
 											>
 										</div>
 										{#if mode === 'mine'}
-											{@const assigned = items.filter((i) => !isOrphan(i))}
-											{#if assigned.length}
-												{@render grouped(assigned, channel.id)}
-											{/if}
-											{@render orphanBlock(channel, items)}
+											{@render grouped(items, channel.id)}
 										{:else}
 											{@render orphanBlock(channel, items)}
 											{#each members(items) as member (member.key)}

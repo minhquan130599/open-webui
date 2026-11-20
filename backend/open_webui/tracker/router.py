@@ -7,10 +7,10 @@ from pydantic import BaseModel
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.models.channels import Channels
 from open_webui.models.users import Users
-from open_webui.tracker import mywork, reminders, team
+from open_webui.tracker import media, mywork, reminders, team
 from open_webui.tracker.config import ENABLE_PROJECT_TRACKER
 from open_webui.tracker.models import TrackerItemModel, Trackers
-from open_webui.tracker.schema import load_state, render_state_markdown
+from open_webui.tracker.schema import drop_marked_files, load_state, render_state_markdown
 from open_webui.utils.auth import get_admin_user, get_verified_user
 
 router = APIRouter()
@@ -114,6 +114,67 @@ async def reopen_work_item(channel_id: str, item_id: str, user=Depends(get_verif
     if not await Trackers.reopen_item(channel_id, item_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND)
     return {'status': True}
+
+
+class FileMarkForm(BaseModel):
+    message_id: str
+    # True: mark the file as reference material (its items are dropped); False: unmark it (read again).
+    skip: bool
+
+
+async def _file_marks_response(channel, user) -> dict:
+    row = await Trackers.get_state(channel.id)
+    marks = (row.file_marks if row else None) or {}
+    return {
+        'channel_id': channel.id,
+        'marks': marks.get('skip') or {},
+        'pending': list((marks.get('reread') or {}).keys()),
+        'can_manage': await _can_manage(channel, user),
+    }
+
+
+@router.get('/channels/{channel_id}/file-marks')
+async def get_file_marks(channel_id: str, user=Depends(get_verified_user)):
+    """Files marked as reference material (no task updates) and files being read again after an unmark."""
+    channel = await _get_readable_channel(channel_id, user)
+    return await _file_marks_response(channel, user)
+
+
+@router.post('/channels/{channel_id}/files/{file_id}/mark')
+async def mark_file(channel_id: str, file_id: str, form: FileMarkForm, user=Depends(get_verified_user)):
+    """Mark an attached file as reference material, or unmark it. Its uploader and the channel's managers may do so."""
+    channel = await _get_readable_channel(channel_id, user)
+    message = next(iter(await Trackers.get_messages_by_ids(channel_id, {form.message_id})), None)
+    files = [f for f in ((message.data or {}).get('files') or []) if isinstance(f, dict)] if message else []
+    entry = next((f for f in files if media._file_id(f) == file_id), None)
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND)
+    if message.user_id != user.id and not await _can_manage(channel, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+
+    await Trackers.mark_dirty(channel_id, force=True)
+    if form.skip:
+        mark = {
+            'msg': message.id,
+            'ten': str(entry.get('name') or entry.get('filename') or 'tệp'),
+            'boi': user.id,
+            'boi_ten': user.name,
+            'tu': 'nguoi',
+            'luc': time.time_ns(),
+        }
+        await Trackers.set_file_mark(channel_id, file_id, mark, message.id)
+        # Its items go at once; the next run keeps them out too.
+        row = await Trackers.get_state(channel_id)
+        skip = ((row.file_marks if row else None) or {}).get('skip') or {}
+
+        def drop(state):
+            drop_marked_files(state, skip)
+            return True
+
+        await Trackers.edit_state(channel_id, drop)
+    else:
+        await Trackers.set_file_mark(channel_id, file_id, None, message.id)
+    return await _file_marks_response(channel, user)
 
 
 class RolesForm(BaseModel):

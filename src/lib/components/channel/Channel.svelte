@@ -14,6 +14,7 @@
 		channelId as _channelId,
 		showSidebar,
 		socket,
+		trackerFileMarks,
 		user
 	} from '$lib/stores';
 	import { getChannelById, getChannelMessages, sendMessage } from '$lib/apis/channels';
@@ -27,7 +28,7 @@
 	import EllipsisVertical from '../icons/EllipsisVertical.svelte';
 	import Thread from './Thread.svelte';
 	import ProjectProgress from './ProjectProgress.svelte';
-	import { getTrackerState } from '$lib/apis/tracker';
+	import { getFileMarks, getTrackerState } from '$lib/apis/tracker';
 	import i18n from '$lib/i18n';
 	import Spinner from '../common/Spinner.svelte';
 
@@ -106,8 +107,13 @@
 	const checkTracker = async (channelId: string) => {
 		trackerAvailable = false;
 		showProgress = false;
+		trackerFileMarks.set(null);
 		const state = await getTrackerState(localStorage.token, channelId).catch(() => null);
 		trackerAvailable = state !== null && channelId === id;
+		if (trackerAvailable) {
+			const marks = await getFileMarks(localStorage.token, channelId).catch(() => null);
+			if (channelId === id) trackerFileMarks.set(marks);
+		}
 	};
 
 	onNavigate(({ from, to }) => {

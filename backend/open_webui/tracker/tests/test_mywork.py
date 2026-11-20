@@ -167,9 +167,8 @@ async def test_board_groups_by_channel_with_unassigned_items():
     )
 
     mine = await mywork.board(owner, 'mine')
-    names = {i['ten']: i for i in mine['items'] if i['channel_id'] == channel.id}
-    assert set(names) == {'Việc chưa giao'}, "owner sees unassigned items, not other people's"
-    assert names['Việc chưa giao']['can_manage'] and mine['can_view_team']
+    assert [i for i in mine['items'] if i['channel_id'] == channel.id] == [], "owner's own view has no one else's or unassigned items"
+    assert mine['can_view_team']
 
     member_mine = await mywork.board(member, 'mine')
     member_items = [i for i in member_mine['items'] if i['channel_id'] == channel.id]

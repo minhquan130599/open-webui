@@ -21,9 +21,10 @@
 
 	import { copyToClipboard, formatDate, removeAllDetails } from '$lib/utils';
 
-	import { settings, user, shortCodesToEmojis } from '$lib/stores';
+	import { settings, user, shortCodesToEmojis, trackerFileMarks } from '$lib/stores';
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { getMessageData } from '$lib/apis/channels';
+	import { setFileMark } from '$lib/apis/tracker';
 
 	import AppChannelReply from '../AppChannelReply.svelte';
 	import { getAppMessageText } from '$lib/utils/apps';
@@ -121,6 +122,16 @@
 	};
 
 	let edit = false;
+
+	const toggleFileMark = async (fileId: string, skip: boolean) => {
+		try {
+			trackerFileMarks.set(
+				await setFileMark(localStorage.token, channel.id, fileId, message.id, skip)
+			);
+		} catch (error) {
+			toast.error(`${error}`);
+		}
+	};
 	let editButtonElement: HTMLButtonElement;
 	let editedContent = null;
 	let showDeleteConfirmDialog = false;
@@ -637,6 +648,38 @@
 											size={file?.size}
 											small={true}
 										/>
+										{#if $trackerFileMarks && file.id}
+											{@const mark = $trackerFileMarks.marks[file.id]}
+											{@const pending = $trackerFileMarks.pending.includes(file.id)}
+											{@const canMark = $trackerFileMarks.can_manage || message.user_id === $user?.id}
+											<div
+												class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-gray-400"
+											>
+												{#if pending}
+													<span>{$i18n.t('Reading this file again to update tasks…')}</span>
+												{:else if mark}
+													<span
+														class="rounded-md bg-gray-100 px-1.5 py-0.5 text-gray-700 dark:bg-gray-850 dark:text-gray-300"
+													>
+														{$i18n.t('Reference only: no task updates')}
+														{#if mark.tu === 'chat'}
+															· {$i18n.t('marked from chat')}
+														{:else if mark.boi_ten}
+															· {$i18n.t('by {{name}}', { name: mark.boi_ten })}
+														{/if}
+													</span>
+												{/if}
+												{#if canMark && !pending}
+													<button
+														type="button"
+														class="underline hover:text-gray-900 dark:hover:text-white"
+														on:click={() => toggleFileMark(file.id, !mark)}
+													>
+														{mark ? $i18n.t('Remove mark') : $i18n.t('Mark as reference only')}
+													</button>
+												{/if}
+											</div>
+										{/if}
 									{/if}
 								</div>
 							{/each}

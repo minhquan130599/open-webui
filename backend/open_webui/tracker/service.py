@@ -28,7 +28,14 @@ from open_webui.tracker.prompts import (
 )
 from open_webui.tracker import assign, channel_config
 from open_webui.tracker.people import channel_people, channel_roles, link_owners
-from open_webui.tracker.schema import SCHEMA_VERSION, apply_delta, load_state, normalize_key, render_state_markdown
+from open_webui.tracker.schema import (
+    SCHEMA_VERSION,
+    apply_delta,
+    drop_marked_files,
+    load_state,
+    normalize_key,
+    render_state_markdown,
+)
 
 log = logging.getLogger(__name__)
 
@@ -154,10 +161,16 @@ async def _summarize_batch_attachments(
 
 
 async def _merge_extractions(
-    state, extractions: dict[str, list[dict]], today: str, archived_keys: frozenset, archived_rows: frozenset = frozenset()
+    state,
+    extractions: dict[str, list[dict]],
+    today: str,
+    archived_keys: frozenset,
+    archived_rows: frozenset = frozenset(),
+    marked: frozenset = frozenset(),
 ) -> tuple[object, list[dict]]:
     """Fold the verified items extracted from files into the state before the update LLM runs, so no item
-    depends on the LLM copying it. Returns (state, one log entry per file for the batch record)."""
+    depends on the LLM copying it. Files marked as reference material (marked: file ids) are not read.
+    Returns (state, one log entry per file for the batch record)."""
     from open_webui.tracker import extract
     from open_webui.tracker.schema import ensure_item_ids
 
@@ -168,6 +181,8 @@ async def _merge_extractions(
     entries = []
     for message_id, results in extractions.items():
         for result in results:
+            if result.get('file_id') in marked:
+                continue
             # Closed or cancelled items stay closed: matched by name, or by their table row key, which survives
             # a rebuild where the model names the row differently.
             items = [
@@ -354,7 +369,7 @@ def _retract(state, deleted: set[str], edited: list[Message]) -> list[str]:
     return removed
 
 
-def _file_summary(file_tasks: list[dict], retracted: list[str]) -> list[str]:
+def _file_summary(file_tasks: list[dict], retracted: list[str], marked_removed: list[str] = ()) -> list[str]:
     """The history line for what code did with files (the update model only sees the result, and must not be the one
     describing it): "Thêm 12, cập nhật 3 đầu việc từ file X."."""
     lines = []
@@ -366,6 +381,8 @@ def _file_summary(file_tasks: list[dict], retracted: list[str]) -> list[str]:
             lines.append(f'{", ".join(parts).capitalize()} đầu việc từ file {entry.get("name") or "đính kèm"}.')
     if retracted:
         lines.append(f'Gỡ {len(retracted)} đầu việc do tin nhắn / file nguồn đã bị xóa.')
+    if marked_removed:
+        lines.append(f'Gỡ {len(marked_removed)} đầu việc lấy từ tệp đánh dấu không cần cập nhật đầu việc.')
     return lines
 
 
@@ -374,6 +391,38 @@ def _drop_sources(state: dict, source_ids: set[str]) -> dict:
         for entry in state.get(key) or []:
             entry['nguon'] = [s for s in entry.get('nguon') or [] if s not in source_ids]
     return state
+
+
+_FILE_NAME_STOP = {'va', 'and', 'file', 'tep'}
+FILE_SEARCH_LIMIT = 1000
+
+
+def _name_words(text: str) -> set[str]:
+    return set(normalize_key(text).split()) - _FILE_NAME_STOP
+
+
+async def _marks_from_chat(channel_id: str, names: list[str], now: int) -> tuple[dict, list[str]]:
+    """Files the channel named as reference material ("file X không phải đầu việc"), matched by name among the
+    channel's recent files. A name matching no file or several files is not guessed at: it is returned unmatched."""
+    files = []
+    for message in await Trackers.get_file_messages(channel_id, FILE_SEARCH_LIMIT):
+        for item in (message.data or {}).get('files') or []:
+            file_id = media._file_id(item) if isinstance(item, dict) else None
+            if file_id:
+                name = str(item.get('name') or item.get('filename') or 'tệp')
+                files.append((file_id, message.id, name, _name_words(name)))
+    marks, unmatched = {}, []
+    for name in names:
+        words = _name_words(name)
+        if not words:
+            continue
+        hits = {file_id: (message_id, file_name) for file_id, message_id, file_name, found in files if words <= found}
+        if len(hits) != 1:
+            unmatched.append(name)
+            continue
+        file_id, (message_id, file_name) = next(iter(hits.items()))
+        marks[file_id] = {'msg': message_id, 'ten': file_name, 'boi': None, 'boi_ten': None, 'tu': 'chat', 'luc': now}
+    return marks, unmatched
 
 
 async def process_channel(channel_id: str, lease_id: str) -> None:
@@ -415,6 +464,27 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                 if result.extractions:
                     extractions[message.id] = result.extractions
 
+        # Files unmarked since they were last read are read again; a message already read in this run is not.
+        marks = row.file_marks or {}
+        skip_marks = dict(marks.get('skip') or {})
+        reread = dict(marks.get('reread') or {})
+        reread_done: set[str] = set()
+        if reread:
+            rereads = {m.id: m for m in await Trackers.get_messages_by_ids(channel_id, set(reread.values()))}
+            for file_id, message_id in reread.items():
+                message = rereads.get(message_id)
+                files = [f for f in ((message.data or {}).get('files') or []) if isinstance(f, dict)] if message else []
+                if not any(media._file_id(f) == file_id for f in files) or message.id in extractions:
+                    reread_done.add(file_id)
+                    continue
+                result = await media.summarize_attachments(channel_id, message)
+                if result.pending:
+                    retry_after_ns = FILE_RETRY_NS
+                    continue
+                if result.extractions:
+                    extractions[message.id] = result.extractions
+                reread_done.add(file_id)
+
         deletions = list(row.pending_deletions or [])
         # Items open when this run started: any of them missing from the result was removed on purpose by this run
         # (retracted, superseded by a new reading of its file, merged, an AI-owned task dropped), so the commit-time
@@ -431,7 +501,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             for i in await Trackers.missing_message_ids(channel_id, referenced - {d.get('id') for d in deletions})
         }
         candidates = edited + batch
-        if not candidates and not deletions and not vanished:
+        if not candidates and not deletions and not vanished and not extractions:
             await Trackers.complete(
                 channel_id,
                 lease_id,
@@ -439,6 +509,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                 watermark=watermark,
                 edit_watermark=edit_watermark,
                 retry_after_ns=retry_after_ns,
+                reread_done=reread_done,
             )
             return
 
@@ -466,7 +537,9 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             for source in entry.get('nguon') or []
             if source.startswith('table:')
         )
-        state, file_tasks = await _merge_extractions(old_state, extractions, today, archived_keys, archived_rows)
+        state, file_tasks = await _merge_extractions(
+            old_state, extractions, today, archived_keys, archived_rows, frozenset(skip_marks)
+        )
         merged_away, summaries = set(), []
         people = await channel_people(channel)
         member_ids, manager_ids = await channel_roles(channel)
@@ -487,6 +560,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         # When the model cannot give a whole valid answer for a group (cut at the token limit, invalid JSON),
         # the group is read again in two halves, down to one message.
         groups = _prompt_groups(_split_long(prompt_messages))
+        file_drops: list[str] = []
         while groups:
             group = groups.pop(0)
             roles = [f'{r["ten"]}: {", ".join(r["nguoi"])}' for r in ctx.config['vai_tro'].values()]
@@ -528,10 +602,15 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                     kept = {n: i for n, i in item.phu_trach_links.items() if n in item.phu_trach}
                     item.phu_trach_links = {**kept, **changed_groups[item.id].links}
             merged_away |= merged
+            file_drops += delta.bo_tep
             if delta.tom_tat_lo:
                 summaries.append(delta.tom_tat_lo)
 
         _drop_ai_tasks(state, old_state, candidates, await _ai_names(candidates))
+        chat_marks, unmatched = await _marks_from_chat(channel_id, file_drops, time.time_ns()) if file_drops else ({}, [])
+        for file_id, mark in chat_marks.items():
+            await Trackers.set_file_mark(channel_id, file_id, mark, mark['msg'])
+        marked_removed = drop_marked_files(state, {**skip_marks, **chat_marks})
         retracted = _retract(state, {f'msg:{d.get("id")}' for d in deletions} | vanished, edited)
         # Teams declared in the channel ("AM: @…", now or before) replace the team names that owned items.
         channel_config.apply_roles(state, ctx.config)
@@ -544,7 +623,14 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             'source_ids': sources,
             'period_start': min([m.created_at for m in candidates] or [time.time_ns()]),
             'period_end': max([m.created_at for m in candidates] or [time.time_ns()]),
-            'summary': ' '.join([*_file_summary(file_tasks, retracted), *summaries]),
+            'summary': ' '.join(
+                [
+                    *_file_summary(file_tasks, retracted, marked_removed),
+                    *(f'Đánh dấu tệp "{m["ten"]}" không cần cập nhật đầu việc theo tin nhắn.' for m in chat_marks.values()),
+                    *(f'Chưa rõ tệp nào khớp "{name}", chưa đánh dấu tệp nào.' for name in unmatched),
+                    *summaries,
+                ]
+            ),
             'data': {
                 'edited_ids': [m.id for m in edited],
                 'deleted_ids': [d.get('id') for d in deletions] + sorted(v[4:] for v in vanished),
@@ -552,6 +638,8 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                 **({'file_tasks': file_tasks} if file_tasks else {}),
                 **({'giao_viec': counts} if counts else {}),
                 **({'viec_bi_go': retracted} if retracted else {}),
+                **({'tep_danh_dau': [m['ten'] for m in chat_marks.values()]} if chat_marks else {}),
+                **({'viec_bo_theo_tep': marked_removed} if marked_removed else {}),
                 **({'vai_tro_moi': learned} if learned else {}),
             },
         }
@@ -565,6 +653,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             deletions_done=len(deletions),
             retry_after_ns=retry_after_ns,
             merged_away=merged_away | (started_ids - {i.id for i in state.hang_muc}),
+            reread_done=reread_done,
         )
         log.info(
             'Tracker updated channel %s with %s messages, %s deletions in %.1fs',

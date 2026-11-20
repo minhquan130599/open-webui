@@ -371,12 +371,19 @@ class StateDelta(BaseModel):
     rui_ro: Optional[list[Risk]] = None
     viec_tiep_theo: Optional[list[NextStep]] = None
     vai_tro_moi: list[RoleUpdate] = Field(default_factory=list)
+    # Names of attached files the channel says are reference material, not tasks: their items are removed by code.
+    bo_tep: list[str] = Field(default_factory=list)
     tom_tat_lo: str = ''
 
     @field_validator('tong_quan', mode='before')
     @classmethod
     def _summary(cls, value):
         return _clean_text(value)
+
+    @field_validator('bo_tep', mode='before')
+    @classmethod
+    def _files(cls, value):
+        return _clean_list(value)
 
     @field_validator('tom_tat_lo', mode='before')
     @classmethod
@@ -402,6 +409,24 @@ class StateDelta(BaseModel):
 
 def update_json_schema() -> dict:
     return StateDelta.model_json_schema()
+
+
+def drop_marked_files(state: 'ProjectState', marks: dict) -> list[str]:
+    """Remove the items that came only from files marked as reference material (marks: {file_id: {'msg': ...}}).
+    An item other messages also back keeps them and only loses the marked file. Returns the removed item names."""
+    gone = {f'file:{file_id}' for file_id in marks}
+    file_msgs = {f'msg:{m["msg"]}' for m in marks.values() if m.get('msg')}
+    removed, kept = [], []
+    for item in state.hang_muc:
+        files = {s for s in item.nguon if s.startswith('file:')}
+        messages = {s for s in item.nguon if s.startswith('msg:')}
+        if files and files <= gone and messages <= file_msgs:
+            removed.append(item.ten)
+            continue
+        item.nguon = [s for s in item.nguon if s not in gone]
+        kept.append(item)
+    state.hang_muc = kept
+    return removed
 
 
 def normalize_key(text: str) -> str:

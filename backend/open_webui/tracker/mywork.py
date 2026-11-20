@@ -225,16 +225,16 @@ async def team_of(viewer) -> dict:
 async def board(viewer, mode: str) -> dict:
     """Work grouped by channel for the "My work" page.
 
-    mine: the viewer's own items in every channel they are in, plus the unassigned items of the channels they
-          manage (so an owner can assign, close or cancel them).
-    team: every item of the channels the viewer manages (owners: their channels; admins: channels they are in).
+    mine: only the viewer's own items, in every channel they are in.
+    team: every item of the channels the viewer manages (owners: their channels; admins: channels they are in),
+          including unassigned items so the owner can assign, close or cancel them.
     """
     readable = await readable_channels(viewer)
     managed = await managed_ids(viewer, readable)
     channels = readable if mode == 'mine' else [c for c in readable if c.id in managed]
     entries = await collect(channels)
     if mode == 'mine':
-        entries = [e for e in entries if viewer.id in e.owner_ids or (not e.owner_ids and e.channel_id in managed)]
+        entries = [e for e in entries if viewer.id in e.owner_ids]
     for entry in entries:
         entry.can_manage = entry.channel_id in managed
     owner_ids = {o for e in entries for o in e.owner_ids}

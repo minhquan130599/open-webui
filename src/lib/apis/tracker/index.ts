@@ -116,6 +116,38 @@ export const getTrackerItems = async (
 
 const channelPath = (channelId: string) => `/channels/${encodeURIComponent(channelId)}`;
 
+export type FileMark = {
+	msg: string;
+	ten: string;
+	boi: string | null;
+	boi_ten: string | null;
+	tu: 'nguoi' | 'chat';
+	luc: number;
+};
+
+export type FileMarks = {
+	channel_id: string;
+	marks: Record<string, FileMark>;
+	pending: string[];
+	can_manage: boolean;
+};
+
+// Files marked as reference material (no task updates), and files being read again after an unmark.
+export const getFileMarks = async (token: string, channelId: string): Promise<FileMarks> =>
+	request(token, `${channelPath(channelId)}/file-marks`);
+
+export const setFileMark = async (
+	token: string,
+	channelId: string,
+	fileId: string,
+	messageId: string,
+	skip: boolean
+): Promise<FileMarks> =>
+	request(token, `${channelPath(channelId)}/files/${encodeURIComponent(fileId)}/mark`, 'POST', {
+		message_id: messageId,
+		skip
+	});
+
 // Close ('dong') or cancel ('huy') work items. Channel owner or admin only.
 export const archiveTrackerItems = async (
 	token: string,

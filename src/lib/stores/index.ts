@@ -7,6 +7,7 @@ import {
 import { APP_NAME } from '$lib/constants';
 import { type Writable, derived, get, writable } from 'svelte/store';
 import type { CommentTarget } from '$lib/apis/comments';
+import type { FileMarks } from '$lib/apis/tracker';
 import type { ModelConfig } from '$lib/apis';
 import type { Banner } from '$lib/types';
 import type { Socket } from 'socket.io-client';
@@ -175,6 +176,8 @@ export type SettingsModalRequest = {
 
 export const showSidebar = writable(false);
 export const showSearch = writable(false);
+// Reference-material marks of the open channel's files (null when the tracker is off or not loaded).
+export const trackerFileMarks = writable<FileMarks | null>(null);
 export const showSettings: Writable<boolean | string | SettingsModalRequest> = writable(false);
 export const showChangelog = writable(false);
 

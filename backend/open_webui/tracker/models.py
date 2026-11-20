@@ -46,6 +46,9 @@ class TrackerState(Base):
     # Work items closed or cancelled by the channel owner/admin, kept out of the LLM's view:
     # [{...work item, archive_kind: 'dong'|'huy', archived_at: ns, archived_by: user_id}].
     archive = Column(JSON, nullable=True)
+    # Files marked as reference material (their items are dropped) and files waiting to be read again:
+    # {'skip': {file_id: {msg, ten, boi, boi_ten, tu, luc}}, 'reread': {file_id: message_id}}.
+    file_marks = Column(JSON, nullable=True)
 
     dirty_at = Column(BigInteger, nullable=True)
     last_activity_at = Column(BigInteger, nullable=True)
@@ -101,6 +104,7 @@ class TrackerStateModel(BaseModel):
     edit_watermark: int = 0
     pending_deletions: Optional[list[dict]] = None
     archive: Optional[list[dict]] = None
+    file_marks: Optional[dict] = None
     dirty_at: Optional[int] = None
     pending_count: int = 0
     force: bool = False
@@ -263,6 +267,47 @@ class TrackerTable:
             )
         return set(ids) - found
 
+    async def get_messages_by_ids(self, channel_id: str, ids: set[str], db: Optional[AsyncSession] = None) -> list[Message]:
+        if not ids:
+            return []
+        async with get_async_db_context(db) as db:
+            result = await db.execute(
+                select(Message).where(Message.channel_id == channel_id, Message.id.in_(list(ids)))
+            )
+            return list(result.scalars().all())
+
+    async def get_file_messages(self, channel_id: str, limit: int, db: Optional[AsyncSession] = None) -> list[Message]:
+        """The channel's newest messages, for looking up files by name."""
+        async with get_async_db_context(db) as db:
+            result = await db.execute(
+                select(Message).where(Message.channel_id == channel_id).order_by(Message.created_at.desc()).limit(limit)
+            )
+            return list(result.scalars().all())
+
+    async def set_file_mark(
+        self, channel_id: str, file_id: str, mark: Optional[dict], message_id: str, db: Optional[AsyncSession] = None
+    ) -> bool:
+        """Mark a file as reference material (mark given), or unmark it so it is read again (mark None)."""
+        async with get_async_db_context(db) as db:
+            row = await self._locked_row(db, channel_id)
+            if not row:
+                return False
+            marks = row.file_marks or {}
+            skip = dict(marks.get('skip') or {})
+            reread = dict(marks.get('reread') or {})
+            if mark:
+                skip[file_id] = mark
+                reread.pop(file_id, None)
+            elif file_id in skip:
+                skip.pop(file_id)
+                reread[file_id] = message_id
+            else:
+                return False
+            row.file_marks = {'skip': skip, 'reread': reread}
+            row.updated_at = time.time_ns()
+            await db.commit()
+            return True
+
     async def get_edited_messages(
         self, channel_id: str, watermark: int, edit_watermark: int, limit: int, db: Optional[AsyncSession] = None
     ) -> list[Message]:
@@ -314,12 +359,13 @@ class TrackerTable:
         deletions_done: int = 0,
         retry_after_ns: int = 0,
         merged_away: Optional[set[str]] = None,
+        reread_done: Optional[set[str]] = None,
         db: Optional[AsyncSession] = None,
     ) -> bool:
         """Store a processed batch if the lease is still ours, and requeue if messages remain.
 
         retry_after_ns > 0 means the remaining messages are waiting on something (file extraction), so the
-        channel is retried after that delay instead of immediately.
+        channel is retried after that delay instead of immediately. reread_done: files read again in this run.
         """
         now = time.time_ns()
         async with get_async_db_context(db) as db:
@@ -350,7 +396,11 @@ class TrackerTable:
             row.edit_watermark = max(row.edit_watermark or 0, edit_watermark)
             if deletions_done:
                 row.pending_deletions = (row.pending_deletions or [])[deletions_done:] or None
-            remaining += len(row.pending_deletions or [])
+            if reread_done and row.file_marks:
+                marks = row.file_marks
+                reread = {k: v for k, v in (marks.get('reread') or {}).items() if k not in reread_done}
+                row.file_marks = {**marks, 'reread': reread}
+            remaining += len(row.pending_deletions or []) + len((row.file_marks or {}).get('reread') or {})
             row.pending_count = remaining
             row.dirty_at = now if remaining else None
             # Keep catching up without waiting for the idle timer, unless we are waiting on files.
