@@ -1,5 +1,8 @@
 {
-	"Mark as reference only": "Đánh dấu chỉ để tham khảo",
+	"Mark as reference only: no task updates from this file": "Đánh dấu chỉ để tham khảo: không cập nhật đầu việc từ tệp này",
+	"Reference only": "Chỉ tham khảo",
+	"Reference": "Tham khảo",
+	"Reading again": "Đang đọc lại",
 	"Remove mark": "Gỡ đánh dấu",
 	"Reference only: no task updates": "Chỉ để tham khảo: không cập nhật đầu việc",
 	"marked from chat": "đánh dấu từ tin nhắn",
