@@ -132,6 +132,13 @@ export type FileMarks = {
 	can_manage: boolean;
 };
 
+// The id the tracker knows an attached file by (as media._file_id on the server): its id, or the one in its URL.
+export const trackerFileId = (file: { id?: unknown; url?: unknown }): string | null => {
+	const id = file?.id;
+	if (typeof id === 'string' && id && !/^(https?:|data:)/.test(id)) return id;
+	return String(file?.url ?? '').match(/\/files\/([0-9a-fA-F-]{36})/)?.[1] ?? null;
+};
+
 // Files marked as reference material (no task updates), and files being read again after an unmark.
 export const getFileMarks = async (token: string, channelId: string): Promise<FileMarks> =>
 	request(token, `${channelPath(channelId)}/file-marks`);

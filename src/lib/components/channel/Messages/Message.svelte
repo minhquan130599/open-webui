@@ -24,7 +24,7 @@
 	import { settings, user, shortCodesToEmojis, trackerFileMarks } from '$lib/stores';
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { getMessageData } from '$lib/apis/channels';
-	import { setFileMark } from '$lib/apis/tracker';
+	import { setFileMark, trackerFileId } from '$lib/apis/tracker';
 
 	import AppChannelReply from '../AppChannelReply.svelte';
 	import { getAppMessageText } from '$lib/utils/apps';
@@ -648,9 +648,10 @@
 											size={file?.size}
 											small={true}
 										/>
-										{#if $trackerFileMarks && file.id}
-											{@const mark = $trackerFileMarks.marks[file.id]}
-											{@const pending = $trackerFileMarks.pending.includes(file.id)}
+										{#if $trackerFileMarks && trackerFileId(file)}
+											{@const markId = trackerFileId(file) ?? ''}
+											{@const mark = $trackerFileMarks.marks[markId]}
+											{@const pending = $trackerFileMarks.pending.includes(markId)}
 											{@const canMark = $trackerFileMarks.can_manage || message.user_id === $user?.id}
 											<div
 												class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-gray-400"
@@ -673,7 +674,7 @@
 													<button
 														type="button"
 														class="underline hover:text-gray-900 dark:hover:text-white"
-														on:click={() => toggleFileMark(file.id, !mark)}
+														on:click={() => toggleFileMark(markId, !mark)}
 													>
 														{mark ? $i18n.t('Remove mark') : $i18n.t('Mark as reference only')}
 													</button>

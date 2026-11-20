@@ -401,6 +401,15 @@ def _name_words(text: str) -> set[str]:
     return set(normalize_key(text).split()) - _FILE_NAME_STOP
 
 
+def _name_matches(words: set[str], said: str, file_words: set[str], file_name: str) -> bool:
+    """Every word said is in the file name, or the name said is in it once spaces and punctuation are dropped
+    ("kế hoạch T11" matches "KeHoach_T11.xlsx")."""
+    if words <= file_words:
+        return True
+    compact = ''.join(w for w in normalize_key(said).split() if w not in _FILE_NAME_STOP)
+    return len(compact) >= 4 and compact in normalize_key(file_name).replace(' ', '')
+
+
 async def _marks_from_chat(channel_id: str, names: list[str], now: int) -> tuple[dict, list[str]]:
     """Files the channel named as reference material ("file X không phải đầu việc"), matched by name among the
     channel's recent files. A name matching no file or several files is not guessed at: it is returned unmatched."""
@@ -416,7 +425,11 @@ async def _marks_from_chat(channel_id: str, names: list[str], now: int) -> tuple
         words = _name_words(name)
         if not words:
             continue
-        hits = {file_id: (message_id, file_name) for file_id, message_id, file_name, found in files if words <= found}
+        hits = {
+            file_id: (message_id, file_name)
+            for file_id, message_id, file_name, found in files
+            if _name_matches(words, name, found, file_name)
+        }
         if len(hits) != 1:
             unmatched.append(name)
             continue

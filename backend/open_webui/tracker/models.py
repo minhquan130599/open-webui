@@ -17,7 +17,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from open_webui.internal.db import Base, get_async_db_context
 from open_webui.models.messages import Message
-from open_webui.tracker.schema import SCHEMA_VERSION, WorkItem, ensure_item_ids, load_state, reconcile
+from open_webui.tracker.schema import (
+    SCHEMA_VERSION,
+    WorkItem,
+    drop_marked_files,
+    ensure_item_ids,
+    load_state,
+    reconcile,
+)
 
 
 def _today() -> str:
@@ -389,7 +396,14 @@ class TrackerTable:
 
             if state is not None:
                 # Closes/reopens by the channel owner may have happened while the LLM was running.
-                row.state = reconcile(state, row.state, row.archive, merged_away or set())
+                merged = reconcile(state, row.state, row.archive, merged_away or set())
+                # A file marked while the LLM was running: its items are in this run's result, keep them out.
+                skip = (row.file_marks or {}).get('skip')
+                if skip:
+                    marked = load_state(merged)
+                    drop_marked_files(marked, skip)
+                    merged = {**merged, **marked.model_dump()}
+                row.state = merged
                 row.version = (row.version or 0) + 1
                 row.processed_at = now
             row.watermark = watermark

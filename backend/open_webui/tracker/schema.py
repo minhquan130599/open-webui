@@ -413,14 +413,15 @@ def update_json_schema() -> dict:
 
 def drop_marked_files(state: 'ProjectState', marks: dict) -> list[str]:
     """Remove the items that came only from files marked as reference material (marks: {file_id: {'msg': ...}}).
-    An item other messages also back keeps them and only loses the marked file. Returns the removed item names."""
+    An item other messages also back keeps them and only loses the marked file: the only message an item may cite
+    and still go is the one each of its marked files was attached to. Returns the removed item names."""
     gone = {f'file:{file_id}' for file_id in marks}
-    file_msgs = {f'msg:{m["msg"]}' for m in marks.values() if m.get('msg')}
+    msg_of = {f'file:{file_id}': f'msg:{m["msg"]}' for file_id, m in marks.items() if m.get('msg')}
     removed, kept = [], []
     for item in state.hang_muc:
         files = {s for s in item.nguon if s.startswith('file:')}
         messages = {s for s in item.nguon if s.startswith('msg:')}
-        if files and files <= gone and messages <= file_msgs:
+        if files and files <= gone and messages <= {msg_of[f] for f in files if f in msg_of}:
             removed.append(item.ten)
             continue
         item.nguon = [s for s in item.nguon if s not in gone]

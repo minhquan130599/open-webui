@@ -116,6 +116,20 @@
 		}
 	};
 
+	// Marks also change without this page doing anything (a file named in chat, a file read again after an
+	// unmark), and the tracker sends no event: poll, often while a file is being read again.
+	let fileMarksTimer: ReturnType<typeof setInterval> | null = null;
+	let fileMarksTick = 0;
+	const pollFileMarks = async () => {
+		fileMarksTick += 1;
+		const current = $trackerFileMarks;
+		if (!trackerAvailable || !current || document.hidden) return;
+		if (!current.pending.length && fileMarksTick % 4 !== 0) return;
+		const channelId = id;
+		const marks = await getFileMarks(localStorage.token, channelId).catch(() => null);
+		if (marks && channelId === id && trackerAvailable) trackerFileMarks.set(marks);
+	};
+
 	onNavigate(({ from, to }) => {
 		if (from?.url.pathname !== to.url.pathname) {
 			threadId = null;
@@ -421,6 +435,8 @@
 
 		mediaQuery.addEventListener('change', handleMediaQuery);
 		handleMediaQuery(mediaQuery);
+
+		fileMarksTimer = setInterval(pollFileMarks, 15_000);
 	});
 
 	onDestroy(() => {
@@ -430,6 +446,8 @@
 		_channelId.set(null);
 		$socket?.off('events:channel', channelEventHandler);
 		mediaQuery?.removeEventListener('change', handleMediaQuery);
+		if (fileMarksTimer) clearInterval(fileMarksTimer);
+		trackerFileMarks.set(null);
 	});
 </script>
 
