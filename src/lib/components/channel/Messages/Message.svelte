@@ -627,7 +627,7 @@
 						</div>
 					{:else if (message?.data?.files ?? []).length > 0}
 						<div
-							class="my-2.5 w-full flex overflow-x-auto gap-2 flex-wrap"
+							class="mt-1 mb-2.5 pt-1.5 pr-1.5 w-full flex overflow-x-auto gap-2 flex-wrap"
 							dir={$settings?.chatDirection ?? 'auto'}
 						>
 							{#each message?.data?.files as file}
