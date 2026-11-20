@@ -52,7 +52,6 @@
 	import PinSlash from '$lib/components/icons/PinSlash.svelte';
 	import Pin from '$lib/components/icons/Pin.svelte';
 	import Bookmark from '$lib/components/icons/Bookmark.svelte';
-	import XMark from '$lib/components/icons/XMark.svelte';
 	import CopyIcon from '$lib/components/layout/Sidebar/icons/Copy.svelte';
 
 	export let className = '';
@@ -642,7 +641,8 @@
 									{:else if file.type === 'video' || (file?.content_type ?? '').startsWith('video/')}
 										<video src={fileUrl} controls class=" max-h-96 rounded-lg"></video>
 									{:else}
-										<div class="flex items-center gap-1.5">
+										<!-- Tracker marks sit on the card's corner, like FileItem's remove button, so they take no room in the row. -->
+										<div class="group/file relative">
 											<FileItem
 												item={file}
 												url={file.url}
@@ -657,54 +657,52 @@
 												{@const pending = $trackerFileMarks.pending.includes(markId)}
 												{@const canMark = $trackerFileMarks.can_manage || message.user_id === $user?.id}
 												{#if pending}
-													<Tooltip content={$i18n.t('Reading this file again to update tasks…')}>
-														<span
-															class="flex h-6 items-center gap-1 rounded-lg px-1.5 text-xs text-gray-500 dark:text-gray-400"
-														>
+													<div class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-gray-200 bg-white shadow-xs dark:border-gray-700 dark:bg-gray-900 text-gray-500">
+														<Tooltip content={$i18n.t('Reading this file again to update tasks…')}>
 															<Spinner className="size-3" />
-															{$i18n.t('Reading again')}
-														</span>
-													</Tooltip>
+														</Tooltip>
+													</div>
 												{:else if mark}
-													<Tooltip
-														content={`${$i18n.t('Reference only: no task updates')}${
-															mark.tu === 'chat'
-																? ` · ${$i18n.t('marked from chat')}`
-																: mark.boi_ten
-																	? ` · ${$i18n.t('by {{name}}', { name: mark.boi_ten })}`
-																	: ''
-														}`}
-													>
-														<span
-															class="flex h-6 items-center gap-1 rounded-lg bg-gray-100 pl-1.5 text-xs text-gray-600 dark:bg-gray-850 dark:text-gray-300 {canMark
-																? 'pr-0.5'
-																: 'pr-1.5'}"
+													<div class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-gray-200 bg-white shadow-xs dark:border-gray-700 dark:bg-gray-900 text-gray-700 dark:text-gray-200">
+														<Tooltip
+															content={[
+																$i18n.t('Reference only: no task updates'),
+																mark.tu === 'chat'
+																	? $i18n.t('marked from chat')
+																	: mark.boi_ten
+																		? $i18n.t('by {{name}}', { name: mark.boi_ten })
+																		: '',
+																canMark ? $i18n.t('click to remove the mark') : ''
+															]
+																.filter(Boolean)
+																.join(' · ')}
 														>
-															<Bookmark className="size-3" strokeWidth="2" />
-															{$i18n.t('Reference')}
-															{#if canMark}
-																<button
-																	type="button"
-																	class="rounded p-0.5 text-gray-400 hover:bg-gray-200 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-white"
-																	aria-label={$i18n.t('Remove mark')}
-																	on:click={() => toggleFileMark(markId, false)}
-																>
-																	<XMark className="size-3" strokeWidth="2" />
-																</button>
-															{/if}
-														</span>
-													</Tooltip>
+															<button
+																type="button"
+																class="flex disabled:cursor-default"
+																aria-label={$i18n.t('Remove mark')}
+																disabled={!canMark}
+																on:click={() => toggleFileMark(markId, false)}
+															>
+																<Bookmark className="size-3 fill-current" strokeWidth="2" />
+															</button>
+														</Tooltip>
+													</div>
 												{:else if canMark}
-													<Tooltip content={$i18n.t('Mark as reference only: no task updates from this file')}>
-														<button
-															type="button"
-															class="flex h-6 items-center gap-1 rounded-lg px-1.5 text-xs text-gray-500 opacity-0 transition group-hover:opacity-100 focus:opacity-100 pointer-coarse:opacity-100 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-850 dark:hover:text-white"
-															on:click={() => toggleFileMark(markId, true)}
-														>
-															<Bookmark className="size-3" strokeWidth="2" />
-															{$i18n.t('Reference only')}
-														</button>
-													</Tooltip>
+													<div
+														class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-gray-200 bg-white shadow-xs dark:border-gray-700 dark:bg-gray-900 pointer-events-none text-gray-500 opacity-0 transition group-hover/file:pointer-events-auto group-hover/file:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 dark:text-gray-400"
+													>
+														<Tooltip content={$i18n.t('Mark as reference only: no task updates from this file')}>
+															<button
+																type="button"
+																class="flex hover:text-gray-900 dark:hover:text-white"
+																aria-label={$i18n.t('Reference only')}
+																on:click={() => toggleFileMark(markId, true)}
+															>
+																<Bookmark className="size-3" strokeWidth="2" />
+															</button>
+														</Tooltip>
+													</div>
 												{/if}
 											{/if}
 										</div>
