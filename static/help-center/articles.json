@@ -124,6 +124,43 @@
 			]
 		},
 		{
+			"id": "group_members",
+			"category": "Kênh & trao đổi",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Thêm, bớt thành viên Kênh nhóm",
+			"desc": "Mời người vào kênh nhóm bạn quản lý và gỡ người không còn tham gia",
+			"minutes": 2,
+			"icon": "👥",
+			"steps": [
+				{
+					"title": "Mở danh sách thành viên",
+					"text": "Mở kênh nhóm, bấm biểu tượng hình người kèm số thành viên ở góc trên bên phải. Hộp Thành viên hiện mọi người trong kênh, có ô tìm kiếm."
+				},
+				{
+					"title": "Thêm thành viên",
+					"text": "Bấm + Thêm thành viên, gõ tên để tìm, tích người dùng (hoặc cả nhóm người dùng) rồi bấm Thêm. Nút này chỉ hiện với người tạo kênh, người quản lý kênh và quản trị viên."
+				},
+				{
+					"title": "Gỡ thành viên",
+					"text": "Bấm dấu × cạnh tên người không còn tham gia. Dấu × chỉ hiện với người quản lý kênh."
+				}
+			],
+			"tip": "Kênh (loại kênh chung của phòng ban do quản trị viên tạo) không thêm người theo cách này: thành viên theo quyền truy cập, chỉnh ở ⋯ → Chỉnh sửa kênh. Không thấy nút Thêm thành viên: nhờ người tạo kênh hoặc quản trị viên thêm giúp.",
+			"images": [
+				{
+					"src": "/help-center/images/kn-thanh-vien.png",
+					"caption": "Bấm biểu tượng hình người ở góc trên để mở hộp Thành viên"
+				},
+				{
+					"src": "/help-center/images/kn-them-thanh-vien.png",
+					"caption": "Tích nhóm hoặc người dùng rồi bấm Thêm"
+				}
+			]
+		},
+		{
 			"id": "messaging",
 			"category": "Kênh & trao đổi",
 			"roles": [
@@ -412,6 +449,126 @@
 			]
 		},
 		{
+			"id": "reports",
+			"category": "Báo cáo định kỳ",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Đặt lịch báo cáo tiến độ tự động",
+			"desc": "AI tổng hợp tiến độ các kênh dự án theo lịch và gửi qua email hoặc Telegram",
+			"minutes": 5,
+			"icon": "🗓️",
+			"steps": [
+				{
+					"title": "Mở trang Báo cáo định kỳ",
+					"text": "Ở thanh bên, bấm Báo cáo định kỳ (ngay dưới Công việc của tôi), rồi bấm Tạo lịch báo cáo và đặt Tên báo cáo, ví dụ \"Báo cáo tiến độ tuần\". Không thấy mục này: quản trị viên chưa bật tính năng, hoặc chưa cho bạn quyền tạo báo cáo."
+				},
+				{
+					"title": "Chọn kênh trong báo cáo",
+					"text": "Tất cả kênh dự án tôi tham gia: kênh bạn tham gia sau này cũng tự có trong báo cáo. Chỉ các kênh được chọn: gõ tên để tìm và thêm từng kênh. Nếu quản trị viên chỉ cho chủ kênh tạo báo cáo, bạn chỉ chọn được kênh mình quản lý."
+				},
+				{
+					"title": "Đặt lịch gửi",
+					"text": "Chọn Tần suất: Hằng ngày (có thể chỉ Thứ 2 – Thứ 6), Hằng tuần (chọn các ngày trong tuần), Hằng tháng (ngày 1–28 hoặc ngày cuối tháng) hoặc Tùy chỉnh (nhiều mốc giờ trong ngày, cách nhau bằng dấu phẩy, ví dụ 08:00, 17:00). Giờ là giờ Việt Nam. Bật Bỏ qua kỳ không có thay đổi nếu không muốn nhận báo cáo khi số liệu không đổi."
+				},
+				{
+					"title": "Chọn nội dung",
+					"text": "Khoảng thời gian: Từ lần gửi trước đến nay, 7 ngày gần nhất hoặc Tháng trước. Tích các phần cần có: Tổng quan từng kênh, Việc quá hạn và sắp đến hạn, Việc hoàn thành trong kỳ, Vướng mắc và rủi ro, Theo từng người phụ trách, Quyết định đã chốt trong kỳ."
+				},
+				{
+					"title": "Viết yêu cầu riêng cho AI (không bắt buộc)",
+					"text": "Mô tả cách bạn muốn AI nhận xét: cho ai đọc, dài bao nhiêu, nhấn mạnh điều gì. Bấm một Gợi ý để điền nhanh. Để trống thì AI viết theo mẫu báo cáo mặc định (chữ mờ trong ô)."
+				},
+				{
+					"title": "Chọn nơi nhận",
+					"text": "Gửi qua email: tích Gửi cho tôi, và thêm người nhận khác (gõ email rồi nhấn Enter). Nếu quản trị viên giới hạn, chỉ thêm được thành viên của các kênh trong báo cáo. Gửi qua Telegram: xem bài \"Nhận báo cáo qua Telegram\"."
+				},
+				{
+					"title": "Xem trước, gửi thử rồi lưu",
+					"text": "Xem trước hiện đúng email người nhận sẽ thấy. Gửi thử cho tôi chỉ gửi tới email của bạn (và các chat Telegram đã chọn), tiêu đề có [Gửi thử]. Ổn thì bấm Lưu lịch. Danh sách Lịch của bạn hiện lần gửi tới, lần gửi trước và lỗi nếu có; dùng công tắc để tạm dừng hoặc bật lại, bấm vào lịch để sửa hay xóa."
+				}
+			],
+			"example": "Viết ngắn gọn cho lãnh đạo, tối đa 8 gạch đầu dòng, nêu 3 rủi ro lớn nhất và việc cần quyết định.",
+			"tip": "Số liệu (số việc mở, quá hạn, hoàn thành, tiến độ) luôn lấy từ bảng Tiến độ công việc của từng kênh; AI chỉ viết phần nhận xét, nên yêu cầu riêng không làm thay đổi con số. Kênh chưa có bảng tiến độ sẽ ghi \"chưa có dữ liệu\". AI viết sẵn nhận xét trước giờ gửi lúc hệ thống rảnh; nếu AI đang quá bận, báo cáo vẫn được gửi (trễ tối đa khoảng 10 phút) với đủ số liệu và dòng \"Nhận xét của AI chưa có ở kỳ này\".",
+			"images": [
+				{
+					"src": "/help-center/images/bc-thanh-ben.png",
+					"caption": "Mục Báo cáo định kỳ ở thanh bên, ngay dưới Công việc của tôi"
+				},
+				{
+					"src": "/help-center/images/bc-trang.png",
+					"caption": "Trang Báo cáo định kỳ: danh sách lịch của bạn và nút Tạo lịch báo cáo"
+				},
+				{
+					"src": "/help-center/images/bc-form-1.png",
+					"caption": "Chọn kênh trong báo cáo và lịch gửi"
+				},
+				{
+					"src": "/help-center/images/bc-form-2.png",
+					"caption": "Nội dung báo cáo, yêu cầu riêng cho AI, nơi nhận và các nút Xem trước, Gửi thử cho tôi, Lưu lịch"
+				}
+			]
+		},
+		{
+			"id": "reports_telegram",
+			"category": "Báo cáo định kỳ",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Nhận báo cáo qua Telegram",
+			"desc": "Liên kết chat riêng hoặc nhóm Telegram với lịch báo cáo",
+			"minutes": 3,
+			"icon": "✈️",
+			"steps": [
+				{
+					"title": "Bật gửi qua Telegram",
+					"text": "Trong lịch báo cáo, ở phần Gửi qua, bật Gửi qua Telegram rồi bấm Liên kết Telegram. Không thấy lựa chọn này: quản trị viên chưa bật Telegram."
+				},
+				{
+					"title": "Liên kết chat riêng",
+					"text": "Chọn Chat riêng với bot, bấm Mở Telegram. Telegram mở cuộc chat với bot, bấm Bắt đầu (Start). Trang báo cáo tự hiện \"Đã liên kết Telegram\"."
+				},
+				{
+					"title": "Hoặc liên kết một nhóm",
+					"text": "Chọn Một nhóm Telegram. Thêm bot vào nhóm, rồi gửi trong nhóm đúng tin nhắn trang hiện ra (lệnh /link kèm mã). Mã chỉ dùng được một lần và hết hạn sau một ngày."
+				},
+				{
+					"title": "Chọn chat nhận và lưu",
+					"text": "Tích các chat đã liên kết muốn nhận báo cáo, bấm Lưu lịch. Bỏ liên kết khi không dùng chat đó nữa. Tin Telegram có nút Mở bảng tiến độ để xem chi tiết."
+				}
+			],
+			"tip": "Gửi vào nhóm cần quản trị viên cho phép. Nếu bot bị xóa khỏi nhóm hoặc bị chặn, liên kết tự gỡ và lịch báo lỗi ở lần gửi sau: liên kết lại là xong."
+		},
+		{
+			"id": "reports_receiving",
+			"category": "Báo cáo định kỳ",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Báo cáo bạn đang nhận và ngừng nhận",
+			"desc": "Xem các báo cáo người khác gửi cho bạn và tự ngừng nhận",
+			"minutes": 2,
+			"icon": "📬",
+			"steps": [
+				{
+					"title": "Xem báo cáo đang nhận",
+					"text": "Khi chủ kênh hay quản lý thêm email của bạn vào lịch của họ, báo cáo hiện ở mục Báo cáo bạn đang nhận trên trang Báo cáo định kỳ, kèm tên người tạo và lịch gửi."
+				},
+				{
+					"title": "Ngừng nhận",
+					"text": "Bấm Ngừng nhận ở báo cáo đó rồi xác nhận. Bạn được gỡ khỏi danh sách người nhận; người tạo vẫn nhận bình thường."
+				},
+				{
+					"title": "Mở chi tiết từ email",
+					"text": "Nút Mở bảng tiến độ trong email mở trang Công việc của tôi, nơi xem từng việc của các kênh bạn tham gia."
+				}
+			],
+			"tip": "Không có quyền tạo báo cáo mà muốn nhận báo cáo của một kênh: nhờ chủ kênh thêm bạn vào người nhận trong lịch của họ."
+		},
+		{
 			"id": "knowledge",
 			"category": "Kho kiến thức",
 			"roles": [
@@ -593,12 +750,16 @@
 					"text": "Nhập Tên kênh (ví dụ du-an-a, bao-cao-ngay). Với Kênh: đặt Công khai hoặc Riêng tư và cấp quyền cho nhóm, người dùng. Với Kênh nhóm, Tin nhắn trực tiếp: chọn người tham gia. Bấm Tạo."
 				},
 				{
-					"title": "Thêm hoặc bớt thành viên",
-					"text": "Mở kênh, bấm biểu tượng thành viên ở góc trên bên phải (hình người kèm số lượng) hoặc menu ⋯ → Chỉnh sửa Kênh."
+					"title": "Thêm thành viên vào Kênh nhóm",
+					"text": "Mở kênh nhóm, bấm biểu tượng hình người kèm số thành viên ở góc trên bên phải. Hộp Thành viên hiện danh sách người trong kênh; bấm + Thêm thành viên, tìm và tích nhóm hoặc người dùng cần thêm, rồi bấm Thêm. Người được thêm thấy kênh ngay ở thanh bên."
 				},
 				{
-					"title": "Cập nhật",
-					"text": "Thêm người dùng hoặc nhóm, gỡ người không còn tham gia, rồi bấm Cập nhật."
+					"title": "Gỡ thành viên khỏi Kênh nhóm",
+					"text": "Trong hộp Thành viên, bấm dấu × cạnh tên người cần gỡ. Dấu × chỉ hiện với người quản lý kênh nhóm."
+				},
+				{
+					"title": "Thành viên của Kênh (loại Kênh)",
+					"text": "Kênh không có nút Thêm thành viên: ai vào được kênh do quyền truy cập quyết định. Ở thanh bên, di chuột vào tên kênh, bấm ⋯ → Chỉnh sửa kênh. Trong Danh sách quyền truy cập, bấm + Thêm quyền truy cập để thêm người dùng hoặc nhóm, chọn quyền Đọc hoặc Viết, bấm × để bỏ; đặt Riêng tư hoặc Công khai nếu cần, rồi bấm Cập nhật."
 				}
 			],
 			"tip": "Dùng loại Kênh cho phòng ban hoặc thông báo cần quản lý quyền tập trung; để người dùng tự tạo Kênh nhóm cho dự án. Kiểm tra chế độ Công khai / Riêng tư trước khi tạo kênh có dữ liệu nội bộ.",
@@ -612,12 +773,68 @@
 					"caption": "Tạo kênh mới"
 				},
 				{
-					"src": "/help-center/images/thanh-vien-kenh.png",
-					"caption": "Biểu tượng thành viên ở góc trên kênh"
+					"src": "/help-center/images/kn-thanh-vien.png",
+					"caption": "Kênh nhóm: hộp Thành viên, nút Thêm thành viên và dấu × để gỡ"
 				},
 				{
-					"src": "/help-center/images/sua-thanh-vien.png",
-					"caption": "Thêm hoặc bớt thành viên rồi bấm Cập nhật"
+					"src": "/help-center/images/kn-them-thanh-vien.png",
+					"caption": "Kênh nhóm: chọn người dùng hoặc nhóm rồi bấm Thêm"
+				},
+				{
+					"src": "/help-center/images/kn-menu-kenh.png",
+					"caption": "Kênh: bấm ⋯ cạnh tên kênh ở thanh bên → Chỉnh sửa kênh"
+				},
+				{
+					"src": "/help-center/images/kn-chinh-sua-kenh.png",
+					"caption": "Kênh: thêm hoặc bỏ quyền truy cập rồi bấm Cập nhật"
+				}
+			]
+		},
+		{
+			"id": "admin_reports",
+			"category": "Quản trị hệ thống",
+			"roles": [
+				"admin"
+			],
+			"title": "Cấu hình báo cáo định kỳ",
+			"desc": "Bật tính năng, phân quyền, cấu hình email và quản lý mọi lịch báo cáo",
+			"minutes": 6,
+			"icon": "🛠️",
+			"steps": [
+				{
+					"title": "Bật tính năng",
+					"text": "Trang Quản trị → Cài đặt → Báo cáo định kỳ, bật Báo cáo định kỳ rồi bấm Lưu. Tính năng đọc bảng Tiến độ công việc nên chỉ hiện trên thanh bên khi tracker tiến độ đang chạy (máy chạy ở chế độ thử thì không có)."
+				},
+				{
+					"title": "Phân quyền",
+					"text": "Ai được tạo và sửa báo cáo: Mọi người dùng (với các kênh họ tham gia), Chủ kênh và quản trị viên (chỉ kênh mình quản lý) hoặc Chỉ quản trị viên. Người không có quyền: chỉ thấy báo cáo họ đang nhận, hoặc ẩn hẳn trang. Có thể tắt Cho viết yêu cầu riêng cho AI và Cho thêm người nhận ngoài thành viên kênh."
+				},
+				{
+					"title": "Cấu hình email",
+					"text": "Bật Gửi qua email. Hộp thư gửi dùng chung cấu hình Email nhắc việc: trang giám sát → Thành phần & tài nguyên → Chỉnh sửa cấu hình → Email nhắc việc (Microsoft 365 hoặc SMTP), bấm Gửi thử trước khi lưu. Bật Chỉ gửi tới tên miền công ty nếu không muốn gửi ra ngoài. Nhiều người nhận: nên để Một email, ẩn danh sách người nhận (Bcc) để tốn ít lượt gửi (Microsoft 365 giới hạn khoảng 30 email/phút)."
+				},
+				{
+					"title": "Giới hạn và mẫu mặc định",
+					"text": "Đặt Số lịch tối đa mỗi người, Số kênh tối đa mỗi báo cáo, Mẫu báo cáo mặc định (dùng khi người tạo để trống yêu cầu), Model viết báo cáo (trống = model của tracker) và Độ dài tối đa phần nhận xét."
+				},
+				{
+					"title": "Viết sẵn trước giờ gửi",
+					"text": "Báo cáo vào hàng đợi trước giờ gửi (mặc định 60 phút); AI chỉ viết nhận xét khi model rảnh, mỗi lần tối đa Số báo cáo viết cùng lúc (mặc định 1) để không làm chậm chat. Model coi là bận khi có request đang chờ, hoặc chờ token đầu quá 15 giây. Quá giờ gửi 10 phút mà chưa viết xong thì gửi số liệu không kèm nhận xét. Nhiều người đặt cùng một giờ: tăng thời gian đưa vào hàng đợi."
+				},
+				{
+					"title": "Quản lý mọi lịch báo cáo",
+					"text": "Cuối trang cài đặt là danh sách tất cả lịch: Gửi ngay, Tạm dừng / Bật lại, Xóa. Trang giám sát → tab Báo cáo định kỳ cho sửa mọi lịch và xem Hàng đợi gửi: lịch nào đang chờ viết, đã viết sẵn, đã gửi, lỗi và lý do (ví dụ \"Chờ LLM rảnh\")."
+				}
+			],
+			"tip": "Nhiều lịch cùng giờ (ví dụ 8:00 thứ Hai) vẫn được gửi đúng giờ vì AI viết sẵn từ trước. Email nhắc việc và báo cáo dùng chung một hộp thư gửi: nếu email bị lỗi giới hạn tốc độ, giữ chế độ Bcc và tránh đặt giờ nhắc việc trùng giờ báo cáo. Máy thử chạy dữ liệu thật thì tắt gửi email để không gửi trùng cho người dùng.",
+			"images": [
+				{
+					"src": "/help-center/images/bc-cai-dat-1.png",
+					"caption": "Cài đặt → Báo cáo định kỳ: bật tính năng, phân quyền, email"
+				},
+				{
+					"src": "/help-center/images/bc-cai-dat-2.png",
+					"caption": "Giới hạn, mẫu báo cáo mặc định, viết sẵn trước giờ gửi và danh sách mọi lịch"
 				}
 			]
 		},

@@ -124,6 +124,43 @@
 			]
 		},
 		{
+			"id": "group_members",
+			"category": "Channels & messaging",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Add and remove Group Channel members",
+			"desc": "Invite people to a group channel you manage and remove those who left",
+			"minutes": 2,
+			"icon": "👥",
+			"steps": [
+				{
+					"title": "Open the member list",
+					"text": "Open the group channel and click the people icon with the member count at the top right."
+				},
+				{
+					"title": "Add members",
+					"text": "Click Add Member, search by name or email, tick users (or whole user groups) and click Add. Only the channel creator, channel managers and admins see this button."
+				},
+				{
+					"title": "Remove members",
+					"text": "Click × next to the person. Only channel managers see it."
+				}
+			],
+			"tip": "A Channel (a department channel created by an admin) does not add people this way: membership follows access, set in ⋯ → Edit channel.",
+			"images": [
+				{
+					"src": "/help-center/images/kn-thanh-vien.png",
+					"caption": "The people icon at the top opens the Members dialog"
+				},
+				{
+					"src": "/help-center/images/kn-them-thanh-vien.png",
+					"caption": "Tick groups or users and click Add"
+				}
+			]
+		},
+		{
 			"id": "messaging",
 			"category": "Channels & messaging",
 			"roles": [
@@ -412,6 +449,126 @@
 			]
 		},
 		{
+			"id": "reports",
+			"category": "Scheduled reports",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Schedule automatic progress reports",
+			"desc": "The AI summarizes your project channels on a schedule and sends it by email or Telegram",
+			"minutes": 5,
+			"icon": "🗓️",
+			"steps": [
+				{
+					"title": "Open Scheduled reports",
+					"text": "In the sidebar, click Scheduled reports (right below My work), then New report schedule, and give it a Report name. Not there: the administrator has not turned the feature on, or has not allowed you to create reports."
+				},
+				{
+					"title": "Choose the channels",
+					"text": "All my project channels: channels you join later are included automatically. Only the chosen channels: search and add them one by one. When only channel owners may create reports, you can only choose the channels you run."
+				},
+				{
+					"title": "Set when to send",
+					"text": "Frequency: Daily (optionally Mon–Fri only), Weekly (pick the days), Monthly (day 1–28 or the last day) or Custom (several times a day, separated by commas, e.g. 08:00, 17:00). Times are Vietnam time. Turn on Skip when nothing changed to receive nothing when the figures did not change."
+				},
+				{
+					"title": "Choose the content",
+					"text": "Period: since the last report, last 7 days or last month. Tick the parts you need: overview of each channel, overdue and due soon, completed in the period, blockers and risks, by person in charge, decisions in the period."
+				},
+				{
+					"title": "Your request to the AI (optional)",
+					"text": "Say how the AI should comment: who reads it, how long, what to stress. Click a suggestion to fill it in. Empty: the default report is used."
+				},
+				{
+					"title": "Choose the recipients",
+					"text": "Send by email: tick Send to me and add other recipients (type the email, press Enter); if the administrator limits it, only members of the report's channels. Send by Telegram: see \"Receive reports on Telegram\"."
+				},
+				{
+					"title": "Preview, send a test, save",
+					"text": "Preview shows the email as recipients will see it. Send a test to me goes only to your own email (and the chosen Telegram chats), with [Gửi thử] in the subject. Then Save schedule. Your report schedules shows the next and last send and any error; switch a schedule off or on, click it to edit or delete."
+				}
+			],
+			"example": "Short, for management: at most 8 bullet points, the 3 biggest risks and the decisions needed.",
+			"tip": "Figures always come from each channel's progress table; the AI only writes the comments, so a custom request cannot change the numbers. The AI writes the comments ahead of the send time while the system is quiet; when it is very busy the report is still sent (at most about 10 minutes late) with all figures and a note that the AI comments are missing this time.",
+			"images": [
+				{
+					"src": "/help-center/images/bc-thanh-ben.png",
+					"caption": "Scheduled reports in the sidebar, right below My work"
+				},
+				{
+					"src": "/help-center/images/bc-trang.png",
+					"caption": "The Scheduled reports page: your schedules and New report schedule"
+				},
+				{
+					"src": "/help-center/images/bc-form-1.png",
+					"caption": "Channels in the report and when to send"
+				},
+				{
+					"src": "/help-center/images/bc-form-2.png",
+					"caption": "Report content, your request to the AI, recipients, and Preview / Send a test / Save"
+				}
+			]
+		},
+		{
+			"id": "reports_telegram",
+			"category": "Scheduled reports",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Receive reports on Telegram",
+			"desc": "Link a private chat or a Telegram group to a report schedule",
+			"minutes": 3,
+			"icon": "✈️",
+			"steps": [
+				{
+					"title": "Turn on Telegram",
+					"text": "In the schedule, under Send by, turn on Send by Telegram and click Link a Telegram chat. Not there: the administrator has not enabled Telegram."
+				},
+				{
+					"title": "Link a private chat",
+					"text": "Choose Private chat with the bot, click Open Telegram and press Start. The page shows that the chat is linked."
+				},
+				{
+					"title": "Or link a group",
+					"text": "Choose A Telegram group, add the bot to the group, then send the message shown (/link with a code) in the group. A code works once and expires after a day."
+				},
+				{
+					"title": "Pick the chats and save",
+					"text": "Tick the linked chats that should receive the report and save. Unlink a chat you no longer use. Messages have a Mở bảng tiến độ (open progress board) button."
+				}
+			],
+			"tip": "Sending to groups needs the administrator's permission. If the bot is removed from a group or blocked, the link is dropped and the schedule reports an error: link again."
+		},
+		{
+			"id": "reports_receiving",
+			"category": "Scheduled reports",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Reports you receive and stopping them",
+			"desc": "See the reports others send you and stop receiving them",
+			"minutes": 2,
+			"icon": "📬",
+			"steps": [
+				{
+					"title": "See what you receive",
+					"text": "When someone adds your email to their schedule, it appears under Reports you receive on the Scheduled reports page, with its creator and timing."
+				},
+				{
+					"title": "Stop receiving",
+					"text": "Click Stop receiving and confirm. You are removed from the recipients; the creator still receives it."
+				},
+				{
+					"title": "Open the details",
+					"text": "The Mở bảng tiến độ button in the email opens My work, with every task of your channels."
+				}
+			],
+			"tip": "Cannot create reports but want one for a channel: ask the channel owner to add you to the recipients of theirs."
+		},
+		{
 			"id": "knowledge",
 			"category": "Knowledge base",
 			"roles": [
@@ -593,31 +750,91 @@
 					"text": "Enter a Channel Name (for example project-a, daily-reports). For a Channel: set Public or Private and grant access to groups and users. For a Group Channel or Direct Message: pick the participants. Click Create."
 				},
 				{
-					"title": "Add or remove members",
-					"text": "Open the channel and click the members icon at the top right (a person with the member count) or the ⋯ menu → Edit Channel."
+					"title": "Add members to a Group Channel",
+					"text": "Open the group channel and click the people icon with the member count at the top right. The Members dialog lists everyone in the channel; click Add Member, search and tick users or user groups, then click Add. New members see the channel in their sidebar right away."
 				},
 				{
-					"title": "Update",
-					"text": "Add users or groups, remove people who left, then click Update."
+					"title": "Remove members from a Group Channel",
+					"text": "In the Members dialog, click × next to the name. Only channel managers see it."
+				},
+				{
+					"title": "Members of a Channel",
+					"text": "A Channel has no Add Member button: access decides who is in it. In the sidebar, hover the channel name, click ⋯ → Edit channel. In the access list, click + Add access for users or groups, choose Read or Write, click × to remove; then click Update."
 				}
 			],
 			"tip": "Use the Channel type for departments or announcements that need central access control, and let users create Group Channels for their projects. Check the Public / Private setting before creating a channel for internal data.",
 			"images": [
 				{
 					"src": "/help-center/images/bat-kenh.png",
-					"caption": "Enabling channels in General settings"
+					"caption": "Enable Channels in General settings"
 				},
 				{
 					"src": "/help-center/images/tao-kenh-admin.png",
-					"caption": "Creating a channel"
+					"caption": "Create a channel"
 				},
 				{
-					"src": "/help-center/images/thanh-vien-kenh.png",
-					"caption": "The members icon at the top of a channel"
+					"src": "/help-center/images/kn-thanh-vien.png",
+					"caption": "Group Channel: Members dialog, Add Member and × to remove"
 				},
 				{
-					"src": "/help-center/images/sua-thanh-vien.png",
-					"caption": "Add or remove members, then click Update"
+					"src": "/help-center/images/kn-them-thanh-vien.png",
+					"caption": "Group Channel: pick users or groups and click Add"
+				},
+				{
+					"src": "/help-center/images/kn-menu-kenh.png",
+					"caption": "Channel: ⋯ next to the name in the sidebar → Edit channel"
+				},
+				{
+					"src": "/help-center/images/kn-chinh-sua-kenh.png",
+					"caption": "Channel: add or remove access, then Update"
+				}
+			]
+		},
+		{
+			"id": "admin_reports",
+			"category": "Administration",
+			"roles": [
+				"admin"
+			],
+			"title": "Set up scheduled reports",
+			"desc": "Turn the feature on, permissions, email, and every report schedule",
+			"minutes": 6,
+			"icon": "🛠️",
+			"steps": [
+				{
+					"title": "Turn it on",
+					"text": "Admin settings → Scheduled reports, turn it on and save. It reads the progress tables, so it shows in the sidebar only while the progress tracker runs."
+				},
+				{
+					"title": "Permissions",
+					"text": "Who can create reports: all users, channel owners and admins (only the channels they run), or admins only. Users without permission see only what they receive, or nothing. Custom AI requests and recipients outside the channels can be turned off."
+				},
+				{
+					"title": "Email",
+					"text": "Turn on Send by email. The mailbox is the reminder email setting: monitor → Components & resources → Edit configuration → Reminder email (Microsoft 365 or SMTP); use Send test before saving. Several recipients: keep One email, recipients hidden (Bcc) to stay under the mailbox sending limit."
+				},
+				{
+					"title": "Limits and default report",
+					"text": "Schedules per user, channels per report, the default report used when the request is empty, the model writing reports and the comment length."
+				},
+				{
+					"title": "Writing ahead",
+					"text": "Reports are queued before the send time (60 minutes by default); the AI writes the comments only while the model is not busy, one report at a time by default. Not written 10 minutes after the send time: sent without comments."
+				},
+				{
+					"title": "Manage every schedule",
+					"text": "The bottom of the settings page lists every schedule: Send now, Pause / Resume, Delete. The monitor's Scheduled reports tab edits any schedule and shows the send queue with the reason a report waits."
+				}
+			],
+			"tip": "Many schedules at the same time are still sent on time because the comments are written ahead. Reminder emails and reports share one mailbox: keep Bcc and avoid the same time for both.",
+			"images": [
+				{
+					"src": "/help-center/images/bc-cai-dat-1.png",
+					"caption": "Settings → Scheduled reports: turn on, permissions, email"
+				},
+				{
+					"src": "/help-center/images/bc-cai-dat-2.png",
+					"caption": "Limits, default report, writing ahead and every schedule"
 				}
 			]
 		},
