@@ -569,6 +569,33 @@
 			"tip": "Không có quyền tạo báo cáo mà muốn nhận báo cáo của một kênh: nhờ chủ kênh thêm bạn vào người nhận trong lịch của họ."
 		},
 		{
+			"id": "tracker_email_reminder",
+			"category": "Thông báo",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Bật hoặc tắt email nhắc việc đến hạn",
+			"desc": "Chọn có nhận email gom các việc đến hạn mỗi ngày hay không",
+			"minutes": 1,
+			"icon": "🔔",
+			"steps": [
+				{
+					"title": "Mở trang Cài đặt thông báo",
+					"text": "Biểu tượng tài khoản (góc dưới bên trái) → Cài đặt (hoặc Ctrl + .) → Thông báo."
+				},
+				{
+					"title": "Tìm mục Email nhắc việc đến hạn",
+					"text": "Mục này nằm trong danh sách thông báo, sau các mục Thông báo trình duyệt và Âm thanh thông báo. Mô tả ghi: Mỗi ngày nhận một email gom các công việc bạn phụ trách đến hạn hôm nay hoặc ngày mai."
+				},
+				{
+					"title": "Bật hoặc tắt",
+					"text": "Gạt công tắc sang phải để bật (nhận email mỗi ngày), sang trái để tắt. Thay đổi được lưu ngay khi bạn gạt, không cần bấm Lưu. Lần gửi tiếp theo sẽ theo lựa chọn mới."
+				}
+			],
+			"tip": "Tắt email không làm mất các thông báo nhắc việc trong NCS AI. Công tắc này chỉ áp dụng cho email nhắc việc gửi riêng cho bạn; email tổng hợp dành cho chủ kênh không bị ảnh hưởng. Không thấy mục này: quản trị viên chưa bật tính năng theo dõi công việc."
+		},
+		{
 			"id": "knowledge",
 			"category": "Kho kiến thức",
 			"roles": [
