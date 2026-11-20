@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getContext, onDestroy, onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
+	import { copyToClipboard } from '$lib/utils';
 	import DOMPurify from 'dompurify';
 
 	import { WEBUI_NAME, mobile, showSidebar } from '$lib/stores';
@@ -298,13 +299,10 @@
 				})
 			: '—';
 
+	// copyToClipboard falls back to execCommand where navigator.clipboard is missing (the app served over plain HTTP).
 	const copy = async (text: string) => {
-		try {
-			await navigator.clipboard.writeText(text);
-			toast.success($i18n.t('Copied'));
-		} catch {
-			/* clipboard blocked */
-		}
+		if (await copyToClipboard(text)) toast.success($i18n.t('Copied'));
+		else toast.error($i18n.t('Could not copy to clipboard. Please try again.'));
 	};
 
 	$: filteredChannels = channels.filter((c) =>
@@ -833,8 +831,9 @@
 				<div class="flex flex-col gap-1.5">
 					<span class="font-medium">{$i18n.t('A Telegram group')}</span>
 					<span class="text-xs text-gray-500">{$i18n.t('Add the bot to the group, then send this message in the group:')}</span>
-					<button type="button" class="w-fit rounded-lg bg-gray-100 px-2.5 py-1.5 font-mono text-xs dark:bg-gray-850" on:click={() => linking && copy(linking.group_command)}>
+					<button type="button" title={$i18n.t('Click to copy')} class="flex w-fit items-center gap-2 rounded-lg bg-gray-100 px-2.5 py-1.5 font-mono text-xs select-all hover:bg-gray-200 dark:bg-gray-850 dark:hover:bg-gray-800" on:click={() => linking && copy(linking.group_command)}>
 						{linking.group_command}
+						<span class="font-sans text-gray-500">{$i18n.t('Copy')}</span>
 					</button>
 				</div>
 			{/if}
