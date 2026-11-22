@@ -19,7 +19,8 @@
 	const CONTENT_DIR = '/help-center';
 	const DEFAULT_FILE = 'articles.json';
 
-	type Step = { title: string; text: string };
+	// image: screenshot shown right under the step (caption optional).
+	type Step = { title: string; text: string; image?: string; caption?: string };
 	type Article = {
 		id: string;
 		category: string;
@@ -373,6 +374,31 @@
 												<div class="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
 													{brand(step.text)}
 												</div>
+												{#if step.image}
+													{@const stepImage = { src: step.image, caption: step.caption }}
+													<figure
+														class="mt-2.5 rounded-xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-850 p-2"
+													>
+														<button
+															type="button"
+															class="block w-full cursor-zoom-in"
+															aria-label={$i18n.t('View larger image')}
+															on:click={() => (zoomed = stepImage)}
+														>
+															<img
+																class="w-full max-h-[22rem] object-contain rounded-lg"
+																src={step.image}
+																alt={brand(step.caption ?? step.title)}
+																loading="lazy"
+															/>
+														</button>
+														{#if step.caption}
+															<figcaption class="pt-2 text-center text-xs text-gray-500">
+																{brand(step.caption)}
+															</figcaption>
+														{/if}
+													</figure>
+												{/if}
 											</div>
 										</li>
 									{/each}

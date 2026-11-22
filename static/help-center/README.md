@@ -34,7 +34,7 @@ Mỗi bài viết:
 	"minutes": 3,
 	"icon": "✨",
 	"steps": [
-		{ "title": "Bước 1", "text": "Nội dung bước 1" },
+		{ "title": "Bước 1", "text": "Nội dung bước 1", "image": "/help-center/images/anh-buoc-1.png", "caption": "Chú thích (không bắt buộc)" },
 		{ "title": "Bước 2", "text": "Nội dung bước 2" }
 	],
 	"example": "@ai-assistant câu lệnh mẫu (không bắt buộc)",
@@ -51,7 +51,9 @@ Mỗi bài viết:
 - `icon`: một emoji bất kỳ.
 - `{{name}}` trong nội dung được thay bằng tên hệ thống (biến `BRAND_NAME` / `WEBUI_NAME`).
 - `example`, `tip`, `images`: bỏ trường đi nếu không dùng.
-- Ảnh minh họa: đặt file vào thư mục `images/` cạnh file này rồi thêm vào `images`. Một bài có thể có nhiều ảnh,
+- Ảnh cho từng bước: thêm `image` (và `caption` nếu muốn) vào bước đó; ảnh hiện ngay dưới nội dung bước. Bước nào
+  không cần ảnh thì bỏ hai trường này.
+- Ảnh minh họa chung: đặt file vào thư mục `images/` cạnh file này rồi thêm vào `images` (hiện cuối bài). Một bài có thể có nhiều ảnh,
   hiện theo đúng thứ tự; bấm vào ảnh để xem cỡ lớn. `caption` có thể bỏ.
 
 ## Lưu ý khi sửa tay

@@ -457,58 +457,72 @@
 			],
 			"title": "Đặt lịch báo cáo tiến độ tự động",
 			"desc": "AI tổng hợp tiến độ các kênh dự án theo lịch và gửi qua email hoặc Telegram",
-			"minutes": 5,
+			"minutes": 7,
 			"icon": "🗓️",
 			"steps": [
 				{
 					"title": "Mở trang Báo cáo định kỳ",
-					"text": "Ở thanh bên, bấm Báo cáo định kỳ (ngay dưới Công việc của tôi), rồi bấm Tạo lịch báo cáo và đặt Tên báo cáo, ví dụ \"Báo cáo tiến độ tuần\". Không thấy mục này: quản trị viên chưa bật tính năng, hoặc chưa cho bạn quyền tạo báo cáo."
+					"text": "Ở thanh bên, bấm Báo cáo định kỳ (ngay dưới Công việc của tôi). Không thấy mục này: quản trị viên chưa bật tính năng, hoặc chưa cho bạn quyền tạo báo cáo.",
+					"image": "/help-center/images/bc-b1-thanh-ben.png",
+					"caption": "Mục Báo cáo định kỳ ở thanh bên"
+				},
+				{
+					"title": "Tạo lịch mới và đặt tên",
+					"text": "Bấm Tạo lịch báo cáo ở góc trên bên phải. Form tạo lịch hiện bên phải danh sách Lịch của bạn. Gõ Tên báo cáo ở đầu form, ví dụ \"Báo cáo tiến độ tuần cho ban giám đốc\": tên này là tiêu đề email và tin Telegram. Công tắc Bật bên cạnh để bật hoặc tạm dừng lịch.",
+					"image": "/help-center/images/bc-b2-tao-lich.png",
+					"caption": "Nút Tạo lịch báo cáo và ô Tên báo cáo"
 				},
 				{
 					"title": "Chọn kênh trong báo cáo",
-					"text": "Tất cả kênh dự án tôi tham gia: kênh bạn tham gia sau này cũng tự có trong báo cáo. Chỉ các kênh được chọn: gõ tên để tìm và thêm từng kênh. Nếu quản trị viên chỉ cho chủ kênh tạo báo cáo, bạn chỉ chọn được kênh mình quản lý."
+					"text": "Ở mục 1. Kênh trong báo cáo, chọn một trong hai cách. Tất cả kênh dự án tôi tham gia: kênh bạn tham gia sau này cũng tự có trong báo cáo. Chỉ các kênh được chọn: gõ tên vào ô Tìm kênh rồi tích từng kênh; kênh đã chọn hiện thành thẻ phía trên, bấm × để bỏ. Nếu quản trị viên chỉ cho chủ kênh tạo báo cáo, danh sách chỉ có kênh bạn quản lý.",
+					"image": "/help-center/images/bc-b3-kenh.png",
+					"caption": "Chọn hai kênh #test-bd2 và #test-kpi"
 				},
 				{
 					"title": "Đặt lịch gửi",
-					"text": "Chọn Tần suất: Hằng ngày (có thể chỉ Thứ 2 – Thứ 6), Hằng tuần (chọn các ngày trong tuần), Hằng tháng (ngày 1–28 hoặc ngày cuối tháng) hoặc Tùy chỉnh (nhiều mốc giờ trong ngày, cách nhau bằng dấu phẩy, ví dụ 08:00, 17:00). Giờ là giờ Việt Nam. Bật Bỏ qua kỳ không có thay đổi nếu không muốn nhận báo cáo khi số liệu không đổi."
+					"text": "Ở mục 2. Lịch gửi, chọn Tần suất. Hằng ngày: có thể chỉ gửi Thứ 2 – Thứ 6. Hằng tuần: bấm chọn một hoặc nhiều ngày (T2 … CN). Hằng tháng: ngày 1–28 hoặc ngày cuối tháng. Tùy chỉnh: nhiều mốc giờ trong ngày, cách nhau bằng dấu phẩy (ví dụ 08:00, 17:00). Đặt Giờ gửi (giờ Việt Nam). Để tích Bỏ qua kỳ không có thay đổi nếu không muốn nhận báo cáo khi số liệu không đổi.",
+					"image": "/help-center/images/bc-b4-lich-gui.png",
+					"caption": "Gửi hằng tuần vào Thứ 2 và Thứ 5 lúc 08:00"
 				},
 				{
-					"title": "Chọn nội dung",
-					"text": "Khoảng thời gian: Từ lần gửi trước đến nay, 7 ngày gần nhất hoặc Tháng trước. Tích các phần cần có: Tổng quan từng kênh, Việc quá hạn và sắp đến hạn, Việc hoàn thành trong kỳ, Vướng mắc và rủi ro, Theo từng người phụ trách, Quyết định đã chốt trong kỳ."
+					"title": "Chọn nội dung báo cáo",
+					"text": "Ở mục 3. Nội dung báo cáo, chọn Khoảng thời gian: Từ lần gửi trước đến nay, 7 ngày gần nhất hoặc Tháng trước. Tích các phần cần có: Tổng quan từng kênh, Việc quá hạn và sắp đến hạn, Việc hoàn thành trong kỳ, Vướng mắc và rủi ro, Theo từng người phụ trách, Quyết định đã chốt trong kỳ.",
+					"image": "/help-center/images/bc-b5-noi-dung.png",
+					"caption": "Khoảng thời gian và các phần trong báo cáo"
 				},
 				{
 					"title": "Viết yêu cầu riêng cho AI (không bắt buộc)",
-					"text": "Mô tả cách bạn muốn AI nhận xét: cho ai đọc, dài bao nhiêu, nhấn mạnh điều gì. Bấm một Gợi ý để điền nhanh. Để trống thì AI viết theo mẫu báo cáo mặc định (chữ mờ trong ô)."
+					"text": "Trong ô Yêu cầu riêng cho AI, mô tả cách bạn muốn AI nhận xét: cho ai đọc, dài bao nhiêu, nhấn mạnh điều gì. Bấm một Gợi ý để điền nhanh rồi sửa lại cho hợp. Để trống thì AI viết theo mẫu mặc định (chữ mờ trong ô). Yêu cầu này chỉ đổi phần nhận xét, không đổi số liệu.",
+					"image": "/help-center/images/bc-b6-yeu-cau-ai.png",
+					"caption": "Bấm gợi ý \"Viết ngắn gọn cho lãnh đạo\" để điền sẵn yêu cầu"
 				},
 				{
 					"title": "Chọn nơi nhận",
-					"text": "Gửi qua email: tích Gửi cho tôi, và thêm người nhận khác (gõ email rồi nhấn Enter). Nếu quản trị viên giới hạn, chỉ thêm được thành viên của các kênh trong báo cáo. Gửi qua Telegram: xem bài \"Nhận báo cáo qua Telegram\"."
+					"text": "Ở mục 4. Gửi qua. Email: bật công tắc, tích Gửi cho tôi; thêm người nhận khác bằng cách gõ email rồi nhấn Enter (nếu quản trị viên giới hạn, chỉ thêm được thành viên các kênh trong báo cáo). Telegram: bật công tắc rồi bấm Liên kết Telegram, xem bài \"Nhận báo cáo qua Telegram\". Đã bật Telegram thì phải chọn ít nhất một chat đã liên kết, nếu không Xem trước và Lưu lịch sẽ báo lỗi \"Telegram: chọn ít nhất một chat đã liên kết\".",
+					"image": "/help-center/images/bc-b7-gui-qua.png",
+					"caption": "Gửi qua email cho chính mình; Telegram đã bật nhưng chưa liên kết chat"
 				},
 				{
-					"title": "Xem trước, gửi thử rồi lưu",
-					"text": "Xem trước hiện đúng email người nhận sẽ thấy. Gửi thử cho tôi chỉ gửi tới email của bạn (và các chat Telegram đã chọn), tiêu đề có [Gửi thử]. Ổn thì bấm Lưu lịch. Danh sách Lịch của bạn hiện lần gửi tới, lần gửi trước và lỗi nếu có; dùng công tắc để tạm dừng hoặc bật lại, bấm vào lịch để sửa hay xóa."
+					"title": "Xem trước báo cáo",
+					"text": "Bấm Xem trước ở cuối form. AI viết thử phần nhận xét (có thể mất khoảng 1 phút), rồi hiện đúng email người nhận sẽ thấy: các ô số liệu, Nhận xét của AI và bảng Theo kênh. Chuyển tab Telegram để xem bản gửi qua Telegram. Chưa ưng thì đóng lại, sửa yêu cầu ở bước 6 rồi xem trước lại.",
+					"image": "/help-center/images/bc-b8-xem-truoc.png",
+					"caption": "Bản xem trước email: số liệu, nhận xét của AI và bảng theo kênh"
+				},
+				{
+					"title": "Gửi thử và lưu lịch",
+					"text": "Gửi thử cho tôi chỉ gửi tới email của bạn (và các chat Telegram đã chọn), tiêu đề có [Gửi thử], để xem báo cáo hiển thị trong hộp thư thật. Ổn thì bấm Lưu lịch. Từ đó báo cáo tự gửi theo lịch đã đặt.",
+					"image": "/help-center/images/bc-b9-luu.png",
+					"caption": "Các nút Xem trước, Gửi thử cho tôi và Lưu lịch"
+				},
+				{
+					"title": "Theo dõi và sửa lịch",
+					"text": "Lịch đã lưu hiện ở Lịch của bạn: tần suất và giờ gửi, số kênh, kênh gửi, lần gửi tới (Tiếp theo), lần gửi trước và lỗi nếu có. Bấm vào lịch để sửa, tạm dừng bằng công tắc Bật hoặc xóa lịch. Con số (1/5) là số lịch đã tạo trên số lịch tối đa được phép.",
+					"image": "/help-center/images/bc-b10-danh-sach.png",
+					"caption": "Một lịch trong danh sách Lịch của bạn"
 				}
 			],
 			"example": "Viết ngắn gọn cho lãnh đạo, tối đa 8 gạch đầu dòng, nêu 3 rủi ro lớn nhất và việc cần quyết định.",
-			"tip": "Số liệu (số việc mở, quá hạn, hoàn thành, tiến độ) luôn lấy từ bảng Tiến độ công việc của từng kênh; AI chỉ viết phần nhận xét, nên yêu cầu riêng không làm thay đổi con số. Kênh chưa có bảng tiến độ sẽ ghi \"chưa có dữ liệu\". AI viết sẵn nhận xét trước giờ gửi lúc hệ thống rảnh; nếu AI đang quá bận, báo cáo vẫn được gửi (trễ tối đa khoảng 10 phút) với đủ số liệu và dòng \"Nhận xét của AI chưa có ở kỳ này\".",
-			"images": [
-				{
-					"src": "/help-center/images/bc-thanh-ben.png",
-					"caption": "Mục Báo cáo định kỳ ở thanh bên, ngay dưới Công việc của tôi"
-				},
-				{
-					"src": "/help-center/images/bc-trang.png",
-					"caption": "Trang Báo cáo định kỳ: danh sách lịch của bạn và nút Tạo lịch báo cáo"
-				},
-				{
-					"src": "/help-center/images/bc-form-1.png",
-					"caption": "Chọn kênh trong báo cáo và lịch gửi"
-				},
-				{
-					"src": "/help-center/images/bc-form-2.png",
-					"caption": "Nội dung báo cáo, yêu cầu riêng cho AI, nơi nhận và các nút Xem trước, Gửi thử cho tôi, Lưu lịch"
-				}
-			]
+			"tip": "Số liệu (số việc mở, quá hạn, hoàn thành, tiến độ) luôn lấy từ bảng Tiến độ công việc của từng kênh; AI chỉ viết phần nhận xét, nên yêu cầu riêng không làm thay đổi con số. Kênh chưa có bảng tiến độ sẽ ghi \"chưa có dữ liệu\". AI viết sẵn nhận xét trước giờ gửi lúc hệ thống rảnh; nếu AI đang quá bận, báo cáo vẫn được gửi (trễ tối đa khoảng 10 phút) với đủ số liệu và dòng \"Nhận xét của AI chưa có ở kỳ này\"."
 		},
 		{
 			"id": "reports_telegram",
