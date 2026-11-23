@@ -81,6 +81,8 @@
 	let previewTab: 'email' | 'telegram' = 'email';
 
 	let linking: { id: string; url: string; group_command: string; allow_groups: boolean } | null = null;
+	// Linking a Telegram group is hidden for now; set to true to show the "/link <code>" part again.
+	const SHOW_TELEGRAM_GROUP_LINK = false;
 	let linkTimer: ReturnType<typeof setInterval> | null = null;
 
 	let confirmDelete = false;
@@ -827,7 +829,7 @@
 				{/if}
 				<span class="text-xs text-gray-500">{$i18n.t('Telegram opens the bot; press Start.')}</span>
 			</div>
-			{#if linking.allow_groups}
+			{#if SHOW_TELEGRAM_GROUP_LINK && linking.allow_groups}
 				<div class="flex flex-col gap-1.5">
 					<span class="font-medium">{$i18n.t('A Telegram group')}</span>
 					<span class="text-xs text-gray-500">{$i18n.t('Add the bot to the group, then send this message in the group:')}</span>

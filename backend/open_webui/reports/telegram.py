@@ -106,7 +106,7 @@ async def _handle(token: str, update: dict, allow_groups: bool) -> None:
             await call(token, 'sendMessage', chat_id=chat['id'], text='Chào bạn! Vào NCS AI → Báo cáo định kỳ → Liên kết Telegram để nhận báo cáo tại đây.')
         return
     if chat_type != 'private' and not allow_groups:
-        await call(token, 'sendMessage', chat_id=chat['id'], text='Quản trị viên chưa cho phép gửi báo cáo vào nhóm Telegram.')
+        await call(token, 'sendMessage', chat_id=chat['id'], text='NCS AI tạm thời chưa gửi báo cáo vào nhóm Telegram. Hãy liên kết chat riêng với bot.')
         return
     title = chat.get('title') or ' '.join(x for x in (chat.get('first_name'), chat.get('last_name')) if x) or str(chat['id'])
     link = await TelegramLinks.confirm(code.strip(), str(chat['id']), title, chat_type)

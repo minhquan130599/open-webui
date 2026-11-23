@@ -1658,7 +1658,8 @@
     ['reports.email.mode', 'Email có nhiều người nhận', 'enum', [['bcc', 'Một email, ẩn người nhận (Bcc)'], ['to', 'Một email, mọi người thấy nhau (To)'], ['separate', 'Mỗi người nhận một email']]],
     ['reports.telegram.enable', 'Gửi qua Telegram', 'bool'],
     ['reports.telegram.bot_token', 'Bot token Telegram (để trống = giữ token đã lưu)', 'secret'],
-    ['reports.telegram.allow_groups', 'Cho gửi vào nhóm Telegram', 'bool'],
+    // Telegram groups are switched off for now (TELEGRAM_GROUPS_ENABLED in reports/settings.py).
+    // ['reports.telegram.allow_groups', 'Cho gửi vào nhóm Telegram', 'bool'],
     ['reports.max_schedules', 'Số lịch tối đa mỗi người', 'int'],
     ['reports.max_channels', 'Số kênh tối đa mỗi báo cáo', 'int'],
     ['reports.default_prompt', 'Mẫu báo cáo mặc định (khi người tạo để trống yêu cầu)', 'textarea'],

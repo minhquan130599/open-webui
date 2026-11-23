@@ -38,6 +38,10 @@ SETTINGS: list[tuple[str, str, Any]] = [
 ]
 BY_KEY = {key: (kind, default) for key, kind, default in SETTINGS}
 
+# Telegram groups are switched off for now, whatever the admin setting says: groups cannot be linked
+# and reports are not sent to groups linked earlier. Set to True to give the admin setting back.
+TELEGRAM_GROUPS_ENABLED = False
+
 
 def _coerce(key: str, value):
     kind, default = BY_KEY[key]
@@ -72,6 +76,8 @@ async def get_settings() -> dict:
             values[key] = default
     if not values['reports.default_prompt']:
         values['reports.default_prompt'] = DEFAULT_PROMPT
+    if not TELEGRAM_GROUPS_ENABLED:
+        values['reports.telegram.allow_groups'] = False
     return values
 
 

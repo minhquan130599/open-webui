@@ -176,9 +176,12 @@
 					{#if telegramCheck}<span class="text-xs text-gray-500">{telegramCheck}</span>{/if}
 					{#if values['reports.telegram.bot_username']}<span class="text-xs text-gray-500">Bot: @{values['reports.telegram.bot_username']}</span>{/if}
 				</div>
-				<AdminSettingRow label={$i18n.t('Allow sending to Telegram groups')} let:labelId>
-					<Switch ariaLabelledbyId={labelId} bind:state={values['reports.telegram.allow_groups']} />
-				</AdminSettingRow>
+				<!-- Telegram groups are switched off for now (TELEGRAM_GROUPS_ENABLED in backend reports/settings.py). -->
+				{#if false}
+					<AdminSettingRow label={$i18n.t('Allow sending to Telegram groups')} let:labelId>
+						<Switch ariaLabelledbyId={labelId} bind:state={values['reports.telegram.allow_groups']} />
+					</AdminSettingRow>
+				{/if}
 			</AdminSettingSection>
 
 			<AdminSettingSection title={$i18n.t('Limits')}>
