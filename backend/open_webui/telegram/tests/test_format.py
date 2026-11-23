@@ -8,6 +8,20 @@ def test_reasoning_tool_calls_and_citations_are_removed():
     assert text == 'Kết quả đây.'
 
 
+def test_links_that_only_open_on_the_web_are_removed():
+    answer = (
+        'Tài liệu hướng dẫn tra cứu [tr.1–2] và phân tích hồ sơ [tr.3](/api/v1/files/abc/pages/3/image).\n'
+        'Xem [file gốc](/api/v1/files/abc/content) hoặc [trang](https://a.vn).\n'
+        '![ảnh](/api/v1/files/abc/pages/1/image)\n\n'
+        'Xem trang gốc (1793161106000_Phân tích (2).pdf): [tr.1](/api/v1/files/e5/pages/1/image) · '
+        '[tr.2](/api/v1/files/e5/pages/2/image)'
+    )
+    text = fmt.clean(answer)
+    assert '/api/' not in text and 'Xem trang gốc' not in text
+    assert 'phân tích hồ sơ.' in text and '[tr.1–2]' in text
+    assert 'Xem file gốc hoặc [trang](https://a.vn).' in text
+
+
 def test_markdown_becomes_telegram_html_and_user_text_is_escaped():
     html = fmt.to_html('## Tiến độ **OPP 3**\n- Việc <b>A</b> & B\n- *nghiêng* `x<y` [web](https://a.vn/?a=1&b=2)')
     assert html.splitlines()[0] == '<b>Tiến độ OPP 3</b>'

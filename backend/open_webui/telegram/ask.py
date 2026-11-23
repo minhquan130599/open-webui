@@ -129,15 +129,23 @@ async def save_upload(request, user: UserModel, name: str, data: bytes, content_
         process_in_background=False,
         user=user,
     )
-    if not item:
+    # The handler returns the file as a dict when it processed it, as a model otherwise.
+    file = item if isinstance(item, dict) else (item.model_dump() if item else None)
+    if not file or not file.get('id'):
         raise ValueError('Không lưu được file')
+    file.pop('status', None)
+    file_id = file['id']
+    meta = file.get('meta') or {}
+    # The same entry as an upload on the web (MessageInput): the chat pipeline reads the processed file from it.
     return {
-        'type': 'image' if (content_type or '').startswith('image/') else 'file',
-        'id': item.id,
-        'url': request.app.url_path_for('get_file_content_by_id', id=item.id),
+        'type': 'file',  # images too: the pipeline recognises them by content type, as for web uploads
+        'file': file,
+        'id': file_id,
+        'url': file_id,
         'name': name,
         'size': len(data),
-        'content_type': content_type,
+        'collection_name': meta.get('collection_name') or file.get('collection_name'),
+        'content_type': meta.get('content_type') or content_type,
         'status': 'uploaded',
     }
 
@@ -165,14 +173,18 @@ def _history(messages_map: dict, last_id: Optional[str]) -> list[dict]:
 
 
 async def ask_direct(app, request, user: UserModel, session, model_id: str, text: str, settings: dict,
-                     files: Optional[list] = None) -> dict:
-    """Start an answer in the user's current Telegram chat (or a new one). Returns the handle to follow it."""
+                     files: Optional[list] = None, separate: bool = False, instructions: str = '',
+                     title: str = '') -> dict:
+    """Start an answer in the user's current Telegram chat (or a new one). Returns the handle to follow it.
+
+    `separate`: always a new chat (the current one is left as it is); `instructions`: a system message for this
+    request only (not saved as part of the user's question)."""
     from open_webui.models.chats import Chats
     from open_webui.utils.automations import _resolve_model_defaults
 
     chat_id, parent_id, history = None, None, []
     fresh = session.updated_at and time.time_ns() - session.updated_at < settings['telegram.new_chat_hours'] * 3600 * 10**9
-    if session.chat_ref and session.last_message_id and fresh:
+    if not separate and session.chat_ref and session.last_message_id and fresh:
         chat = await Chats.get_chat_by_id_and_user_id(session.chat_ref, user.id)
         if chat:
             messages_map = await Chats.get_messages_map_by_chat_id(chat.id) or {}
@@ -196,7 +208,8 @@ async def ask_direct(app, request, user: UserModel, session, model_id: str, text
     form_data = {
         **await _resolve_model_defaults(app, model_id),
         'model': model_id,
-        'messages': [*history, {'role': 'user', 'content': text}],
+        'messages': [*([{'role': 'system', 'content': instructions}] if instructions else []), *history,
+                     {'role': 'user', 'content': text}],
         'stream': True,
         'parent_id': parent_id,
         'id': assistant_id,
@@ -218,7 +231,7 @@ async def ask_direct(app, request, user: UserModel, session, model_id: str, text
         raise RuntimeError('Không tạo được cuộc trò chuyện')
     if not chat_id:
         try:
-            await Chats.update_chat_title_by_id(new_chat_id, f'Telegram · {fmt.short(text, 50)}')
+            await Chats.update_chat_title_by_id(new_chat_id, f'Telegram · {fmt.short(title or text, 50)}')
         except Exception:
             log.debug('Telegram: could not set the chat title', exc_info=True)
     return {

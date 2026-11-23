@@ -10,6 +10,11 @@ _DETAILS = re.compile(r'<details\b[^>]*>.*?</details>', re.S | re.I)
 _THINK = re.compile(r'<(think|thinking|reasoning)>.*?</\1>', re.S | re.I)
 _SOURCE_TAGS = re.compile(r'</?(source|citation)[^>]*>', re.I)
 _CITATION = re.compile(r'\s?\[(\d+(?:,\s*\d+)*)\](?!\()')
+# Links that only work inside the web app (page images of a PDF, file downloads): useless on Telegram.
+_PAGE_LINKS_LINE = re.compile(r'^[ \t]*Xem trang gốc\b.*$', re.M)
+_LOCAL_IMAGE = re.compile(r'!\[[^\]\n]*\]\((?!https?://)[^)\s]*\)')
+_PAGE_LINK = re.compile(r'\s?\[tr\.\s?[\d\-–, ]+\]\((?!https?://)[^)\s]*\)')
+_LOCAL_LINK = re.compile(r'\[([^\]\n]+)\]\((?!https?://|mailto:|tel:)[^)\s]*\)')
 _FENCE = re.compile(r'```[^\n`]*\n?(.*?)```', re.S)
 _INLINE_CODE = re.compile(r'`([^`\n]+)`')
 _LINK = re.compile(r'\[([^\]\n]+)\]\((https?://[^)\s]+)\)')
@@ -21,11 +26,15 @@ _TABLE_SEP = re.compile(r'^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$')
 
 
 def clean(markdown: str) -> str:
-    """The answer without reasoning, tool calls, source tags and [1] citations."""
+    """The answer without reasoning, tool calls, source tags, [1] citations and links that only open on the web."""
     text = _DETAILS.sub('', markdown or '')
     text = _THINK.sub('', text)
     text = _SOURCE_TAGS.sub('', text)
     text = _CITATION.sub('', text)
+    text = _PAGE_LINKS_LINE.sub('', text)
+    text = _LOCAL_IMAGE.sub('', text)
+    text = _PAGE_LINK.sub('', text)
+    text = _LOCAL_LINK.sub(r'\1', text)
     return re.sub(r'\n{3,}', '\n\n', text).strip()
 
 
