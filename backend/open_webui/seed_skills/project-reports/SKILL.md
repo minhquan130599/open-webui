@@ -35,14 +35,20 @@ thì đọc file (`query_table` với bảng tính).
 3. Dữ liệu lớn được chia nhiều phần: viết phần hiện tại, cuối câu trả lời mời gõ "tiếp". Khi người dùng gõ "tiếp",
    gọi lại `build_project_report` với `report_id` và `part` kế tiếp.
 4. Người dùng muốn file (PDF, Word, Excel) hoặc cả báo cáo dài một lần: viết phần nhận xét (Markdown),
-   rồi gọi `export_project_report` với `report_id`, `content` và `format` (`pdf`, `docx`, `xlsx`, `md`).
-   File tự kèm bảng đầy đủ mọi hạng mục và thống kê theo người. Trong chat chỉ tóm tắt và báo đã gửi file.
+   rồi gọi `export_project_report` **một lần** với `report_id`, `content` và `format` (`pdf`, `docx`, `xlsx`, `md`).
+   File tự kèm bảng đầy đủ mọi hạng mục và thống kê theo người, và hiện ngay dưới câu trả lời khi công cụ báo
+   `"status": "success"`. Sau đó chỉ viết tóm tắt ngắn rồi **kết thúc**: không mở, kiểm tra hay gửi lại file.
+   Báo cáo dự án luôn xuất bằng `export_project_report`, kể cả khi có Terminal: không viết script Python, không
+   tạo file trong Terminal và không dùng `attach_terminal_file` cho báo cáo.
 5. Cần chi tiết hoặc trích nguồn một việc: `search_project_evidence` hoặc `view_channel_message`.
 
 ## Pitfalls
 
 - Chỉ dùng số liệu có trong dữ liệu; đánh giá, nhận xét là phần tự phân tích và phải nêu căn cứ.
 - Không bỏ sót hạng mục: hệ thống kiểm tra và tự liệt kê các hạng mục chưa được nhắc ở cuối câu trả lời.
-- Chỉ nói "đã gửi file" khi `export_project_report` trả về `"status": "success"`; lỗi thì báo đúng lỗi.
-- Không cần Terminal để xuất báo cáo. Không dùng hay tự đặt tên công cụ khác.
+- Chỉ nói "đã gửi file" khi `export_project_report` trả về `"status": "success"`; lỗi thì báo đúng lỗi, không
+  tự thử lại bằng cách khác.
+- File báo cáo lưu trong NCS AI, **không nằm trong Terminal**: `list_files`, `read_file` không thấy nó, và thấy file
+  báo cáo cũ trong Terminal không có nghĩa là file vừa xuất bị lỗi. Không dùng hay tự đặt tên công cụ khác.
+- Đã trả lời xong thì dừng: không gọi thêm công cụ để "kiểm tra lại", không viết lại câu trả lời lần hai.
 - Dữ liệu tiến độ có thể chậm vài phút so với tin nhắn mới nhất.

@@ -452,6 +452,37 @@ async def generate_image(
 ATTACH_TERMINAL_FILE_MAX_BYTES = 100 * 1024 * 1024
 
 
+# Files attached to each reply while it is written: reply message id -> {file name: file id}. Lets display_file
+# open a file the model just attached when it names it (instead of looking for that name in the terminal).
+REPLY_FILES: dict[str, dict[str, str]] = {}
+
+
+def remember_reply_file(message_id: Optional[str], name: str, file_id: str) -> None:
+    if not message_id:
+        return
+    REPLY_FILES.setdefault(message_id, {})[name] = file_id
+    while len(REPLY_FILES) > 500:
+        REPLY_FILES.pop(next(iter(REPLY_FILES)))
+
+
+def known_file_id(path: str, metadata: dict) -> Optional[str]:
+    """The id of a file named `path` (a bare file name) that this reply attached or the chat has attached."""
+    name = str(path or '').strip()
+    if not name or '/' in name or '\\' in name:
+        return None  # a path is a terminal path
+    found = (REPLY_FILES.get(metadata.get('message_id') or '') or {}).get(name)
+    if found:
+        return found
+    for item in metadata.get('files') or []:
+        if not isinstance(item, dict) or not item.get('id'):
+            continue
+        file = item.get('file') if isinstance(item.get('file'), dict) else {}
+        names = {item.get('name'), file.get('filename'), (file.get('meta') or {}).get('name')}
+        if name in names:
+            return item['id']
+    return None
+
+
 async def attach_to_reply(
     request: Request,
     user: UserModel,
@@ -485,6 +516,7 @@ async def attach_to_reply(
     )
     if not file_item:
         raise ValueError(f'Could not save {name}')
+    remember_reply_file(message_id, name, file_item.id)
 
     entry = {
         'type': 'image' if content_type.startswith('image/') else 'file',

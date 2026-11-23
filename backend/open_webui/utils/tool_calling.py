@@ -291,6 +291,41 @@ def tool_repetition_error(call, previous_calls):
     return None
 
 
+ANSWER_GIVEN_MIN_CHARS = 400
+ANSWER_GIVEN_NOTE = (
+    '\n\nNote: the answer you wrote just before this tool call is already shown to the user. Use this result only to '
+    'add what it changes. Do not redo the earlier work or write the answer again; if nothing is missing, end now. '
+    'If this call failed, that does not undo the answer or any file already attached.'
+)
+
+
+def note_answer_already_given(output: list) -> bool:
+    """Some models write the whole answer and then call one more tool in the same turn (show the file, check an
+    export). The loop then asks them again with that tool's result; when the call failed they took the work for
+    undone and did it all again, so the reply ended with the same answer twice (and a second copy of any file).
+    When the turn that made the latest calls already had an answer, its results now say so. Returns True if noted."""
+    end = len(output)
+    while end and output[end - 1].get('type') == 'function_call_output':
+        end -= 1
+    results = output[end:]
+    if not results:
+        return False
+    text = []
+    for item in reversed(output[:end]):
+        kind = item.get('type')
+        if kind == 'function_call_output':
+            break  # the previous round: earlier text belongs to another turn
+        if kind == 'message':
+            text.extend(part.get('text') or '' for part in item.get('content') or [] if isinstance(part, dict))
+    if len(''.join(text).strip()) < ANSWER_GIVEN_MIN_CHARS:
+        return False  # a short "now I will export the file" before a call is not an answer
+    for item in results:
+        parts = item.get('output')
+        if isinstance(parts, list) and not any(p.get('text') == ANSWER_GIVEN_NOTE for p in parts if isinstance(p, dict)):
+            item['output'] = [*parts, {'type': 'input_text', 'text': ANSWER_GIVEN_NOTE}]
+    return True
+
+
 def prepare_tool_call(call, schema=None, *, display_labels=False, approval_review=False):
     """Normalize a call before approval; return an actionable error for the model."""
     original_arguments = call.get('arguments', '{}')

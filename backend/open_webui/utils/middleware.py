@@ -177,6 +177,7 @@ from open_webui.utils.tool_calling import (
     set_tool_call_visibility,
     split_tool_calls,
     tool_repetition_error,
+    note_answer_already_given,
 )
 from open_webui.utils.tool_search import apply_tool_search, resolve_tool_call, split_tool_call_batches
 from open_webui.utils.tools import (
@@ -3379,6 +3380,14 @@ async def execute_tool_call(form_data, metadata, event_caller, tool_call, histor
     if error:
         return {}, error, None, None, False
     params = JSONCodec.loads(tool_call['arguments'])
+    if name == 'display_file':
+        # A file named by its name that this reply attached (an exported report) or the chat has attached lives in
+        # NCS AI storage, not in the terminal: open that file instead of failing on a terminal lookup.
+        from open_webui.tools.builtin import known_file_id
+
+        file_id = known_file_id(params.get('path', ''), metadata)
+        if file_id:
+            params['path'] = file_id
     if name == 'display_file' and (
         str(params.get('path', '')).startswith('/api/v1/files/')
         or re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', str(params.get('path', '')))
@@ -6306,6 +6315,7 @@ async def streaming_chat_response_handler(response, ctx):
                         await event_emitter({'type': 'chat:completion', 'data': {'output': full_output()}})
                         return
 
+                    note_answer_already_given(output)
                     await emit_output()
                     if final_answer_requested:
                         await emit_message_error(round_error or 'The provider requested tools after tool use stopped.')

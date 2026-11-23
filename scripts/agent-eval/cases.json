@@ -1,0 +1,50 @@
+[
+  {
+    "id": "export-pdf",
+    "note": "Nút Xuất báo cáo (PDF): một lần export, một file, trả lời một lần, không qua terminal.",
+    "prompt": "Lập báo cáo tiến độ đầy đủ của kênh này (việc đã xong, đang làm, trễ hạn, vướng mắc, theo từng người phụ trách) và xuất ra file PDF đính kèm.",
+    "expect": {
+      "call_counts": {"export_project_report": 1},
+      "file_types": ["pdf"],
+      "must_not_call": ["attach_terminal_file", "run_command", "display_file"]
+    }
+  },
+  {
+    "id": "export-docx",
+    "note": "Ca lỗi ở kênh #av: export Word hai lần sau khi display_file tìm file trong terminal.",
+    "prompt": "Lập báo cáo tiến độ đầy đủ của kênh này (việc đã xong, đang làm, trễ hạn, vướng mắc, theo từng người phụ trách) và xuất ra file Word đính kèm.",
+    "expect": {
+      "call_counts": {"export_project_report": 1},
+      "file_types": ["docx"],
+      "must_not_call": ["attach_terminal_file", "run_command"]
+    }
+  },
+  {
+    "id": "export-xlsx",
+    "prompt": "Lập báo cáo tiến độ đầy đủ của kênh này (việc đã xong, đang làm, trễ hạn, vướng mắc, theo từng người phụ trách) và xuất ra file Excel đính kèm.",
+    "expect": {
+      "call_counts": {"export_project_report": 1},
+      "file_types": ["xlsx"],
+      "must_not_call": ["attach_terminal_file", "run_command"]
+    }
+  },
+  {
+    "id": "progress-summary",
+    "note": "Nút Tiến độ tổng quan: trả lời bằng chữ, không tạo file.",
+    "prompt": "Tóm tắt tiến độ kênh này: việc đã xong, việc đang làm, việc trễ hạn và các vướng mắc cần xử lý.",
+    "expect": {
+      "call_counts": {"export_project_report": 0},
+      "must_not_call": ["attach_terminal_file", "run_command"]
+    }
+  },
+  {
+    "id": "xlsx-question",
+    "note": "Ca lỗi 'Bypass bằng script obfuscate': trả lời rồi gọi tiếp tool và trả lời lại. Đặt file testcase vào files/ (không commit dữ liệu thật).",
+    "files": ["files/testcase-edr.xlsx"],
+    "prompt": "nội dung của testcase Bypass bằng script obfuscate như thế nào",
+    "expect": {
+      "must_not_call": ["attach_terminal_file", "run_command"],
+      "max_failed_tools": 0
+    }
+  }
+]

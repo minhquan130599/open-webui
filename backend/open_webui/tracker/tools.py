@@ -397,7 +397,8 @@ async def export_project_report(
     """
     Deliver a report built with build_project_report as a downloadable file attached to your reply. A complete
     appendix (every work item and per-person statistics) is added automatically after your text, so the file
-    is complete even when your text is a summary.
+    is complete even when your text is a summary. The file is stored in NCS AI and shown to the user under your
+    reply as soon as this returns success; it is not in the terminal. Call once per file you want to deliver.
 
     :param report_id: The report_id returned by build_project_report
     :param content: The report text you wrote, in Markdown (headings, bullet lists, tables, **bold**)
@@ -424,7 +425,7 @@ async def export_project_report(
             log.warning('PDF export failed, sending Word instead: %s', e)
             name, payload, content_type = build_file(data, content or '', 'docx')
             note = ' PDF could not be created on this server, so a Word file was sent instead; tell the user.'
-        await attach_to_reply(
+        entry = await attach_to_reply(
             __request__,
             UserModel(**__user__),
             __chat_id__,
@@ -435,11 +436,15 @@ async def export_project_report(
             content_type,
         )
         reports.waive_coverage(__message_id__)
+        # Said plainly where the file is: models used to look for it in the terminal (display_file, list_files),
+        # not find it there, take the export for failed and export the same report again.
         return JSONCodec.dumps(
             {
                 'status': 'success',
-                'file': name,
-                'message': f'{name} is attached to your reply with the full appendix. Summarize briefly; do not '
+                'file': {k: entry[k] for k in ('id', 'name', 'size') if k in entry},
+                'message': f'Done: {name} is saved in NCS AI with the full appendix and is already shown to the user '
+                'under your reply. It is not in the terminal, so display_file, list_files and attach_terminal_file '
+                'cannot see it: do not look for it, open it or export it again. Finish with a brief summary; do not '
                 'paste the whole report or a link.' + note,
             },
             ensure_ascii=False,
