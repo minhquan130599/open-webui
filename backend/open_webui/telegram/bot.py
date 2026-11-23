@@ -61,6 +61,22 @@ _semaphore_size = 0
 _waiting = 0
 
 
+_recent_updates: dict[int, None] = {}
+_already_told: dict[str, float] = {}
+
+
+def _seen(update_id) -> bool:
+    """True when this update was already handled by this worker (kept for the last 5000 updates)."""
+    if update_id is None:
+        return False
+    if update_id in _recent_updates:
+        return True
+    _recent_updates[update_id] = None
+    while len(_recent_updates) > 5000:
+        _recent_updates.pop(next(iter(_recent_updates)))
+    return False
+
+
 def _spawn(coro) -> None:
     task = asyncio.create_task(coro)
     _tasks.add(task)
@@ -128,9 +144,11 @@ async def bot_loop(app) -> None:
     """Read the bot's updates while a token is set; one worker at a time across the app."""
     lease_id = None
     commands_for = None
+    state: dict = {}
     log.info('Telegram bot loop started')
     while True:
         try:
+            state = {}
             settings = await get_settings()
             token = settings['telegram.bot_token']
             if not token or not (settings['telegram.reports'] or settings['telegram.ask']):
@@ -151,11 +169,19 @@ async def bot_loop(app) -> None:
             offset = int(state.get('offset', 0))
             for update in updates:
                 offset = max(offset, int(update.get('update_id', 0)) + 1)
-            # Saved before handling: an update is handled at most once even if this worker stops.
+            # Saved before handling: an update is handled at most once even if this worker stops. When the save
+            # does not go through (the lease moved to another worker meanwhile), nothing is handled here: the
+            # worker holding the lease reads the same updates and handles them once.
             state.update({'offset': offset, 'last_ok': int(time.time()), 'error': None})
-            await Locks.save(POLL_LOCK, lease_id, state)
+            if not await Locks.save(POLL_LOCK, lease_id, state):
+                log.warning('Telegram: lost the reading lease before saving; updates left to the other worker')
+                lease_id = None
+                continue
             STATUS.update(state)
             for update in updates:
+                if _seen(update.get('update_id')):
+                    log.warning('Telegram: update %s came again; ignored', update.get('update_id'))
+                    continue
                 _spawn(_handle_update(app, settings, update))
         except asyncio.CancelledError:
             raise
@@ -167,9 +193,9 @@ async def bot_loop(app) -> None:
             else:
                 log.warning('Telegram poll: %s', error)
             STATUS.update(note)
-            if lease_id:
-                try:
-                    await Locks.save(POLL_LOCK, lease_id, {**STATUS, **note})
+            if lease_id and state.get('offset') is not None:
+                try:  # the offset read with this lease, never an older one kept in memory
+                    await Locks.save(POLL_LOCK, lease_id, {**state, **note})
                 except Exception:
                     pass
             await asyncio.sleep(10 if error.code == 409 else 30)
@@ -194,6 +220,8 @@ async def poll_status() -> dict:
 
 
 async def _handle_update(app, settings: dict, update: dict) -> None:
+    message = update.get('message') or {}
+    log.debug('Telegram: update %s (%s)', update.get('update_id'), 'button' if 'callback_query' in update else (message.get('text') or '')[:20])
     try:
         if 'callback_query' in update:
             await _on_callback(app, settings, update['callback_query'])
@@ -366,6 +394,13 @@ async def _link_account(ctx: Ctx, code: str) -> None:
         await ctx.send('Mã liên kết không đúng.')
         return
     status, account = await Accounts.confirm(code, ctx.tg_id, ctx.sender.get('username') or '', _display(ctx.sender))
+    log.info('Telegram: link code from %s: %s', ctx.tg_id, status)
+    if status == 'already':
+        # The same link opened again (browser and app both open it, or Start pressed twice): say it once.
+        key = f'{ctx.tg_id}:{code}'
+        if time.monotonic() - _already_told.get(key, -1e9) < 600:
+            return
+        _already_told[key] = time.monotonic()
     if status == 'invalid':
         await ctx.send('Mã liên kết không đúng hoặc đã hết hạn (10 phút). Vào web bấm <b>Liên kết Telegram</b> để lấy mã mới.')
         return

@@ -1656,9 +1656,7 @@
     ['reports.email.enable', 'Gửi qua email (dùng cấu hình Email nhắc việc)', 'bool'],
     ['reports.email.internal_only', 'Chỉ gửi email trong tên miền công ty', 'bool'],
     ['reports.email.mode', 'Email có nhiều người nhận', 'enum', [['bcc', 'Một email, ẩn người nhận (Bcc)'], ['to', 'Một email, mọi người thấy nhau (To)'], ['separate', 'Mỗi người nhận một email']]],
-    // Bot dùng chung (báo cáo + hỏi đáp AI): cấu hình chi tiết ở web → Cài đặt quản trị → Telegram.
-    ['reports.telegram.enable', 'Gửi báo cáo qua Telegram', 'bool'],
-    ['reports.telegram.bot_token', 'Bot token Telegram dùng chung (để trống = giữ token đã lưu)', 'secret'],
+    // Bot Telegram (token, gửi báo cáo qua Telegram, hỏi đáp AI): khối "Bot Telegram" bên dưới.
     // Telegram groups are switched off for now (TELEGRAM_GROUPS_ENABLED in reports/settings.py).
     // ['reports.telegram.allow_groups', 'Cho gửi vào nhóm Telegram', 'bool'],
     ['reports.max_schedules', 'Số lịch tối đa mỗi người', 'int'],
@@ -1674,6 +1672,94 @@
   ];
   const RP_JOB = { queued: ['', 'Chờ viết'], writing: ['', 'Đang viết'], ready: ['ok', 'Đã viết sẵn'], sending: ['', 'Đang gửi'], sent: ['ok', 'Đã gửi'], skipped: ['', 'Bỏ qua'], error: ['err', 'Lỗi'], cancelled: ['', 'Đã hủy'] };
   const rpTime = (ns) => (ns ? when(ns / 1e6) : '—');
+
+  // ---------- Telegram bot (shared: reports + asking the AI) ----------
+  const tg = { settings: null, accounts: [], status: null, note: '', test: '' };
+  const TG_SETTINGS = [
+    ['telegram.bot_token', 'Bot token (từ @BotFather; để trống = giữ token đã lưu)', 'secret'],
+    ['telegram.reports', 'Gửi báo cáo định kỳ qua Telegram', 'bool'],
+    ['telegram.ask', 'Hỏi đáp AI qua Telegram (người có quyền Telegram)', 'bool'],
+    ['telegram.ask_channels', 'Cho hỏi trong kênh (câu hỏi đăng vào kênh dưới tên người hỏi)', 'bool'],
+    ['telegram.files', 'Gửi file qua Telegram (PDF / Word / Excel, file đính kèm)', 'bool'],
+    ['telegram.model', 'Model mặc định cho Telegram (trống = model mặc định của người dùng)', 'text'],
+    ['telegram.rate_per_minute', 'Số tin mỗi người mỗi phút', 'int'],
+    ['telegram.max_running', 'Số câu hỏi trả lời cùng lúc (toàn hệ thống)', 'int'],
+    ['telegram.new_chat_hours', 'Tự sang cuộc trò chuyện mới sau (giờ không hỏi)', 'int'],
+    ['telegram.answer_minutes', 'Thời gian chờ câu trả lời tối đa (phút)', 'int'],
+    ['telegram.blocked_channels', 'Kênh không cho hỏi qua Telegram (ID kênh, cách nhau dấu phẩy)', 'list'],
+  ];
+  const tgTime = (s) => (s ? when(s * 1000) : '—');
+
+  function tgStatusHtml() {
+    const s = tg.status || {};
+    const conflict = s.conflict_at && Date.now() / 1000 - s.conflict_at < 3600;
+    return `<div class="muted">Đang đọc tin: <b>${s.reading ? 'có' : 'không'}</b> · lần cuối OK: ${tgTime(s.last_ok)}${s.error ? ` · <span style="color:var(--err,#d33)">lỗi ${tgTime(s.error_at)}: ${esc(s.error)}</span>` : ''}</div>
+      ${conflict ? '<div class="card" style="border-color:#d97706">Có ứng dụng khác đang đọc tin của bot này (409 Conflict). Mỗi môi trường (server, máy thử, máy dev) phải dùng một bot riêng, nếu không liên kết và câu hỏi rơi sang máy khác.</div>' : ''}`;
+  }
+
+  function tgSettingsHtml() {
+    const v = tg.settings;
+    const field = ([key, label, type]) => {
+      if (type === 'bool') return `<label class="row" style="gap:8px"><input type="checkbox" data-tg-key="${key}" ${v[key] ? 'checked' : ''}> ${esc(label)}</label>`;
+      if (type === 'secret') return `<label style="display:flex;flex-direction:column;gap:4px">${esc(label)}${v['telegram.bot_token_set'] ? ' · <span class="muted">đã lưu</span>' : ''}<span class="row" style="gap:6px"><input class="btn" type="password" autocomplete="off" data-tg-key="${key}" style="min-width:280px"><button class="btn" type="button" data-tg-test>Kiểm tra bot</button></span><span class="muted" data-tg-test-note>${esc(tg.test)}</span>${v['telegram.bot_username'] ? `<span class="muted">Bot: @${esc(v['telegram.bot_username'])}</span>` : ''}</label>`;
+      if (type === 'list') return `<label style="display:flex;flex-direction:column;gap:4px;grid-column:1/-1">${esc(label)}<textarea class="btn" rows="2" data-tg-key="${key}" data-tg-list style="text-align:left">${esc((v[key] || []).join(', '))}</textarea></label>`;
+      return `<label style="display:flex;flex-direction:column;gap:4px">${esc(label)}<input class="btn" ${type === 'int' ? 'type="number"' : ''} data-tg-key="${key}" value="${esc(v[key] ?? '')}"></label>`;
+    };
+    return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">${TG_SETTINGS.map(field).join('')}</div>
+      <div class="muted" style="margin-top:8px">Quyền hỏi AI theo nhóm: NCS AI → Trang Quản trị → Nhóm → Quyền mặc định / một nhóm → Quyền Tính năng → Telegram (mặc định bật). Liên kết nhóm Telegram đang tạm tắt.</div>
+      <div class="row" style="margin-top:12px;gap:8px"><button class="btn primary" type="button" data-tg-save>Lưu cài đặt Telegram</button><button class="btn" type="button" data-tg-close>Đóng</button></div>
+      <h4 style="margin:16px 0 6px">Tài khoản Telegram đã liên kết (${tg.accounts.length})</h4>
+      ${table([
+        { label: 'Người dùng', render: (a) => `<b>${esc(a.user_name || '')}</b><div class="muted">${esc(a.user_email || '')}</div>` },
+        { label: 'Telegram', render: (a) => esc(a.username ? '@' + a.username : a.display_name || a.telegram_user_id) },
+        { label: 'Liên kết lúc', render: (a) => rpTime(a.linked_at) },
+        { label: 'Dùng lần cuối', render: (a) => rpTime(a.last_seen_at) },
+        { label: '', render: (a) => `<button class="btn" type="button" data-tg-unlink="${esc(a.user_id)}">Gỡ liên kết</button>` },
+      ], tg.accounts, 'Chưa ai liên kết Telegram.')}`;
+  }
+
+  async function tgClick(b) {
+    if (b.dataset.tgOpen !== undefined) {
+      if (!(await ensureSession('xem cài đặt bot Telegram'))) return true;
+      try {
+        tg.settings = await api('/api/admin/telegram/settings', { headers: editHeaders() });
+        tg.accounts = (await api('/api/admin/telegram/accounts', { headers: editHeaders() })).items || [];
+      } catch (err) { tg.note = err.message; }
+      load(); return true;
+    }
+    if (b.dataset.tgClose !== undefined) { tg.settings = null; tg.test = ''; load(); return true; }
+    if (b.dataset.tgTest !== undefined) {
+      if (!(await ensureSession('kiểm tra bot Telegram'))) return true;
+      const token = document.querySelector('[data-tg-key="telegram.bot_token"]')?.value || '';
+      try { const r = await api('/api/admin/telegram/test', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ token }) }); tg.test = r.ok ? `Kết nối được bot @${r.username}` : `Lỗi: ${r.error}`; }
+      catch (err) { tg.test = `Lỗi: ${err.message}`; }
+      const note = document.querySelector('[data-tg-test-note]'); if (note) note.textContent = tg.test;
+      return true;
+    }
+    if (b.dataset.tgSave !== undefined) {
+      if (!(await ensureSession('lưu cài đặt bot Telegram'))) return true;
+      const changes = {};
+      document.querySelectorAll('[data-tg-key]').forEach((el) => {
+        const key = el.dataset.tgKey;
+        changes[key] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.dataset.tgList !== undefined ? el.value.split(/[,;\s]+/).filter(Boolean) : el.value;
+      });
+      try { tg.settings = await api('/api/admin/telegram/settings', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ changes }) }); tg.note = 'Đã lưu cài đặt bot Telegram.'; }
+      catch (err) { tg.note = `Không lưu được: ${err.message}`; }
+      load(); return true;
+    }
+    if (b.dataset.tgUnlink) {
+      if (!(await ensureSession('gỡ liên kết Telegram'))) return true;
+      const a = tg.accounts.find((x) => x.user_id === b.dataset.tgUnlink);
+      if (!confirm(`Gỡ liên kết Telegram của ${a?.user_name || a?.user_email || 'người này'}?`)) return true;
+      try {
+        await api(`/api/admin/telegram/accounts/${encodeURIComponent(b.dataset.tgUnlink)}`, { method: 'DELETE', headers: editHeaders() });
+        tg.accounts = tg.accounts.filter((x) => x.user_id !== b.dataset.tgUnlink);
+        tg.note = 'Đã gỡ liên kết.';
+      } catch (err) { tg.note = `Lỗi: ${err.message}`; }
+      load(); return true;
+    }
+    return false;
+  }
 
   function rpSettingsHtml() {
     const v = rp.settings;
@@ -1714,14 +1800,17 @@
   }
 
   async function renderReports() {
-    const [schedules, queue] = await Promise.all([api('/api/reports/schedules'), api('/api/reports/queue').catch(() => ({ items: [] }))]);
+    const [schedules, queue, tgStatus] = await Promise.all([api('/api/reports/schedules'), api('/api/reports/queue').catch(() => ({ items: [] })), api('/api/telegram/status').catch(() => null)]);
+    tg.status = tgStatus;
     rp.items = schedules.items || [];
     const jobs = queue.items || [];
     const waiting = jobs.filter((j) => ['queued', 'writing', 'ready', 'sending'].includes(j.status));
     const editing = rp.items.find((r) => r.id === rp.edit);
     const via = (c) => [c.email?.enabled ? `Email${c.email.self ? ' (người tạo)' : ''}${(c.email.to || []).length ? ` +${c.email.to.length}` : ''}` : '', c.telegram?.enabled ? 'Telegram' : ''].filter(Boolean).join(', ');
     return `${rp.note ? `<div class="card">${esc(rp.note)}</div>` : ''}
-      ${card(`Cài đặt báo cáo định kỳ ${rp.settings ? '' : '<button class="btn" type="button" data-rp-settings>Mở cài đặt</button>'}`, rp.settings ? rpSettingsHtml() : '<div class="muted">Quyền tạo báo cáo, kênh gửi (email / Telegram), giới hạn và mẫu báo cáo mặc định. Cần xác thực để xem và sửa.</div>')}
+      ${card(`Cài đặt báo cáo định kỳ ${rp.settings ? '' : '<button class="btn" type="button" data-rp-settings>Mở cài đặt</button>'}`, rp.settings ? rpSettingsHtml() : '<div class="muted">Quyền tạo báo cáo, gửi qua email, giới hạn và mẫu báo cáo mặc định. Cần xác thực để xem và sửa.</div>')}
+      ${tg.note ? `<div class="card">${esc(tg.note)}</div>` : ''}
+      ${card(`Bot Telegram ${tg.settings ? '' : '<button class="btn" type="button" data-tg-open>Mở cài đặt</button>'}`, tgStatusHtml() + (tg.settings ? tgSettingsHtml() : '<div class="muted">Một bot dùng chung cho báo cáo định kỳ và hỏi đáp AI: token, bật tắt tính năng, giới hạn, kênh bị chặn, người đã liên kết. Cần xác thực để xem và sửa.</div>'), 'báo cáo + hỏi đáp AI')}
       ${editing ? card(`Sửa: ${esc(editing.name)} <small>của ${esc(editing.owner?.name || '')}</small>`, rpEditHtml(editing)) : ''}
       ${card(`Tất cả lịch báo cáo (${rp.items.length})`, table([
         { label: 'Báo cáo', render: (r) => `<b>${esc(r.name)}</b>${r.enabled ? '' : ' <span class="pill">tạm dừng</span>'}` },
@@ -1844,6 +1933,7 @@
     const b = e.target.closest('button');
     if (!b) return;
     if (tab === 'reports' && Object.keys(b.dataset).some((k) => k.startsWith('rp')) && (await rpClick(b))) return;
+    if (tab === 'reports' && Object.keys(b.dataset).some((k) => k.startsWith('tg')) && (await tgClick(b))) return;
     if (b.dataset.txTeam) {
       if (!(await ensureSession('quản lý chủ kênh / người quản lý'))) return;
       try { tx.team = { ...(await api(`/api/admin/tracker/channels/${encodeURIComponent(b.dataset.txTeam)}/team`, { headers: editHeaders() })), id: b.dataset.txTeam }; }

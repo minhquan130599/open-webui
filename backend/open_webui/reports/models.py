@@ -494,10 +494,14 @@ class LockTable:
             )
             await db.commit()
 
-    async def save(self, name: str, lease_id: str, data: dict) -> None:
+    async def save(self, name: str, lease_id: str, data: dict) -> bool:
+        """Save the lease's data; False when this lease no longer holds the lock (nothing saved)."""
         async with get_async_db_context() as db:
-            await db.execute(update(ReportLock).where(ReportLock.name == name, ReportLock.lease_id == lease_id).values(data=data))
+            result = await db.execute(
+                update(ReportLock).where(ReportLock.name == name, ReportLock.lease_id == lease_id).values(data=data)
+            )
             await db.commit()
+            return bool(result.rowcount)
 
 
 Schedules = ScheduleTable()

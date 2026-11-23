@@ -880,6 +880,10 @@ from open_webui.monitoring.server.reports import router as reports_router  # noq
 
 app.include_router(reports_router, dependencies=[Depends(require_login)])
 
+from open_webui.monitoring.server.telegram import router as telegram_router  # noqa: E402
+
+app.include_router(telegram_router, dependencies=[Depends(require_login)])
+
 
 @app.get('/healthz')
 async def health():

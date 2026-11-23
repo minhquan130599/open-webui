@@ -954,3 +954,60 @@ async def reports_telegram_test(form: ReportTelegramTestForm, x_monitor_key: Opt
         return {'ok': True, **(await telegram.bot_info(token))}
     except telegram.TelegramError as error:
         return {'ok': False, 'error': str(error)}
+
+
+# ---------------------------------------------------------------- Telegram bot (shared: reports + asking the AI)
+
+
+class TelegramSettingsForm(BaseModel):
+    changes: dict
+
+
+@router.get('/telegram/settings')
+async def telegram_settings(x_monitor_key: Optional[str] = Header(None)):
+    _check(x_monitor_key)
+    from open_webui.telegram.settings import get_settings, public
+
+    return public(await get_settings())
+
+
+@router.post('/telegram/settings')
+async def telegram_save_settings(form: TelegramSettingsForm, x_monitor_key: Optional[str] = Header(None)):
+    _check(x_monitor_key)
+    from open_webui.telegram.router import admin_save
+    from open_webui.telegram.router import SettingsForm as BotSettingsForm
+
+    # Same rules as Admin settings → Telegram (validation, the bot name follows a new token).
+    return await admin_save(BotSettingsForm(changes=form.changes), user=None)
+
+
+@router.post('/telegram/test')
+async def telegram_test(form: ReportTelegramTestForm, x_monitor_key: Optional[str] = Header(None)):
+    _check(x_monitor_key)
+    from open_webui.telegram.router import TestForm, admin_test
+
+    return await admin_test(TestForm(token=form.token), user=None)
+
+
+@router.get('/telegram/status')
+async def telegram_status(x_monitor_key: Optional[str] = Header(None)):
+    _check(x_monitor_key)
+    from open_webui.telegram.bot import poll_status
+
+    return await poll_status()
+
+
+@router.get('/telegram/accounts')
+async def telegram_accounts(x_monitor_key: Optional[str] = Header(None)):
+    _check(x_monitor_key)
+    from open_webui.telegram.router import admin_accounts
+
+    return await admin_accounts(user=None)
+
+
+@router.delete('/telegram/accounts/{user_id}')
+async def telegram_unlink(user_id: str, x_monitor_key: Optional[str] = Header(None)):
+    _check(x_monitor_key)
+    from open_webui.telegram.router import admin_unlink
+
+    return await admin_unlink(user_id, user=None)

@@ -266,7 +266,7 @@ class FeaturesPermissions(BaseModel):
     code_interpreter: bool = True
     memories: bool = True
     automations: bool = False
-    telegram: bool = False
+    telegram: bool = True
     calendar: bool = True
     webhooks: bool = False
 
