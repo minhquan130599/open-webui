@@ -15,6 +15,7 @@
 
 	import UpdatePassword from './Account/UpdatePassword.svelte';
 	import Mfa from './Account/Mfa.svelte';
+	import TelegramAccountLink from '$lib/components/telegram/TelegramAccountLink.svelte';
 	import { generateInitialsImage } from '$lib/utils';
 	import { copyToClipboard } from '$lib/utils';
 	import Dropdown from '$lib/components/common/Dropdown.svelte';
@@ -386,6 +387,11 @@
 		{/if}
 
 		<Mfa />
+
+		<!-- Shown only when the Telegram bot is set up and the user may use it. -->
+		<section class="mt-4 w-full">
+			<TelegramAccountLink />
+		</section>
 
 		{#if canUseApiKeys({ user: $user, config: $config })}
 			<UserSettingSection title={$i18n.t('settings.personal.account.sections.apiKeys.title')}>

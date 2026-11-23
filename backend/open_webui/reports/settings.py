@@ -78,6 +78,13 @@ async def get_settings() -> dict:
         values['reports.default_prompt'] = DEFAULT_PROMPT
     if not TELEGRAM_GROUPS_ENABLED:
         values['reports.telegram.allow_groups'] = False
+    # The bot is configured once, in Admin settings → Telegram (shared with asking the AI from Telegram).
+    from open_webui.telegram.settings import get_settings as telegram_settings
+
+    bot = await telegram_settings()
+    values['reports.telegram.enable'] = bot['telegram.reports']
+    values['reports.telegram.bot_token'] = bot['telegram.bot_token']
+    values['reports.telegram.bot_username'] = bot['telegram.bot_username']
     return values
 
 
@@ -93,6 +100,15 @@ async def save_settings(changes: dict) -> dict:
     unknown = [k for k in changes if k not in BY_KEY]
     if unknown:
         raise ValueError('Không có cài đặt: ' + ', '.join(unknown))
+    # The bot lives in telegram.* now: older callers (the monitor) still send reports.telegram.* keys.
+    moved = {'reports.telegram.enable': 'telegram.reports', 'reports.telegram.bot_token': 'telegram.bot_token',
+             'reports.telegram.bot_username': 'telegram.bot_username'}
+    bot_changes = {moved[k]: changes[k] for k in moved if k in changes}
+    changes = {k: v for k, v in changes.items() if k not in moved}
+    if bot_changes:
+        from open_webui.telegram.settings import save_settings as save_telegram
+
+        await save_telegram(bot_changes)
     updates = {}
     for key, value in changes.items():
         if BY_KEY[key][0] == 'secret' and not value:

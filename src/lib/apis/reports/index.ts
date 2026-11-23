@@ -58,7 +58,7 @@ export type TelegramLink = {
 	id: string;
 	chat_id: string;
 	chat_title: string;
-	chat_type: 'private' | 'group' | 'supergroup' | 'channel';
+	chat_type: 'account' | 'private' | 'group' | 'supergroup' | 'channel';
 	linked_at: number;
 };
 

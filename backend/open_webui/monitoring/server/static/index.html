@@ -1656,8 +1656,9 @@
     ['reports.email.enable', 'Gửi qua email (dùng cấu hình Email nhắc việc)', 'bool'],
     ['reports.email.internal_only', 'Chỉ gửi email trong tên miền công ty', 'bool'],
     ['reports.email.mode', 'Email có nhiều người nhận', 'enum', [['bcc', 'Một email, ẩn người nhận (Bcc)'], ['to', 'Một email, mọi người thấy nhau (To)'], ['separate', 'Mỗi người nhận một email']]],
-    ['reports.telegram.enable', 'Gửi qua Telegram', 'bool'],
-    ['reports.telegram.bot_token', 'Bot token Telegram (để trống = giữ token đã lưu)', 'secret'],
+    // Bot dùng chung (báo cáo + hỏi đáp AI): cấu hình chi tiết ở web → Cài đặt quản trị → Telegram.
+    ['reports.telegram.enable', 'Gửi báo cáo qua Telegram', 'bool'],
+    ['reports.telegram.bot_token', 'Bot token Telegram dùng chung (để trống = giữ token đã lưu)', 'secret'],
     // Telegram groups are switched off for now (TELEGRAM_GROUPS_ENABLED in reports/settings.py).
     // ['reports.telegram.allow_groups', 'Cho gửi vào nhóm Telegram', 'bool'],
     ['reports.max_schedules', 'Số lịch tối đa mỗi người', 'int'],

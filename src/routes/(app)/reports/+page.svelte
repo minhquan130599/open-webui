@@ -30,6 +30,7 @@
 
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
+	import TelegramAccountLink from '$lib/components/telegram/TelegramAccountLink.svelte';
 	import Switch from '$lib/components/common/Switch.svelte';
 	import Modal from '$lib/components/common/Modal.svelte';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
@@ -272,6 +273,24 @@
 			}, 3000);
 		} catch (e: any) {
 			toast.error(e?.detail ?? String(e));
+		}
+	};
+
+	// "My Telegram" (the linked account) is ticked by default when Telegram is switched on.
+	let telegramWasOn = false;
+	$: if (form) {
+		const on = form.config.telegram.enabled;
+		if (on && !telegramWasOn && !form.config.telegram.link_ids.length && links.some((l) => l.chat_type === 'account')) {
+			form.config.telegram.link_ids = ['account'];
+		}
+		telegramWasOn = on;
+	}
+
+	const onAccountLinked = async () => {
+		links = await getTelegramLinks(localStorage.token).catch(() => links);
+		if (form && links.some((l) => l.chat_type === 'account') && !form.config.telegram.link_ids.includes('account')) {
+			form.config.telegram.link_ids = ['account', ...form.config.telegram.link_ids];
+			form.config.telegram.enabled = true;
 		}
 	};
 
@@ -699,20 +718,33 @@
 																	checked={form.config.telegram.link_ids.includes(link.id)}
 																	on:change={() => toggleLink(link.id)}
 																/>
-																{link.chat_type === 'private' ? $i18n.t('Private chat') : $i18n.t('Group')}: {link.chat_title}
+																{#if link.chat_type === 'account'}
+																	<span>{$i18n.t('My Telegram')}: <span class="font-medium">{link.chat_title}</span></span>
+																{:else}
+																	{link.chat_type === 'private' ? $i18n.t('Private chat') : $i18n.t('Group')}: {link.chat_title}
+																{/if}
 															</label>
-															<button type="button" class="text-gray-500 hover:text-red-600" on:click={() => unlink(link)}>{$i18n.t('Unlink')}</button>
+															{#if link.chat_type === 'account'}
+																<span class="text-gray-400">{$i18n.t('linked account')}</span>
+															{:else}
+																<button type="button" class="text-gray-500 hover:text-red-600" on:click={() => unlink(link)}>{$i18n.t('Unlink')}</button>
+															{/if}
 														</div>
 													{:else}
 														<p class="text-xs text-gray-500">{$i18n.t('No Telegram chat linked yet.')}</p>
 													{/each}
-													<button
-														type="button"
-														class="w-fit rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-850"
-														on:click={startLink}
-													>
-														{$i18n.t('Link a Telegram chat')}
-													</button>
+													{#if !links.some((l) => l.chat_type === 'account')}
+														<TelegramAccountLink compact on:linked={onAccountLinked} />
+													{/if}
+													{#if SHOW_TELEGRAM_GROUP_LINK}
+														<button
+															type="button"
+															class="w-fit rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-850"
+															on:click={startLink}
+														>
+															{$i18n.t('Link a Telegram group')}
+														</button>
+													{/if}
 												{/if}
 											</div>
 										{/if}

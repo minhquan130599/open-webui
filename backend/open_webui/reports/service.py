@@ -20,7 +20,7 @@ import time
 from open_webui.models.channels import Channels
 from open_webui.models.users import Users
 from open_webui.reports import build, load, telegram
-from open_webui.reports.models import Jobs, Locks, Schedules, TelegramLinks
+from open_webui.reports.models import Jobs, LinkModel, Locks, Schedules, TelegramLinks
 from open_webui.reports.schedule import TZ, next_run
 from open_webui.reports.settings import get_settings
 from open_webui.tracker.config import TRACKER_LLM_TIMEOUT
@@ -131,7 +131,20 @@ async def deliver(schedule_name: str, owner, config: dict, settings: dict, built
                 errors += [f'Email {a}: máy chủ từ chối người nhận' for a in group if a in refused_now]
     if config['telegram'].get('enabled') and settings['reports.telegram.enable']:
         token = settings['reports.telegram.bot_token']
-        links = [l for l in await TelegramLinks.by_ids(config['telegram'].get('link_ids') or []) if l.user_id == owner.id and l.chat_id]
+        link_ids = config['telegram'].get('link_ids') or []
+        links = [l for l in await TelegramLinks.by_ids(link_ids) if l.user_id == owner.id and l.chat_id]
+        if 'account' in link_ids:
+            # "My Telegram": the owner's linked account now (follows a new link, stops after unlinking).
+            from open_webui.telegram.models import Accounts
+
+            account = await Accounts.by_user(owner.id)
+            if account:
+                links = [l for l in links if l.chat_id != account.telegram_user_id]
+                links.insert(0, LinkModel(id='account', user_id=owner.id, chat_id=account.telegram_user_id,
+                                          chat_title=f'@{account.username}' if account.username else (account.display_name or 'Telegram của tôi'),
+                                          chat_type='private', created_at=account.linked_at, linked_at=account.linked_at))
+            else:
+                errors.append('Telegram của tôi: tài khoản Telegram đã hủy liên kết')
         if not token:
             errors.append('Telegram chưa cấu hình bot token')
         for link in links:
@@ -332,13 +345,12 @@ async def _forever(name: str, step) -> None:
 
 async def report_loop() -> None:
     log.info('Scheduled reports started')
-    poller = asyncio.create_task(telegram.poll_loop(get_settings))
+    # Telegram updates (linking chats) are read by the bot loop (open_webui.telegram.bot), not here.
     # Writing waits for the model and can take minutes: it runs beside sending, which must stay on time.
     writer = asyncio.create_task(_forever('writing', write_round))
     try:
         await _forever('sending', tick)
     finally:
-        poller.cancel()
         writer.cancel()
 
 

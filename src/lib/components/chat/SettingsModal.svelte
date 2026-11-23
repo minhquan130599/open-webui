@@ -57,6 +57,7 @@
 	import AdminWebSearch from '$lib/components/admin/Settings/WebSearch.svelte';
 	import AdminCodeExecution from '$lib/components/admin/Settings/CodeExecution.svelte';
 	import AdminReports from '$lib/components/admin/Settings/Reports.svelte';
+	import AdminTelegram from '$lib/components/admin/Settings/Telegram.svelte';
 	import AdminInterface from '$lib/components/admin/Settings/Interface.svelte';
 	import AdminAudio from '$lib/components/admin/Settings/Audio.svelte';
 	import AdminImages from '$lib/components/admin/Settings/Images.svelte';
@@ -174,6 +175,7 @@
 		'admin:web': $i18n.t('Tools'),
 		'admin:code-execution': $i18n.t('Tools'),
 		'admin:reports': $i18n.t('Tools'),
+		'admin:telegram': $i18n.t('Tools'),
 		'admin:pipelines': $i18n.t('Tools'),
 		'admin:evaluations': $i18n.t('Quality'),
 		'admin:analytics': $i18n.t('Quality'),
@@ -355,6 +357,12 @@
 			titleKey: 'settings.admin.reports.title',
 			title: $i18n.t('settings.admin.reports.title'),
 			searchPrefixes: ['settings.admin.reports.']
+		},
+		{
+			id: 'admin:telegram',
+			titleKey: 'settings.admin.telegram.title',
+			title: $i18n.t('settings.admin.telegram.title'),
+			searchPrefixes: ['settings.admin.telegram.']
 		},
 		{
 			id: 'admin:pipelines',
@@ -949,6 +957,8 @@
 				<AdminCodeExecution saveHandler={adminConfigSaveHandler} />
 			{:else if selectedTab === 'admin:reports'}
 				<AdminReports saveHandler={adminConfigSaveHandler} />
+			{:else if selectedTab === 'admin:telegram'}
+				<AdminTelegram saveHandler={adminConfigSaveHandler} />
 			{:else if selectedTab === 'admin:interface'}
 				<AdminInterface
 					saveHandler={() => {

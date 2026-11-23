@@ -1483,7 +1483,9 @@ async def _can_use_terminal(user, terminal_id: str) -> bool:
     return bool(connection and connection.get('enabled', True) and await has_connection_access(user, connection))
 
 
-async def model_response_handler(request, channel, message, user, db=None):
+async def model_response_handler(request, channel, message, user, db=None, collect: Optional[list] = None):
+    """Answer the models mentioned in `message`. `collect` (optional) receives one entry per answer started:
+    {'message_id', 'thread_id', 'task_ids'} (used by the Telegram bot to follow the answer)."""
     if not await get_verified_user_by_id(user.id):
         return
 
@@ -1770,7 +1772,15 @@ async def model_response_handler(request, channel, message, user, db=None):
                     form_data['terminal_id'] = terminal_id
 
                 # Run the chat pipeline as a task; the channel emitter streams progress over socket events.
-                await request.app.state.CHAT_COMPLETION_HANDLER(request, form_data, user=user)
+                result = await request.app.state.CHAT_COMPLETION_HANDLER(request, form_data, user=user)
+                if collect is not None:
+                    collect.append(
+                        {
+                            'message_id': response_message.id,
+                            'thread_id': response_parent_id,
+                            'task_ids': (result or {}).get('task_ids', []) if isinstance(result, dict) else [],
+                        }
+                    )
 
             except Exception as e:
                 log.exception(e)

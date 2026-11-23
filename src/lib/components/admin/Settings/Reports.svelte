@@ -9,7 +9,6 @@
 		runReportNow,
 		saveReportAdminSettings,
 		setReportScheduleEnabled,
-		testReportTelegram,
 		type ReportSchedule
 	} from '$lib/apis/reports';
 	import Switch from '$lib/components/common/Switch.svelte';
@@ -21,8 +20,6 @@
 	export let saveHandler: () => void = () => {};
 
 	let values: Record<string, any> | null = null;
-	let botToken = '';
-	let telegramCheck = '';
 	let schedules: ReportSchedule[] = [];
 	let running = '';
 
@@ -42,27 +39,15 @@
 		if (!values) return;
 		const changes: Record<string, any> = {};
 		for (const [key, value] of Object.entries(values)) {
-			if (key !== 'reports.telegram.bot_token_set' && key !== 'reports.telegram.bot_username') changes[key] = value;
+			// The bot is configured in Admin settings → Telegram.
+			if (!key.startsWith('reports.telegram.')) changes[key] = value;
 		}
-		if (botToken) changes['reports.telegram.bot_token'] = botToken;
 		try {
 			values = await saveReportAdminSettings(localStorage.token, changes);
-			botToken = '';
 			saveHandler();
 		} catch (e: any) {
 			toast.error(e?.detail ?? String(e));
 		}
-	};
-
-	const checkTelegram = async () => {
-		telegramCheck = $i18n.t('Checking…');
-		const result = await testReportTelegram(localStorage.token, botToken).catch((e) => ({
-			ok: false,
-			error: e?.detail ?? String(e)
-		}));
-		telegramCheck = result.ok
-			? $i18n.t('Connected to bot @{{name}}', { name: (result as any).username })
-			: `${$i18n.t('Error')}: ${(result as any).error}`;
 	};
 
 	const toggle = async (schedule: ReportSchedule) => {
@@ -161,27 +146,10 @@
 			</AdminSettingSection>
 
 			<AdminSettingSection title="Telegram">
-				<AdminSettingRow label={$i18n.t('Send by Telegram')} let:labelId>
-					<Switch ariaLabelledbyId={labelId} bind:state={values['reports.telegram.enable']} />
-				</AdminSettingRow>
-				<div class="flex flex-col gap-1.5">
-					<label for="report-bot-token" class="text-xs text-gray-500">
-						{$i18n.t('Bot token (from @BotFather)')}
-						{#if values['reports.telegram.bot_token_set']}· {$i18n.t('saved; leave empty to keep it')}{/if}
-					</label>
-					<div class="flex gap-2">
-						<input id="report-bot-token" type="password" class={inputClass} autocomplete="off" bind:value={botToken} placeholder={values['reports.telegram.bot_token_set'] ? '••••••••' : ''} />
-						<button type="button" class="shrink-0 rounded-lg border border-gray-100 px-2.5 text-xs dark:border-gray-850" on:click={checkTelegram}>{$i18n.t('Check')}</button>
-					</div>
-					{#if telegramCheck}<span class="text-xs text-gray-500">{telegramCheck}</span>{/if}
-					{#if values['reports.telegram.bot_username']}<span class="text-xs text-gray-500">Bot: @{values['reports.telegram.bot_username']}</span>{/if}
-				</div>
-				<!-- Telegram groups are switched off for now (TELEGRAM_GROUPS_ENABLED in backend reports/settings.py). -->
-				{#if false}
-					<AdminSettingRow label={$i18n.t('Allow sending to Telegram groups')} let:labelId>
-						<Switch ariaLabelledbyId={labelId} bind:state={values['reports.telegram.allow_groups']} />
-					</AdminSettingRow>
-				{/if}
+				<p class="text-xs text-gray-500">
+					{$i18n.t('The Telegram bot (token, sending reports by Telegram, asking the AI) is set up in Admin settings → Telegram.')}
+					<span class="font-medium">{values['reports.telegram.enable'] ? $i18n.t('Sending reports by Telegram: on') : $i18n.t('Sending reports by Telegram: off')}</span>
+				</p>
 			</AdminSettingSection>
 
 			<AdminSettingSection title={$i18n.t('Limits')}>

@@ -473,6 +473,10 @@ async def lifespan(app: FastAPI):
     from open_webui.monitoring.config_watch import config_watch_loop
 
     app.state.monitor_config_watch = asyncio.create_task(config_watch_loop(app))
+    # The Telegram bot (reports and asking the AI): reads the bot's updates while a token is set.
+    from open_webui.telegram.bot import bot_loop
+
+    app.state.telegram_bot_loop = asyncio.create_task(bot_loop(app))
     if ENABLE_PROJECT_TRACKER:
         from open_webui.tracker.reminders import reminder_loop
 
@@ -586,6 +590,8 @@ async def lifespan(app: FastAPI):
         app.state.perf_load_sampler.cancel()
     if hasattr(app.state, 'monitor_config_watch'):
         app.state.monitor_config_watch.cancel()
+    if hasattr(app.state, 'telegram_bot_loop'):
+        app.state.telegram_bot_loop.cancel()
     try:
         from open_webui.monitoring.recorder import flush as flush_perf_events
 
@@ -905,6 +911,9 @@ app.include_router(tracker_router.router, prefix='/api/v1/tracker', tags=['track
 from open_webui.reports import router as reports_router
 
 app.include_router(reports_router.router, prefix='/api/v1/reports', tags=['reports'])
+from open_webui.telegram import router as telegram_router
+
+app.include_router(telegram_router.router, prefix='/api/v1/telegram', tags=['telegram'])
 # Internal API for the separate monitor container (X-Monitor-Key); not used by the interface.
 app.include_router(monitor_router.router, prefix='/api/v1/monitor', tags=['monitor'], include_in_schema=False)
 app.include_router(chats.router, prefix='/api/v1/chats', tags=['chats'])

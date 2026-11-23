@@ -76,6 +76,8 @@ async def _validated(user, form: ScheduleForm, settings: dict) -> dict:
         if not settings['reports.telegram.enable']:
             _bad('Quản trị viên chưa bật gửi qua Telegram')
         mine = {l.id for l in await TelegramLinks.list(user.id)}
+        if await _account(user):
+            mine.add('account')
         config['telegram']['link_ids'] = [i for i in config['telegram']['link_ids'] if i in mine]
         if not config['telegram']['link_ids']:
             _bad('Telegram: chọn ít nhất một chat đã liên kết')
@@ -221,10 +223,34 @@ async def unsubscribe(schedule_id: str, user=Depends(get_verified_user)):
 # ---------------------------------------------------------------- Telegram
 
 
+async def _account(user):
+    from open_webui.telegram.models import Accounts
+
+    return await Accounts.by_user(user.id)
+
+
 @router.get('/telegram')
 async def telegram_links(user=Depends(get_verified_user)):
+    """Chats the user can send reports to: their linked Telegram account first ("My Telegram"), then chats
+    linked the older way (a private chat that is the same as the account is shown once)."""
     await _settings_or_404()
-    return [l.model_dump(exclude={'code'}) for l in await TelegramLinks.list(user.id)]
+    account = await _account(user)
+    out = []
+    if account:
+        out.append({
+            'id': 'account',
+            'user_id': user.id,
+            'chat_id': account.telegram_user_id,
+            'chat_title': f'@{account.username}' if account.username else (account.display_name or ''),
+            'chat_type': 'account',
+            'created_at': account.linked_at,
+            'linked_at': account.linked_at,
+        })
+    for link in await TelegramLinks.list(user.id):
+        if account and link.chat_id == account.telegram_user_id:
+            continue
+        out.append(link.model_dump(exclude={'code'}))
+    return out
 
 
 @router.post('/telegram/link')

@@ -1209,6 +1209,26 @@
 			</div>
 		{/if}
 
+		<div class="flex flex-col w-full">
+			<Tooltip
+				className="flex w-full justify-between my-1"
+				content={$i18n.t('Link their Telegram and ask the AI from Telegram (Admin settings → Telegram must allow it).')}
+				placement="top-start"
+			>
+				<div class=" self-center text-xs font-normal">
+					{$i18n.t('Telegram')}
+				</div>
+				<Switch bind:state={permissions.features.telegram} ariaLabel={$i18n.t('Telegram')} />
+			</Tooltip>
+			{#if defaultPermissions?.features?.telegram && !permissions.features.telegram}
+				<div>
+					<div class="text-xs text-gray-500">
+						{$i18n.t('This is a default user permission and will remain enabled.')}
+					</div>
+				</div>
+			{/if}
+		</div>
+
 		{#if $config?.features?.enable_calendar}
 			<div class="flex flex-col w-full">
 				<div class="flex w-full justify-between my-1">
