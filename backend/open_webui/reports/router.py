@@ -53,10 +53,15 @@ def _view(schedule, users: Optional[dict] = None) -> dict:
     return out
 
 
-async def _validated(user, form: ScheduleForm, settings: dict) -> dict:
+async def _validated(user, form: ScheduleForm, settings: dict, schedule_id: Optional[str] | bool = None) -> dict:
+    """`schedule_id`: None when creating, the id when updating, False for preview / test (name not checked)."""
     name = (form.name or '').strip()[:200]
     if not name:
         _bad('Đặt tên cho báo cáo')
+    if schedule_id is not False and any(
+        s.id != schedule_id and s.name.strip().lower() == name.lower() for s in await Schedules.list(user.id)
+    ):
+        _bad(f'Đã có báo cáo tên "{name}". Đặt tên khác để dễ phân biệt.')
     try:
         config = normalize_config(form.config)
     except ValueError as error:
@@ -145,7 +150,7 @@ async def _own(schedule_id: str, user):
 async def update_schedule(schedule_id: str, form: ScheduleForm, user=Depends(get_verified_user)):
     settings = await _require_creator(user)
     await _own(schedule_id, user)
-    data = await _validated(user, form, settings)
+    data = await _validated(user, form, settings, schedule_id)
     schedule = await Schedules.update(
         schedule_id, name=data['name'], enabled=form.enabled, config=data['config'], next_run_at=next_run(data['config'])
     )
@@ -164,7 +169,7 @@ async def delete_schedule(schedule_id: str, user=Depends(get_verified_user)):
 async def preview(form: ScheduleForm, user=Depends(get_verified_user)):
     """The report as it would be sent now, from the settings on the form (saved or not)."""
     settings = await _require_creator(user)
-    data = await _validated(user, form, settings)
+    data = await _validated(user, form, settings, schedule_id=False)
     built = await build.build(data['name'], user, data['config'], settings)
     return {k: built[k] for k in ('subject', 'html', 'telegram', 'totals', 'channels')}
 
@@ -173,7 +178,7 @@ async def preview(form: ScheduleForm, user=Depends(get_verified_user)):
 async def send_test(form: ScheduleForm, user=Depends(get_verified_user)):
     """Send the report now to the user's own email and the chosen Telegram chats (nobody else)."""
     settings = await _require_creator(user)
-    data = await _validated(user, form, settings)
+    data = await _validated(user, form, settings, schedule_id=False)
     built = await build.build(data['name'], user, data['config'], settings)
     return await service.deliver(data['name'], user, data['config'], settings, built, test=True)
 

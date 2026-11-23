@@ -248,37 +248,52 @@ class LinkTable:
                 )
             )
             row = ReportTelegramLink(
-                id=str(uuid.uuid4()), user_id=user_id, code=secrets.token_hex(4), created_at=now_ns()
+                # Whoever opens the link receives the reports: long enough that nobody can guess one.
+                id=str(uuid.uuid4()), user_id=user_id, code=secrets.token_hex(12), created_at=now_ns()
             )
             db.add(row)
             await db.commit()
             await db.refresh(row)
             return LinkModel.model_validate(row)
 
-    async def confirm(self, code: str, chat_id: str, title: str, chat_type: str) -> Optional[LinkModel]:
+    async def confirm(self, code: str, chat_id: str, title: str, chat_type: str) -> tuple[str, Optional[LinkModel]]:
+        """Link the chat that sent `code`: ('linked', link), ('already', link) when this chat opens a link it
+        already used, or ('invalid', None). One link is for one chat: when two people open the same link at the
+        same moment, only the first one gets it (the update only applies while the link is still free)."""
+        if not code or len(code) > 64:
+            return 'invalid', None
         async with get_async_db_context() as db:
-            row = (
-                await db.execute(
-                    select(ReportTelegramLink).where(
-                        ReportTelegramLink.code == code,
-                        ReportTelegramLink.chat_id.is_(None),
-                        ReportTelegramLink.created_at >= now_ns() - 86_400 * 10**9,
-                    )
-                )
-            ).scalars().first()
+            rows = (await db.execute(select(ReportTelegramLink).where(ReportTelegramLink.code == code))).scalars().all()
+            used = next((r for r in rows if r.chat_id == chat_id), None)
+            if used:
+                return 'already', LinkModel.model_validate(used)
+            row = next((r for r in rows if r.chat_id is None and r.created_at >= now_ns() - 86_400 * 10**9), None)
             if not row:
-                return None
+                return 'invalid', None
+            result = await db.execute(
+                update(ReportTelegramLink)
+                .where(ReportTelegramLink.id == row.id, ReportTelegramLink.chat_id.is_(None))
+                .values(chat_id=chat_id, chat_title=title, chat_type=chat_type, linked_at=now_ns())
+            )
+            if result.rowcount != 1:
+                await db.rollback()
+                return 'invalid', None
             # The same chat linked again by the same user replaces the earlier link.
             await db.execute(
                 delete(ReportTelegramLink).where(
-                    and_(ReportTelegramLink.user_id == row.user_id, ReportTelegramLink.chat_id == chat_id)
+                    and_(
+                        ReportTelegramLink.user_id == row.user_id,
+                        ReportTelegramLink.chat_id == chat_id,
+                        ReportTelegramLink.id != row.id,
+                    )
                 )
             )
-            row.code, row.chat_id, row.chat_title, row.chat_type, row.linked_at = None, chat_id, title, chat_type, now_ns()
             await db.commit()
-            await db.refresh(row)
-            return LinkModel.model_validate(row)
-
+            # The code stays on the link so that opening the same link again is recognised ('already').
+            return 'linked', LinkModel(
+                id=row.id, user_id=row.user_id, code=code, chat_id=chat_id, chat_title=title, chat_type=chat_type,
+                created_at=row.created_at, linked_at=now_ns(),
+            )
     async def get_code(self, link_id: str, user_id: str) -> Optional[LinkModel]:
         async with get_async_db_context() as db:
             row = await db.get(ReportTelegramLink, link_id)
@@ -292,11 +307,13 @@ class LinkTable:
             await db.commit()
             return bool(result.rowcount)
 
-    async def forget_chat(self, chat_id: str) -> None:
-        """The bot was removed from a chat (or blocked): links to it no longer work."""
+    async def forget_chat(self, chat_id: str) -> int:
+        """The bot was removed from a chat (or blocked), or the person there stopped receiving: links to it are
+        removed. Returns how many."""
         async with get_async_db_context() as db:
-            await db.execute(delete(ReportTelegramLink).where(ReportTelegramLink.chat_id == chat_id))
+            result = await db.execute(delete(ReportTelegramLink).where(ReportTelegramLink.chat_id == chat_id))
             await db.commit()
+            return result.rowcount or 0
 
 
 OPEN_JOBS = ('queued', 'writing', 'ready')

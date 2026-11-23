@@ -136,11 +136,28 @@
 					enabled: schedule.enabled,
 					config: JSON.parse(JSON.stringify({ ...blankConfig(), ...schedule.config }))
 				}
-			: { id: null, name: $i18n.t('Weekly progress report'), enabled: true, config: blankConfig() };
+			: { id: null, name: uniqueName($i18n.t('Weekly progress report')), enabled: true, config: blankConfig() };
 		customTimes = form.config.times.join(', ');
 		recipientInput = '';
 		channelFilter = '';
 	};
+
+	// A new schedule never takes the name of an existing one: "Báo cáo tiến độ tuần (1)", "(2)"…
+	const uniqueName = (base: string, exceptId: string | null = null) => {
+		const taken = new Set(
+			schedules.filter((s) => s.id !== exceptId).map((s) => s.name.trim().toLowerCase())
+		);
+		const root = base.trim().replace(/\s*\(\d+\)$/, '');
+		if (!taken.has(base.trim().toLowerCase())) return base.trim();
+		let n = 1;
+		while (taken.has(`${root} (${n})`.toLowerCase())) n++;
+		return `${root} (${n})`;
+	};
+
+	$: nameTaken =
+		!!form &&
+		schedules.some((s) => s.id !== form?.id && s.name.trim().toLowerCase() === form?.name.trim().toLowerCase());
+
 
 	const payload = () => {
 		if (!form) return null;
@@ -156,6 +173,10 @@
 	};
 
 	const save = async () => {
+		if (form && nameTaken) {
+			toast.error($i18n.t('Another report already has this name. Choose a different name.'));
+			return;
+		}
 		const body = payload();
 		if (!form || !body) return;
 		saving = true;
@@ -251,26 +272,37 @@
 		form.config.telegram.link_ids = ids.includes(id) ? ids.filter((l) => l !== id) : [...ids, id];
 	};
 
+	// Invite links sent and not opened yet, with the schedule they were made for: checked while the page is
+	// open, even after the dialog is closed (the person may open the link much later).
+	let invites: { id: string; form: Form | null }[] = [];
+
+	const checkInvites = async () => {
+		for (const invite of [...invites]) {
+			const status = await getTelegramLinkStatus(localStorage.token, invite.id).catch(() => null);
+			if (!status || (!status.linked && !status.gone)) continue;
+			invites = invites.filter((i) => i.id !== invite.id);
+			if (linking?.id === invite.id) linking = null;
+			if (!status.linked) continue;
+			links = await getTelegramLinks(localStorage.token).catch(() => links);
+			// Ticked in the report it was made for, if that report is still the one open (save to keep it).
+			if (form && form === invite.form && !form.config.telegram.link_ids.includes(invite.id)) {
+				form.config.telegram.link_ids = [...form.config.telegram.link_ids, invite.id];
+				form.config.telegram.enabled = true;
+			}
+			toast.success($i18n.t('Telegram linked: {{name}}', { name: status.chat_title ?? '' }));
+		}
+		if (!invites.length && linkTimer) {
+			clearInterval(linkTimer);
+			linkTimer = null;
+		}
+	};
+
 	const startLink = async () => {
 		try {
 			const result = await newTelegramLink(localStorage.token);
 			linking = result;
-			if (linkTimer) clearInterval(linkTimer);
-			linkTimer = setInterval(async () => {
-				if (!linking) return;
-				const status = await getTelegramLinkStatus(localStorage.token, linking.id).catch(() => null);
-				if (status?.linked) {
-					const id = linking.id;
-					linking = null;
-					if (linkTimer) clearInterval(linkTimer);
-					links = await getTelegramLinks(localStorage.token);
-					if (form && !form.config.telegram.link_ids.includes(id)) {
-						form.config.telegram.link_ids = [...form.config.telegram.link_ids, id];
-						form.config.telegram.enabled = true;
-					}
-					toast.success($i18n.t('Telegram linked: {{name}}', { name: status.chat_title ?? '' }));
-				}
-			}, 3000);
+			invites = [...invites, { id: result.id, form }];
+			if (!linkTimer) linkTimer = setInterval(checkInvites, 4000);
 		} catch (e: any) {
 			toast.error(e?.detail ?? String(e));
 		}
@@ -464,12 +496,24 @@
 							>
 								<div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4 dark:border-gray-800">
 									<div class="flex min-w-0 flex-1 flex-col gap-0.5">
-										<label for="report-name" class="text-xs text-gray-500">{$i18n.t('Report name')}</label>
+										<div class="flex items-center gap-2">
+											<label for="report-name" class="text-xs text-gray-500">{$i18n.t('Report name')}</label>
+											{#if !form.id}
+												<span class="rounded-md bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+													{$i18n.t('New schedule, not saved yet')}
+												</span>
+											{/if}
+										</div>
 										<input
 											id="report-name"
 											class="w-full bg-transparent text-base font-semibold outline-none"
 											bind:value={form.name}
 										/>
+										{#if nameTaken}
+											<span class="text-xs text-red-600 dark:text-red-400">
+												{$i18n.t('Another report already has this name. Choose a different name.')}
+											</span>
+										{/if}
 									</div>
 									<div class="flex items-center gap-2 text-sm">
 										<span class="text-gray-600 dark:text-gray-300">{form.enabled ? $i18n.t('On') : $i18n.t('Paused')}</span>
@@ -736,15 +780,13 @@
 													{#if !links.some((l) => l.chat_type === 'account')}
 														<TelegramAccountLink compact on:linked={onAccountLinked} />
 													{/if}
-													{#if SHOW_TELEGRAM_GROUP_LINK}
-														<button
-															type="button"
-															class="w-fit rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-850"
-															on:click={startLink}
-														>
-															{$i18n.t('Link a Telegram group')}
-														</button>
-													{/if}
+													<button
+														type="button"
+														class="w-fit rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-850"
+														on:click={startLink}
+													>
+														+ {$i18n.t('Add another Telegram (invite link)')}
+													</button>
 												{/if}
 											</div>
 										{/if}
@@ -853,14 +895,34 @@
 <Modal show={!!linking} size="sm" onRequestClose={() => (linking = null)}>
 	{#if linking}
 		<div class="flex flex-col gap-3 p-5 text-sm">
-			<div class="text-base font-semibold">{$i18n.t('Link a Telegram chat')}</div>
-			<div class="flex flex-col gap-1.5">
-				<span class="font-medium">{$i18n.t('Private chat with the bot')}</span>
-				{#if linking.url}
-					<a class="w-fit rounded-xl bg-[#229ED9] px-3.5 py-2 font-medium text-white" href={linking.url} target="_blank" rel="noopener">{$i18n.t('Open Telegram')}</a>
-				{/if}
-				<span class="text-xs text-gray-500">{$i18n.t('Telegram opens the bot; press Start.')}</span>
-			</div>
+			<div class="text-base font-semibold">{$i18n.t('Add a Telegram recipient')}</div>
+			<p class="text-xs text-gray-600 dark:text-gray-300">
+				{$i18n.t('Send this link to the person who should receive the report (no NCS AI account needed). When they open it and press Start, their Telegram appears in the list and is ticked for this report.')}
+			</p>
+			{#if linking.url}
+				<div class="flex items-center gap-2">
+					<input
+						class="min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 font-mono text-xs dark:border-gray-700 dark:bg-gray-850"
+						readonly
+						value={linking.url}
+						aria-label={$i18n.t('Invite link')}
+						on:focus={(e) => e.currentTarget.select()}
+					/>
+					<button
+						type="button"
+						class="shrink-0 rounded-lg bg-black px-3 py-1.5 text-xs font-medium text-white dark:bg-white dark:text-black"
+						on:click={() => linking && copy(linking.url)}>{$i18n.t('Copy link')}</button
+					>
+				</div>
+				<a class="w-fit text-xs text-[#229ED9] hover:underline" href={linking.url} target="_blank" rel="noopener">
+					{$i18n.t('Or open it yourself (to add another Telegram of yours)')}
+				</a>
+			{:else}
+				<p class="text-xs text-red-600">{$i18n.t('The bot username is not set; ask the administrator.')}</p>
+			{/if}
+			<p class="text-xs text-gray-500">
+				{$i18n.t('Each link works for one person and expires after 24 hours. The recipient can stop at any time by sending /ngungnhan to the bot.')}
+			</p>
 			{#if SHOW_TELEGRAM_GROUP_LINK && linking.allow_groups}
 				<div class="flex flex-col gap-1.5">
 					<span class="font-medium">{$i18n.t('A Telegram group')}</span>
@@ -871,7 +933,7 @@
 					</button>
 				</div>
 			{/if}
-			<div class="flex items-center gap-2 text-xs text-gray-500"><Spinner className="size-3" />{$i18n.t('Waiting for the chat to be linked…')}</div>
+			<div class="flex items-center gap-2 text-xs text-gray-500"><Spinner className="size-3" />{$i18n.t('Waiting for the person to open the link… You can close this window; it will be added when they press Start.')}</div>
 			<div class="flex justify-end">
 				<button type="button" class="rounded-xl border border-gray-200 px-3.5 py-1.5 dark:border-gray-700" on:click={() => (linking = null)}>{$i18n.t('Close')}</button>
 			</div>

@@ -40,6 +40,7 @@ COMMANDS = [
     ('model', 'Đổi model'),
     ('caidat', 'Cài đặt'),
     ('help', 'Hướng dẫn'),
+    ('ngungnhan', 'Ngừng nhận báo cáo được mời qua link'),
 ]
 HELP = (
     '<b>Cách dùng trợ lý NCS AI trên Telegram</b>\n'
@@ -278,6 +279,11 @@ async def _on_message(app, settings: dict, message: dict) -> None:
             await _welcome(ctx)
         return
 
+    # Anyone who receives reports here (invited with a link, no account needed) can stop them.
+    if text.startswith('/') and text.split()[0].split('@')[0].lower() in STOP_REPORTS:
+        await _stop_reports(settings, chat['id'])
+        return
+
     if not await _load(ctx):
         return
     await Accounts.touch(ctx.tg_id, sender.get('username') or '', _display(sender))
@@ -438,15 +444,46 @@ async def _legacy_report_link(settings: dict, message: dict, text: str) -> None:
     if chat_type != 'private' and not (await report_settings())['reports.telegram.allow_groups']:
         await api.send_message(token, chat['id'], 'NCS AI tạm thời chưa gửi báo cáo vào nhóm Telegram. Hãy liên kết chat riêng với bot.')
         return
-    title = chat.get('title') or _display(message.get('from') or {}) or str(chat['id'])
-    link = await TelegramLinks.confirm(code.strip(), str(chat['id']), title, chat_type)
-    reply = (
-        f'Đã liên kết {"nhóm " + html.escape(title) if chat_type != "private" else "chat này"} với NCS AI. '
-        'Báo cáo định kỳ chọn chat này sẽ được gửi tới đây.'
-        if link
-        else 'Mã liên kết không đúng hoặc đã hết hạn. Tạo mã mới trong NCS AI → Báo cáo định kỳ.'
-    )
+    sender = message.get('from') or {}
+    title = chat.get('title') or _display(sender) or str(chat['id'])
+    if chat_type == 'private' and sender.get('username'):
+        title = f'{title} (@{sender["username"]})'
+    status, link = await TelegramLinks.confirm(code.strip(), str(chat['id']), title[:200], chat_type)
+    log.info('Telegram: report link code from chat %s: %s', chat.get('id'), status)
+    if status == 'invalid':
+        await api.send_message(
+            token, chat['id'],
+            'Link nhận báo cáo này không dùng được: đã có người khác dùng, hoặc đã quá 24 giờ. '
+            'Mỗi link chỉ dùng cho một người — hãy xin người gửi một link mới.',
+        )
+        return
+    from open_webui.models.users import Users
+
+    owner = await Users.get_user_by_id(link.user_id)
+    who = html.escape(owner.name if owner else 'người dùng NCS AI')
+    where = f'nhóm <b>{html.escape(chat.get("title") or "")}</b>' if chat_type != 'private' else 'Telegram này'
+    if status == 'already':
+        reply = f'✅ {where[0].upper() + where[1:]} đã được thêm vào danh sách nhận báo cáo của <b>{who}</b> rồi.'
+    else:
+        reply = f'✅ Đã thêm {where} vào danh sách nhận báo cáo định kỳ của <b>{who}</b>. Báo cáo sẽ được gửi tới đây theo lịch.'
+    reply += '\n\nMuốn ngừng nhận: gửi /ngungnhan'
     await api.send_message(token, chat['id'], reply)
+
+
+STOP_REPORTS = ('/ngungnhan', '/stopreports')
+
+
+async def _stop_reports(settings: dict, chat_id) -> None:
+    """Remove this chat from every report it was invited to (with a link). Reports to the user's own linked
+    account ("Telegram của tôi") are managed on the web."""
+    from open_webui.reports.models import TelegramLinks
+
+    removed = await TelegramLinks.forget_chat(str(chat_id))
+    await api.send_message(
+        settings['telegram.bot_token'], chat_id,
+        'Đã ngừng nhận báo cáo định kỳ được mời qua link. Muốn nhận lại, hãy xin người gửi một link mới.' if removed
+        else 'Telegram này không nhận báo cáo nào qua link mời.',
+    )
 
 
 # ---------------------------------------------------------------- modes and menus
