@@ -64,6 +64,7 @@ _waiting = 0
 
 _recent_updates: dict[int, None] = {}
 _already_told: dict[str, float] = {}
+_quiet_links: dict[str, int] = {}  # sender -> stale link codes being handled: no "already linked" reply
 
 
 def _seen(update_id) -> bool:
@@ -93,8 +94,10 @@ def _stale(update: dict, backlog: bool) -> bool:
     if 'callback_query' in update:
         return backlog
     message = update.get('message')
-    if not message or _is_link(update):
-        return False
+    return bool(message) and not _is_link(update) and _old(message)
+
+
+def _old(message: dict) -> bool:
     return time.time() - (message.get('date') or time.time()) > STALE_SECONDS
 
 
@@ -123,6 +126,17 @@ async def _skip_stale(settings: dict, updates: list) -> None:
             )
         except Exception:
             log.debug('Telegram: could not send the skipped note to %s', chat_id, exc_info=True)
+
+
+async def _quietly(app, settings: dict, update: dict) -> None:
+    sender = str((update['message'].get('from') or {}).get('id'))
+    _quiet_links[sender] = _quiet_links.get(sender, 0) + 1
+    try:
+        await _handle_update(app, settings, update)
+    finally:
+        _quiet_links[sender] -= 1
+        if not _quiet_links[sender]:
+            del _quiet_links[sender]
 
 
 def _spawn(coro) -> None:
@@ -236,6 +250,11 @@ async def bot_loop(app) -> None:
                     continue
                 if _stale(update, backlog):
                     stale.append(update)
+                    continue
+                if _is_link(update) and _old(update['message']):
+                    # A link opened while the bot was stopped: still used (it may link someone new), but
+                    # "already linked" is not said for it.
+                    _spawn(_quietly(app, settings, update))
                     continue
                 _spawn(_handle_update(app, settings, update))
             if stale:
@@ -464,11 +483,11 @@ async def _link_account(ctx: Ctx, code: str) -> None:
     status, account = await Accounts.confirm(code, ctx.tg_id, ctx.sender.get('username') or '', _display(ctx.sender))
     log.info('Telegram: link code from %s: %s', ctx.tg_id, status)
     if status == 'already':
-        # The same link opened again (browser and app both open it, or Start pressed twice): say it once.
-        key = f'{ctx.tg_id}:{code}'
-        if time.monotonic() - _already_told.get(key, -1e9) < 600:
+        # Nothing changed: a link opened again (browser and app both open it, Start pressed twice, several links
+        # tapped) is answered once per 10 minutes, and not at all when it was sent while the bot was stopped.
+        if ctx.tg_id in _quiet_links or time.monotonic() - _already_told.get(ctx.tg_id, -1e9) < 600:
             return
-        _already_told[key] = time.monotonic()
+        _already_told[ctx.tg_id] = time.monotonic()
     if status == 'invalid':
         await ctx.send('Mã liên kết không đúng hoặc đã hết hạn (10 phút). Vào web bấm <b>Liên kết Telegram</b> để lấy mã mới.')
         return
