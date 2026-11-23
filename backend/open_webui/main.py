@@ -592,6 +592,10 @@ async def lifespan(app: FastAPI):
         app.state.monitor_config_watch.cancel()
     if hasattr(app.state, 'telegram_bot_loop'):
         app.state.telegram_bot_loop.cancel()
+        try:  # let it hand back its reading lease, so the next start reads Telegram at once
+            await asyncio.wait_for(app.state.telegram_bot_loop, timeout=5)
+        except BaseException:
+            pass
     try:
         from open_webui.monitoring.recorder import flush as flush_perf_events
 

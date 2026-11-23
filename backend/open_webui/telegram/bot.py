@@ -78,6 +78,53 @@ def _seen(update_id) -> bool:
     return False
 
 
+STALE_SECONDS = 90  # messages older than this when read were sent while the bot was stopped
+
+
+def _is_link(update: dict) -> bool:
+    text = ((update.get('message') or {}).get('text') or '').strip()
+    return (text.startswith('/start ') and len(text.split()) > 1) or text.startswith('/link ')
+
+
+def _stale(update: dict, backlog: bool) -> bool:
+    """Sent while nobody was reading (the app restarting or being updated): handling a pile of old taps and
+    questions at once floods the chat, so they are skipped. Link codes are kept (they expire on their own).
+    Buttons carry no time of their own: those found in the first read after starting are the stale ones."""
+    if 'callback_query' in update:
+        return backlog
+    message = update.get('message')
+    if not message or _is_link(update):
+        return False
+    return time.time() - (message.get('date') or time.time()) > STALE_SECONDS
+
+
+async def _skip_stale(settings: dict, updates: list) -> None:
+    """One note per private chat instead of answering what was sent while the bot was stopped."""
+    token = settings['telegram.bot_token']
+    counts: dict = {}
+    for update in updates:
+        callback = update.get('callback_query')
+        if callback:
+            try:
+                await api.answer_callback(token, callback.get('id', ''))
+            except Exception:
+                pass  # too old to answer: nothing to do
+        message = (callback or {}).get('message') or update.get('message') or {}
+        chat = message.get('chat') or {}
+        if chat.get('type') == 'private' and chat.get('id'):
+            counts[chat['id']] = counts.get(chat['id'], 0) + 1
+    for chat_id, count in counts.items():
+        log.info('Telegram: skipped %s stale update(s) from chat %s', count, chat_id)
+        try:
+            await api.send_message(
+                token, chat_id,
+                f'⏸ Bot vừa tạm dừng (cập nhật hoặc khởi động lại) nên đã bỏ qua {count} tin nhắn / thao tác bạn gửi '
+                'trong lúc đó. Nếu vẫn cần, hãy gửi hoặc bấm lại.',
+            )
+        except Exception:
+            log.debug('Telegram: could not send the skipped note to %s', chat_id, exc_info=True)
+
+
 def _spawn(coro) -> None:
     task = asyncio.create_task(coro)
     _tasks.add(task)
@@ -161,12 +208,15 @@ async def bot_loop(app) -> None:
                 lease_id = None
                 await asyncio.sleep(20)
                 continue
+            # First read after starting (or taking over from another worker): what is waiting was sent while
+            # nobody read; it is read at once (no waiting) and the stale part skipped.
+            backlog = lease_id is None
             lease_id = held['lease_id']
             state = held['data'] or {}
             if commands_for != token:
                 await api.set_commands(token, COMMANDS)
                 commands_for = token
-            updates = await api.get_updates(token, int(state.get('offset', 0)), POLL_SECONDS)
+            updates = await api.get_updates(token, int(state.get('offset', 0)), 0 if backlog else POLL_SECONDS)
             offset = int(state.get('offset', 0))
             for update in updates:
                 offset = max(offset, int(update.get('update_id', 0)) + 1)
@@ -179,12 +229,24 @@ async def bot_loop(app) -> None:
                 lease_id = None
                 continue
             STATUS.update(state)
+            stale = []
             for update in updates:
                 if _seen(update.get('update_id')):
                     log.warning('Telegram: update %s came again; ignored', update.get('update_id'))
                     continue
+                if _stale(update, backlog):
+                    stale.append(update)
+                    continue
                 _spawn(_handle_update(app, settings, update))
+            if stale:
+                _spawn(_skip_stale(settings, stale))
         except asyncio.CancelledError:
+            # Shutting down: hand the lease back so the next start reads at once instead of waiting it out.
+            if lease_id:
+                try:
+                    await asyncio.shield(Locks.release(POLL_LOCK, lease_id))
+                except BaseException:
+                    pass
             raise
         except api.TelegramError as error:
             note = {'error': str(error), 'error_at': int(time.time())}
