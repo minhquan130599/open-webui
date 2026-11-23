@@ -769,12 +769,8 @@ async def _on_callback(app, settings: dict, callback: dict) -> None:
             if not ctx.settings['telegram.files']:
                 await note('Quản trị viên đã tắt gửi file qua Telegram', True)
                 return
-            channel = await ask.get_channel_for(ctx.user, ctx.session.channel_id, ctx.settings)
-            if not channel:
-                await note('Bạn không còn quyền trong kênh này', True)
-                return
             await note('Đang lập báo cáo…')
-            await _ask(ctx, '', [], None, report=(channel, kind))
+            await _ask(ctx, kb.EXPORT_QUESTION.format(label=kb.EXPORT_FORMATS[kind]), [], None)
             return
         if data.startswith('fa:'):
             action = data[3:]
@@ -914,7 +910,7 @@ async def _export(ctx: Ctx, target, kind: str, note) -> None:
 # ---------------------------------------------------------------- asking
 
 
-async def _ask(ctx: Ctx, text: str, files: list, target=None, regenerate: bool = False, report=None) -> None:
+async def _ask(ctx: Ctx, text: str, files: list, target=None, regenerate: bool = False) -> None:
     """Answer one question (one at a time per user, a limited number at once for the app)."""
     global _waiting
     if ctx.tg_id in _running:
@@ -942,16 +938,14 @@ async def _ask(ctx: Ctx, text: str, files: list, target=None, regenerate: bool =
             if run['stopped']:
                 await ctx.send('⏹ Đã hủy câu hỏi đang chờ.')
                 return
-            await _answer(ctx, run, text, files, target, regenerate, report)
+            await _answer(ctx, run, text, files, target, regenerate)
     finally:
         if queued:
             _waiting -= 1
         _running.pop(ctx.tg_id, None)
 
 
-async def _answer(ctx: Ctx, run: dict, text: str, files: list, target, regenerate: bool, report=None) -> None:
-    """`report`: (channel, format) of "Xuất báo cáo": made privately in a new chat of the user, never posted in
-    the channel, so the other members see nothing; the file comes back here."""
+async def _answer(ctx: Ctx, run: dict, text: str, files: list, target, regenerate: bool) -> None:
     request = await ctx.request()
     models = await ask.allowed_models(request, ctx.user)
     model_id = ask.default_model_id(ctx.user, ctx.settings, models, ctx.session.model_id)
@@ -963,9 +957,7 @@ async def _answer(ctx: Ctx, run: dict, text: str, files: list, target, regenerat
 
     # Where the question goes: the answer replied to, else the chat's mode.
     channel, thread_id = None, None
-    if report:
-        pass
-    elif target and target.target == 'channel':
+    if target and target.target == 'channel':
         channel = await ask.get_channel_for(ctx.user, target.target_id, ctx.settings)
         if not channel:
             await ctx.send('Bạn không còn hỏi được trong kênh của tin này.')
@@ -992,27 +984,16 @@ async def _answer(ctx: Ctx, run: dict, text: str, files: list, target, regenerat
         return
 
     model_label = html.escape(model.get('name') or model_id)
-    if report:
-        report_channel, kind = report
-        label = kb.EXPORT_FORMATS[kind]
-        text = kb.EXPORT_QUESTION.format(name=report_channel.name, label=label)
-        header = f'📄 <b>Báo cáo #{html.escape(report_channel.name)}</b> · {model_label}'
-    elif channel:
+    if channel:
         header = f'📁 <b>#{html.escape(channel.name)}</b> · {model_label}'
     else:
         header = f'💬 <b>Trực tiếp</b> · {model_label}'
-    waiting = '⏳ Đang lập báo cáo, có thể mất vài phút…' if report else '⏳ Đang trả lời…'
-    progress = await ctx.send(f'{header}\n{waiting}', kb.stop(run['key']))
+    progress = await ctx.send(f'{header}\n⏳ Đang trả lời…', kb.stop(run['key']))
     if not progress:
         return
     progress_id = progress['message_id']
     try:
-        if report:
-            instructions = kb.EXPORT_INSTRUCTIONS.format(name=report_channel.name, id=report_channel.id, fmt=kind)
-            handle = await ask.ask_direct(ctx.app, request, ctx.user, ctx.session, model_id, text, ctx.settings,
-                                          separate=True, instructions=instructions,
-                                          title=f'Báo cáo #{report_channel.name}')
-        elif channel:
+        if channel:
             handle = await ask.ask_channel(ctx.app, request, ctx.user, channel, model, text, thread_id, files)
         else:
             handle = await ask.ask_direct(ctx.app, request, ctx.user, ctx.session, model_id, text, ctx.settings, files)
@@ -1022,7 +1003,7 @@ async def _answer(ctx: Ctx, run: dict, text: str, files: list, target, regenerat
         await ctx.edit(progress_id, f'{header}\n⚠️ Không gửi được câu hỏi: {html.escape(str(detail))}')
         return
     run['handle'] = handle
-    if handle['kind'] == 'chat' and not report:  # a report is its own chat: the conversation goes on as before
+    if handle['kind'] == 'chat':
         ctx.session.chat_ref, ctx.session.last_message_id = handle['chat_id'], handle['message_id']
         await Sessions.save(ctx.session)
 
@@ -1043,10 +1024,7 @@ async def _answer(ctx: Ctx, run: dict, text: str, files: list, target, regenerat
     parts = fmt.messages(answer['content'], header)
     if not answer['done']:
         parts[-1] += '\n\n<i>… câu trả lời còn dài, xem tiếp trên web.</i>'
-    if report:  # the file itself follows; exporting the short summary again would only confuse
-        markup = kb.inline([[kb.url_button('🌐 Mở trên web', url)]] if url else [])
-    else:
-        markup = kb.answer(handle['kind'], url, ctx.settings['telegram.files'])
+    markup = kb.answer(handle['kind'], url, ctx.settings['telegram.files'])
     tg_ids = []
     for index, part in enumerate(parts):
         last = index == len(parts) - 1

@@ -167,7 +167,7 @@ Bàn phím:
 ```
 
 - Bốn nút đầu gửi câu hỏi soạn sẵn, ví dụ "Tóm tắt tiến độ kênh: việc đã xong, đang làm, trễ hạn, vướng mắc". Câu soạn sẵn quản trị viên sửa được.
-- **📄 Xuất báo cáo** hỏi tiếp định dạng: `[📄 PDF] [📝 Word] [📊 Excel]`. Bot nhờ AI tạo báo cáo tiến độ đầy đủ bằng `export_project_report`, có phụ lục mọi hạng mục, rồi gửi file.
+- **📄 Xuất báo cáo** hỏi tiếp định dạng: `[📄 PDF] [📝 Word] [📊 Excel]`. Giống ba nút kia, bot đăng vào kênh một câu bằng lời thường, ví dụ "@Knight Lập báo cáo tiến độ đầy đủ của kênh này (…) và xuất ra file Excel đính kèm." Câu này không chứa tên công cụ. AI tự dùng `export_project_report` để tạo file, có phụ lục mọi hạng mục. File gắn vào câu trả lời trong kênh, cả nhóm thấy, và được gửi tiếp về Telegram.
 
 Câu trả lời trong kênh:
 

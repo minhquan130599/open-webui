@@ -23,15 +23,10 @@ PRESETS = {
     OVERDUE: 'Liệt kê các việc đang quá hạn trong kênh này: việc gì, ai phụ trách, hạn khi nào, đã trễ bao lâu.',
     MINE: 'Liệt kê các việc tôi đang phụ trách trong kênh này, nêu việc nào sắp đến hạn hoặc đã quá hạn.',
 }
-# "Xuất báo cáo" runs privately (the user's own chat, not posted in the channel): the question is what the user
-# sees on the web; how to do it goes in a system message for that one request.
-EXPORT_QUESTION = 'Lập báo cáo tiến độ dự án #{name} và xuất file {label}.'
-EXPORT_INSTRUCTIONS = (
-    'The user asked from Telegram for a full progress report of the project (channel) "{name}", channel id {id}. '
-    'Call build_project_report with project="{id}" and purpose="report", write the report in Vietnamese (work done, '
-    'in progress, overdue, blockers, per owner), then call export_project_report with that report_id and '
-    'format="{fmt}". Your reply is read on Telegram: give only a short summary (a few lines), no links, no page '
-    'references, no tool names and no offers of further actions.'
+# Posted in the channel like the other buttons, in plain words (no tool names): the report skill does the rest.
+EXPORT_QUESTION = (
+    'Lập báo cáo tiến độ đầy đủ của kênh này (việc đã xong, đang làm, trễ hạn, vướng mắc, theo từng người phụ '
+    'trách) và xuất ra file {label} đính kèm.'
 )
 EXPORT_FORMATS = {'pdf': 'PDF', 'docx': 'Word', 'xlsx': 'Excel'}
 FILE_ACTIONS = {

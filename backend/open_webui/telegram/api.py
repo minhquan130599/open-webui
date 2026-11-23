@@ -208,11 +208,20 @@ async def download_file(token: str, file_id: str, limit: int = DOWNLOAD_LIMIT) -
             async with session.get(f'{API}/file/bot{token}/{path}') as response:
                 if response.status != 200:
                     raise TelegramError(f'Không tải được file (HTTP {response.status})')
-                data = await response.content.read(limit + 1)
+                # content.read(n) returns what has arrived so far (up to n bytes), not the whole file: read every
+                # chunk to the end, stopping past the limit.
+                parts, size = [], 0
+                async for chunk in response.content.iter_chunked(64 * 1024):
+                    parts.append(chunk)
+                    size += len(chunk)
+                    if size > limit:
+                        raise TelegramError('File lớn hơn 20 MB')
+                data = b''.join(parts)
     except aiohttp.ClientError as error:
         raise TelegramError(f'Không tải được file: {error}')
-    if len(data) > limit:
-        raise TelegramError('File lớn hơn 20 MB')
+    expected = info.get('file_size')
+    if expected and len(data) != expected:
+        raise TelegramError(f'Tải file không trọn vẹn ({len(data)}/{expected} byte), hãy gửi lại')
     return data
 
 
