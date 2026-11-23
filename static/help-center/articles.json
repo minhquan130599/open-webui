@@ -533,24 +533,62 @@
 			],
 			"title": "Nhận báo cáo qua Telegram",
 			"desc": "Liên kết chat riêng hoặc nhóm Telegram với lịch báo cáo",
-			"minutes": 3,
+			"minutes": 5,
 			"icon": "✈️",
 			"steps": [
 				{
 					"title": "Bật gửi qua Telegram",
-					"text": "Trong lịch báo cáo, ở phần Gửi qua, bật Gửi qua Telegram rồi bấm Liên kết Telegram. Không thấy lựa chọn này: quản trị viên chưa bật Telegram."
+					"text": "Mở lịch báo cáo cần nhận qua Telegram (tạo mới hoặc bấm vào lịch có sẵn). Ở mục 4. Gửi qua, bật công tắc Telegram. Chưa có chat nào thì hiện dòng \"Chưa liên kết chat Telegram nào.\" Bấm Liên kết Telegram. Không thấy ô Telegram: quản trị viên chưa bật Telegram.",
+					"image": "/help-center/images/tg-b1-bat.png",
+					"caption": "Bật công tắc Telegram rồi bấm Liên kết Telegram"
 				},
 				{
-					"title": "Liên kết chat riêng",
-					"text": "Chọn Chat riêng với bot, bấm Mở Telegram. Telegram mở cuộc chat với bot, bấm Bắt đầu (Start). Trang báo cáo tự hiện \"Đã liên kết Telegram\"."
+					"title": "Bấm Mở Telegram",
+					"text": "Hộp thoại Liên kết Telegram hiện ra. Để nhận báo cáo trong chat riêng của bạn, bấm Mở Telegram. Giữ nguyên hộp thoại trên NCS AI (đang hiện \"Đang chờ liên kết…\") cho tới khi liên kết xong.",
+					"image": "/help-center/images/tg-b2-chat-rieng.png",
+					"caption": "Bấm Mở Telegram, giữ hộp thoại này mở"
 				},
 				{
-					"title": "Hoặc liên kết một nhóm",
-					"text": "Chọn Một nhóm Telegram. Thêm bot vào nhóm, rồi gửi trong nhóm đúng tin nhắn trang hiện ra (lệnh /link kèm mã). Mã chỉ dùng được một lần và hết hạn sau một ngày."
+					"title": "Cho trình duyệt mở ứng dụng Telegram",
+					"text": "Trình duyệt mở trang t.me của bot và hỏi có mở Telegram Desktop không: bấm Open (Mở). Máy chưa cài Telegram Desktop hoặc hộp hỏi không hiện: bấm START BOT trên trang để mở Telegram trên web hoặc điện thoại. Có thể tích \"Always allow…\" để lần sau không phải hỏi lại.",
+					"image": "/help-center/images/tg-b2b-mo-ung-dung.png",
+					"caption": "Bấm Open; không có Telegram Desktop thì bấm START BOT"
 				},
 				{
-					"title": "Chọn chat nhận và lưu",
-					"text": "Tích các chat đã liên kết muốn nhận báo cáo, bấm Lưu lịch. Bỏ liên kết khi không dùng chat đó nữa. Tin Telegram có nút Mở bảng tiến độ để xem chi tiết."
+					"title": "Bấm Start trong Telegram",
+					"text": "Telegram mở cuộc chat với bot. Bấm nút BẮT ĐẦU (START) ở cuối khung chat. Không thấy nút này (thường gặp khi đã từng chat với bot) hoặc bấm không có phản hồi: sao chép dòng /link kèm mã trong hộp thoại trên NCS AI (bấm vào dòng đó) rồi gửi vào chat với bot; cách này cho kết quả như bấm Start.",
+					"image": "/help-center/images/tg-b2c-bam-start.png",
+					"caption": "Bấm START ở cuối khung chat với bot"
+				},
+				{
+					"title": "Kiểm tra liên kết thành công",
+					"text": "Bot trả lời \"Đã liên kết chat này với NCS AI. Báo cáo định kỳ chọn chat này sẽ được gửi tới đây.\" Đồng thời trên NCS AI hiện thông báo \"Đã liên kết Telegram: <tên>\", hộp thoại tự đóng và chat được tích sẵn trong ô Telegram. Bot báo \"Mã liên kết không đúng hoặc đã hết hạn\": bấm Liên kết Telegram để tạo mã mới rồi làm lại.",
+					"image": "/help-center/images/tg-b2d-thanh-cong.png",
+					"caption": "Bot xác nhận đã liên kết chat"
+				},
+				{
+					"title": "Cho người khác nhận báo cáo qua Telegram của họ",
+					"text": "Muốn gửi báo cáo vào Telegram riêng của người khác (người đó không cần tài khoản NCS AI): bấm Liên kết Telegram, rồi bấm Mở Telegram. Trình duyệt mở trang t.me của bot và hỏi có mở Telegram Desktop không: bấm Cancel (Hủy), đừng bấm Open, nếu không chính Telegram của bạn sẽ dùng mất mã. Sao chép địa chỉ trên thanh địa chỉ của trình duyệt (dạng https://t.me/…?start=…) và gửi cho người đó. Người đó mở link và bấm Start như bước 3–4. Giữ hộp thoại trên NCS AI mở để chat của họ tự hiện và được tích; lỡ đóng hộp thoại thì tải lại trang Báo cáo định kỳ, mở lịch và tích chat của họ. Mỗi link chỉ dùng cho một người, hết hạn sau một ngày: mỗi người cần một link mới (bấm Liên kết Telegram lại).",
+					"image": "/help-center/images/tg-b2e-sao-chep-link.png",
+					"caption": "Bấm Cancel, rồi sao chép địa chỉ trên thanh địa chỉ để gửi cho người khác"
+				},
+				{
+					"title": "Hoặc liên kết một nhóm Telegram",
+					"text": "Để gửi báo cáo vào nhóm: thêm bot vào nhóm trước. Bấm vào dòng /link kèm mã trong hộp thoại để sao chép, rồi dán và gửi tin đó trong nhóm. Bot trả lời \"Đã liên kết nhóm … với NCS AI\" là xong. Mã chỉ dùng được một lần và hết hạn sau một ngày; mỗi lần bấm Liên kết Telegram tạo một mã mới. Không thấy phần Một nhóm Telegram: quản trị viên chưa cho phép gửi vào nhóm.",
+					"image": "/help-center/images/tg-b3-nhom.png",
+					"caption": "Bấm vào dòng /link để sao chép, rồi gửi trong nhóm có bot"
+				},
+				{
+					"title": "Chọn chat nhận báo cáo",
+					"text": "Các chat đã liên kết hiện trong ô Telegram: Chat riêng hoặc Nhóm, kèm tên. Tích các chat sẽ nhận báo cáo này. Có thể liên kết nhiều chat và dùng lại cho các lịch khác. Bỏ liên kết khi không dùng chat đó nữa: chat bị gỡ khỏi mọi lịch.",
+					"image": "/help-center/images/tg-b4-chon-chat.png",
+					"caption": "Tích chat riêng và nhóm muốn nhận báo cáo"
+				},
+				{
+					"title": "Lưu lịch",
+					"text": "Bấm Lưu lịch. Đã bật Telegram mà chưa tích chat nào thì sẽ báo \"Telegram: chọn ít nhất một chat đã liên kết\". Đến giờ gửi, báo cáo đến Telegram kèm nút Mở bảng tiến độ để xem chi tiết.",
+					"image": "/help-center/images/tg-b4-luu.png",
+					"caption": "Bấm Lưu lịch để lưu lựa chọn"
 				}
 			],
 			"tip": "Gửi vào nhóm cần quản trị viên cho phép. Nếu bot bị xóa khỏi nhóm hoặc bị chặn, liên kết tự gỡ và lịch báo lỗi ở lần gửi sau: liên kết lại là xong."
@@ -569,15 +607,27 @@
 			"steps": [
 				{
 					"title": "Xem báo cáo đang nhận",
-					"text": "Khi chủ kênh hay quản lý thêm email của bạn vào lịch của họ, báo cáo hiện ở mục Báo cáo bạn đang nhận trên trang Báo cáo định kỳ, kèm tên người tạo và lịch gửi."
+					"text": "Khi chủ kênh hay quản lý thêm email của bạn vào lịch báo cáo của họ, báo cáo đó hiện ở mục Báo cáo bạn đang nhận, cuối trang Báo cáo định kỳ. Mỗi báo cáo ghi tên, lịch gửi và người tạo. Mục này chỉ hiện khi bạn đang nhận ít nhất một báo cáo.",
+					"image": "/help-center/images/rc-b1-dang-nhan.png",
+					"caption": "Mục Báo cáo bạn đang nhận ở cuối trang Báo cáo định kỳ"
 				},
 				{
-					"title": "Ngừng nhận",
-					"text": "Bấm Ngừng nhận ở báo cáo đó rồi xác nhận. Bạn được gỡ khỏi danh sách người nhận; người tạo vẫn nhận bình thường."
+					"title": "Bấm Ngừng nhận",
+					"text": "Bấm Ngừng nhận ở báo cáo không muốn nhận nữa.",
+					"image": "/help-center/images/rc-b2-nut-ngung.png",
+					"caption": "Nút Ngừng nhận bên phải từng báo cáo"
+				},
+				{
+					"title": "Xác nhận",
+					"text": "Bấm Xác nhận. Bạn được gỡ khỏi danh sách người nhận và báo cáo biến mất khỏi mục này; người tạo và những người nhận khác vẫn nhận bình thường. Muốn nhận lại: nhờ người tạo thêm lại email của bạn.",
+					"image": "/help-center/images/rc-b3-xac-nhan.png",
+					"caption": "Bấm Xác nhận để ngừng nhận, Hủy bỏ để giữ lại"
 				},
 				{
 					"title": "Mở chi tiết từ email",
-					"text": "Nút Mở bảng tiến độ trong email mở trang Công việc của tôi, nơi xem từng việc của các kênh bạn tham gia."
+					"text": "Nút Mở bảng tiến độ trong email (hoặc tin Telegram) mở trang Công việc của tôi, chế độ Thành viên: xem từng việc của các kênh bạn tham gia, việc quá hạn, đến hạn và tìm theo việc, kênh, người.",
+					"image": "/help-center/images/rc-b4-cong-viec.png",
+					"caption": "Trang Công việc của tôi mở từ nút Mở bảng tiến độ"
 				}
 			],
 			"tip": "Không có quyền tạo báo cáo mà muốn nhận báo cáo của một kênh: nhờ chủ kênh thêm bạn vào người nhận trong lịch của họ."
