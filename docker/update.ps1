@@ -47,6 +47,13 @@ Write-Host "Phien ban: $(git -C $repo log -1 --format='%h %s')"
 # 3. Build một lần (service open-webui; bucket-init dùng lại image này), rồi chạy
 docker compose build open-webui
 if ($LASTEXITCODE -ne 0) { Fail "docker compose build that bai. Neu log co 'rpc error ... EOF': Docker het RAM, xem .wslconfig" }
+# Terminal riêng cho từng người dùng: broker, image terminal đã khóa, proxy ra Internet (thư mục terminal-broker).
+# Nhanh khi không đổi (dùng cache). Máy dùng compose cũ (chưa có các service này) thì bỏ qua.
+$services = docker compose --profile build config --services 2>$null
+if ($services -contains "terminal-broker") {
+    docker compose --profile build build terminal-broker terminal-image egress-proxy
+    if ($LASTEXITCODE -ne 0) { Fail "build terminal (terminal-broker / terminal-image / egress-proxy) that bai" }
+}
 docker compose up -d
 if ($LASTEXITCODE -ne 0) { Fail "docker compose up that bai" }
 docker image prune -f | Out-Null

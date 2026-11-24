@@ -105,3 +105,46 @@ User chưa thuộc nhóm `docker` thì script tự dùng `sudo docker` (`release
 | "Đã tự quay về …" | App đang chạy bản cũ. Sửa lỗi rồi release lại |
 | `status` báo container dự phòng vẫn chạy | `sudo docker rm -f open-webui-standby` |
 | Gửi file chậm | File `.tar` nặng vài GB, `scp -C` đã nén khi gửi. Có thể gửi trước bằng `-NoDeploy` |
+
+## Chuyển sang terminal riêng cho từng người dùng (làm một lần)
+
+Thay terminal dùng chung (`owui-terminal`) bằng terminal-broker: mỗi người một terminal, tối đa 10 chạy cùng lúc, không
+vào được mạng nội bộ, Internet qua proxy có ghi log. Chi tiết: `docs/terminal/PHUONG-AN-TACH-TERMINAL.md`.
+Làm trên server thử trước, chạy kiểm tra ở bước 6, rồi mới làm trên S1 / S2.
+
+1. **Máy build:** `update.ps1` (build cả `ncs-terminal-broker`, `ncs-terminal`, `ncs-egress-proxy`), rồi
+   `.\export-image.ps1 -WithTerminal` (đóng gói các image đó, kèm `docker-socket-proxy` và Open Terminal gốc). Chép file
+   `.tar` và thư mục `deploy` mới sang server.
+2. **Server:** `docker load -i <file>.tar`.
+3. **Thêm vào `.env`** (giữ nguyên các dòng cũ):
+   ```
+   REDIS_PASSWORD=<openssl rand -hex 24>
+   TERMINAL_BROKER_ADMIN_KEY=<openssl rand -hex 32>
+   TERMINAL_BROKER_IMAGE=ncs-terminal-broker:latest
+   NCS_TERMINAL_IMAGE=ncs-terminal:latest
+   EGRESS_PROXY_IMAGE=ncs-egress-proxy:latest
+   ```
+   `TERMINAL_API_KEY` giữ nguyên (Open WebUI dùng khóa này để gọi broker). Các giới hạn mặc định xem `.env.example`.
+4. **Chạy:**
+   ```
+   docker compose up -d redis            # Redis có mật khẩu
+   docker compose up -d                  # broker, proxy, docker-socket-proxy; open-webui và monitor nhận REDIS_URL mới
+   docker stop owui-terminal && docker rm owui-terminal   # terminal dùng chung cũ (giờ ở profile legacy-terminal)
+   sudo ./terminal-firewall.sh           # chặn terminal kết nối vào chính máy chủ
+   ```
+   Luật tường lửa mất khi khởi động lại máy: thêm `@reboot /đường/dẫn/deploy/terminal-firewall.sh` vào crontab của root.
+5. **Trong NCS AI:** Admin > Cài đặt > Tích hợp > Terminal > kết nối `ncs-terminal`: đổi URL thành
+   `http://terminal-broker:8000` (khóa giữ nguyên) > Lưu. Biến `TERMINAL_SERVER_CONNECTIONS` chỉ có tác dụng ở lần cài
+   đầu, nên server đã chạy phải sửa trong giao diện.
+6. **Kiểm tra:**
+   ```
+   docker exec ncs-terminal-broker python -m broker.smoke            # tách người dùng, mạng, proxy, quyền
+   docker exec ncs-terminal-broker python -m broker.smoke --memory   # thêm kiểm tra giới hạn 2 GB RAM
+   ```
+   Tất cả phải PASS. Sau đó mở trang giám sát > tab **Terminal**, và thử trên NCS AI: nhờ AI đổi một file Word sang PDF.
+7. **Dọn dữ liệu cũ** (khi đã chạy ổn vài ngày): volume `ncs-chatui_terminal-home` chứa file của terminal dùng chung,
+   lẫn của nhiều người. Sao lưu nếu cần rồi xóa: `docker volume rm ncs-chatui_terminal-home`.
+
+**Quay lui:** sửa URL kết nối terminal về `http://open-terminal:8000` và chạy
+`docker compose --profile legacy-terminal up -d open-terminal`. Giữ nguyên Redis có mật khẩu và tách mạng.
+Terminal cũ vẫn có rủi ro như trước, nên chỉ dùng tạm.

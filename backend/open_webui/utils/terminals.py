@@ -28,6 +28,12 @@ MAX_AGENTS_MD_BYTES = 32 * 1024
 log = logging.getLogger(__name__)
 
 
+def terminal_user_headers(user) -> dict:
+    """Who is calling the terminal. Set by the backend from the signed-in user (the browser never reaches the terminal),
+    so the terminal broker can trust it: X-User-Id picks the user's own terminal, X-User-Role keeps a place for admins."""
+    return {'X-User-Id': user.id, 'X-User-Role': 'admin' if getattr(user, 'role', '') == 'admin' else 'user'}
+
+
 def is_terminal_orchestrator(connection: dict) -> bool:
     """Return whether this connection points at Terminals, not raw Open Terminal."""
     return connection.get('server_type') == 'orchestrator' or bool(connection.get('policy_id'))
@@ -168,7 +174,7 @@ async def resolve_terminal_connection(request, user, metadata):
             metadata=metadata,
         )
         headers['Accept'] = 'application/json'
-        headers['X-User-Id'] = user_model.id
+        headers.update(terminal_user_headers(user_model))
         if metadata.get('chat_id'):
             headers['X-Session-Id'] = metadata['chat_id']
         if context_id:

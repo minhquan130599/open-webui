@@ -37,6 +37,10 @@ services:
   redis:
     image: redis:7-alpine
     container_name: owui-redis
+    # Có mật khẩu: lớp phòng thủ thứ hai nếu một container lạ vào được mạng này (xem docs/terminal).
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?Đặt REDIS_PASSWORD trong .env}"]
+    environment:
+      - REDISCLI_AUTH=${REDIS_PASSWORD}
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -54,7 +58,8 @@ services:
       - RUSTFS_ACCESS_KEY=${S3_ACCESS_KEY}
       - RUSTFS_SECRET_KEY=${S3_SECRET_KEY}
     ports:
-      - "9001:9001"            # giao diện web quản lý file (có thể bỏ)
+      # Giao diện web quản lý file: chỉ mở trên chính server (dùng SSH tunnel khi cần), không mở ra mạng.
+      - "127.0.0.1:9001:9001"
     volumes:
       - s3data:/data
     restart: unless-stopped
@@ -89,14 +94,84 @@ services:
             raise SystemExit(1)
     restart: "no"
 
-  # Máy chạy lệnh cho AI (Open Terminal): tạo file Word/Excel/PowerPoint/PDF, đổi docx -> pdf bằng LibreOffice.
-  # Chỉ trong mạng Docker (không mở cổng). Kết nối trong Admin > Cài đặt > Tích hợp > Terminal:
-  #   URL http://open-terminal:8000, xác thực Bearer = TERMINAL_API_KEY, ID = ncs-terminal.
+  # ---------------------------------------------------------------- Terminal cho AI
+  # Mỗi người dùng một terminal riêng (docs/terminal/PHUONG-AN-TACH-TERMINAL.md):
+  #   open-webui ──> terminal-broker ──> term-<người dùng> (tạo khi cần, tối đa 10 chạy cùng lúc, 1 CPU / 2 GB)
+  # Terminal chỉ ở mạng ncs-terminal-net (không có đường ra): không thấy postgres / redis / rustfs / LAN; ra Internet
+  # duy nhất qua egress-proxy (cổng 80 / 443, chặn IP nội bộ, ghi log). Kết nối trong Admin > Tích hợp > Terminal:
+  #   URL http://terminal-broker:8000, xác thực Bearer = TERMINAL_API_KEY, ID = ncs-terminal.
+  terminal-broker:
+    image: ${TERMINAL_BROKER_IMAGE:-ncs-terminal-broker:latest}
+    pull_policy: never
+    container_name: ncs-terminal-broker
+    depends_on: [docker-socket-proxy, egress-proxy]
+    environment:
+      - BROKER_API_KEY=${TERMINAL_API_KEY:?Đặt TERMINAL_API_KEY trong .env}
+      - BROKER_ADMIN_KEY=${TERMINAL_BROKER_ADMIN_KEY:?Đặt TERMINAL_BROKER_ADMIN_KEY trong .env}
+      - DOCKER_URL=http://docker-socket-proxy:2375
+      # Image đã khóa (terminal-broker/terminal-image). Khác biến TERMINAL_IMAGE cũ (image gốc chưa khóa).
+      - TERMINAL_IMAGE=${NCS_TERMINAL_IMAGE:-ncs-terminal:latest}
+      - TERMINAL_NETWORK=ncs-terminal-net
+      - TERMINAL_PROXY_URL=http://egress-proxy:3128
+      - MAX_RUNNING=${TERMINAL_MAX_RUNNING:-10}
+      - ADMIN_RESERVED=${TERMINAL_ADMIN_RESERVED:-1}
+      - TERMINAL_CPUS=${TERMINAL_CPUS:-1.0}
+      - TERMINAL_MEMORY_MB=${TERMINAL_MEMORY_MB:-2048}
+      - DISK_QUOTA_MB=${TERMINAL_DISK_QUOTA_MB:-5120}
+      - IDLE_STOP_SECONDS=${TERMINAL_IDLE_STOP_SECONDS:-900}
+      - VOLUME_REMOVE_SECONDS=${TERMINAL_KEEP_SECONDS:-604800}
+      - TERMINAL_RUNTIME=${TERMINAL_RUNTIME:-}     # runsc = gVisor (cài trên host trước)
+      - TERMINAL_READ_ONLY=${TERMINAL_READ_ONLY:-true}   # false nếu Open Terminal không chạy được khi chỉ đọc
+      - UPLOAD_ALERT_MB_PER_HOUR=${TERMINAL_UPLOAD_ALERT_MB:-50}
+    volumes:
+      - terminal-broker:/data
+      - egress-logs:/var/log/squid:ro
+    networks: [default, terminal-net, broker-docker]
+    restart: unless-stopped
+
+  # Broker điều khiển Docker qua proxy này (chỉ API container / volume / exec), không gắn thẳng Docker socket.
+  docker-socket-proxy:
+    image: ${DOCKER_SOCKET_PROXY_IMAGE:-tecnativa/docker-socket-proxy:latest}
+    pull_policy: missing
+    container_name: ncs-docker-socket-proxy
+    environment:
+      - CONTAINERS=1
+      - VOLUMES=1
+      - EXEC=1
+      - POST=1
+      - IMAGES=0
+      - NETWORKS=0
+      - INFO=0
+      - SERVICES=0
+      - TASKS=0
+      - SECRETS=0
+      - SYSTEM=0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [broker-docker]
+    restart: unless-stopped
+
+  # Đường ra Internet duy nhất của terminal: mọi tên miền qua cổng 80 / 443, chặn IP nội bộ, 20 Mbit/s mỗi terminal,
+  # ghi log (giữ 90 ngày, broker đọc để gắn với người dùng).
+  egress-proxy:
+    image: ${EGRESS_PROXY_IMAGE:-ncs-egress-proxy:latest}
+    pull_policy: never
+    container_name: ncs-egress-proxy
+    volumes:
+      - egress-logs:/var/log/squid
+    networks:
+      terminal-net:
+        ipv4_address: 172.31.250.2
+      egress-net: {}
+    restart: unless-stopped
+
+  # Terminal dùng chung cũ: chỉ để quay lui (docker compose --profile legacy-terminal up -d open-terminal).
+  # KHÔNG dùng lâu dài: mọi người dùng chung một máy, vào được mạng nội bộ.
   open-terminal:
-    # Image nạp từ file .tar (export-image.ps1 -WithTerminal); chỉ tải từ ghcr.io khi server chưa có
     image: ${TERMINAL_IMAGE:-ghcr.io/open-webui/open-terminal:latest}
     pull_policy: missing
     container_name: owui-terminal
+    profiles: ["legacy-terminal"]
     environment:
       - OPEN_TERMINAL_API_KEY=${TERMINAL_API_KEY}
     volumes:
@@ -129,7 +204,7 @@ services:
 
       # --- Nhiều worker và realtime ---
       - UVICORN_WORKERS=4
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - WEBSOCKET_MANAGER=redis
       - ENABLE_WEBSOCKET_SUPPORT=true
 
@@ -182,7 +257,8 @@ services:
       - CHANNEL_MODEL_TERMINAL_ID=${CHANNEL_MODEL_TERMINAL_ID:-}
       # Kết nối Terminal tạo sẵn ở lần chạy đầu (khi database chưa lưu danh sách Terminal nào).
       # Sau khi đã sửa trong Admin > Tích hợp > Terminal thì giá trị trong Admin được dùng, dòng này bị bỏ qua.
-      - 'TERMINAL_SERVER_CONNECTIONS=[{"id":"ncs-terminal","name":"NCS Terminal","url":"http://open-terminal:8000","path":"/openapi.json","auth_type":"bearer","key":"${TERMINAL_API_KEY}","enabled":true,"config":{"access_grants":${TERMINAL_ACCESS_GRANTS:-[]}}}]'
+      # Server đã chạy trước đây: sửa URL trong Admin > Tích hợp > Terminal thành http://terminal-broker:8000.
+      - 'TERMINAL_SERVER_CONNECTIONS=[{"id":"ncs-terminal","name":"NCS Terminal","url":"http://terminal-broker:8000","path":"/openapi.json","auth_type":"bearer","key":"${TERMINAL_API_KEY}","enabled":true,"config":{"access_grants":${TERMINAL_ACCESS_GRANTS:-[]}}}]'
 
       # --- Project tracker: tự tổng hợp tiến độ công việc theo kênh ---
       - ENABLE_PROJECT_TRACKER=true
@@ -217,8 +293,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - DATABASE_URL=postgresql://openwebui:${POSTGRES_PASSWORD}@postgres:5432/openwebui
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - OPEN_WEBUI_URL=http://open-webui:8080
+      # Khối "Terminal" và "Truy cập Internet" của trang giám sát
+      - TERMINAL_BROKER_URL=http://terminal-broker:8000
+      - TERMINAL_BROKER_ADMIN_KEY=${TERMINAL_BROKER_ADMIN_KEY:-}
       - MONITOR_API_KEY=${MONITOR_API_KEY:-}
       - MONITOR_USERNAME=${MONITOR_USERNAME:-admin}
       - MONITOR_PASSWORD=${MONITOR_PASSWORD:-}
@@ -299,7 +378,25 @@ services:
       retries: 3
     restart: unless-stopped
 
+networks:
+  # Mạng của terminal: không có đường ra (internal), dải cố định để proxy nhận ra terminal.
+  terminal-net:
+    name: ncs-terminal-net
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.250.0/24
+  # Chỉ egress-proxy: đường ra Internet.
+  egress-net:
+    name: ncs-egress-net
+  # Chỉ broker và docker-socket-proxy.
+  broker-docker:
+    name: ncs-broker-docker
+    internal: true
+
 volumes:
+  terminal-broker: {}
+  egress-logs: {}
   docling-tessdata: {}
   embedding-models: {}
   postgres: {}

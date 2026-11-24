@@ -49,3 +49,6 @@
 *.lock text eol=lf
 # Shell scripts run on Linux servers
 *.sh text eol=lf
+# Files used inside Linux containers
+Dockerfile text eol=lf
+squid.conf text eol=lf

@@ -176,7 +176,7 @@
 (() => {
   const TABS = [
     ['overview', 'Tổng quan'], ['trace', 'Chi tiết lượt'], ['load', 'Người dùng & tải'], ['tokens', 'Token'], ['models', 'Tốc độ model'], ['tools', 'Function call'],
-    ['knowledge', 'Kiến thức'], ['files', 'Xử lý file'], ['tracker', 'Tracker'], ['reports', 'Báo cáo định kỳ'], ['system', 'Thành phần & tài nguyên'],
+    ['knowledge', 'Kiến thức'], ['files', 'Xử lý file'], ['tracker', 'Tracker'], ['reports', 'Báo cáo định kỳ'], ['terminal', 'Terminal'], ['system', 'Thành phần & tài nguyên'],
   ];
   const RANGES = [['1h', '1 giờ'], ['24h', '24 giờ'], ['7d', '7 ngày'], ['30d', '30 ngày'], ['90d', '90 ngày']];
   const TASK_LABELS = {
@@ -1889,7 +1889,95 @@
     load(); return true;
   }
 
-  const RENDER = { files: renderFiles, trace: renderTrace, overview: renderOverview, load: renderLoad, tokens: renderTokens, models: renderModels, tools: renderTools, knowledge: renderKnowledge, tracker: renderTracker, reports: renderReports, system: renderSystem };
+  // ---------- terminal (one terminal per user, terminal broker) ----------
+  const tm = { egress: null, hours: 24, note: '' };
+  const TM_EVENT = {
+    created: 'Tạo terminal', evicted: 'Nhường chỗ (dừng terminal rảnh lâu nhất)', busy: 'Hết chỗ, báo bận',
+    idle_stop: 'Dừng vì rảnh', expired: 'Xóa vì lâu không dùng', oom: 'Tiến trình vượt RAM', over_quota: 'Vượt dung lượng',
+    quota_refused: 'Từ chối lệnh vì vượt dung lượng', start_failed: 'Không khởi động được', stopped_by_admin: 'Admin dừng',
+    removed_by_admin: 'Admin xóa',
+  };
+  const tmIdle = (s) => (s < 60 ? `${s} giây` : s < 3600 ? `${Math.round(s / 60)} phút` : s < 86400 ? `${Math.round(s / 3600)} giờ` : `${Math.round(s / 86400)} ngày`);
+  const TM_BAD = ['oom', 'busy', 'over_quota', 'quota_refused', 'start_failed'];
+
+  function tmEgressHtml(eg) {
+    const alerts = (eg.alerts || []).length
+      ? `<div class="card error-box" style="margin-bottom:10px"><b>Cảnh báo tải lên nhiều:</b> ${eg.alerts.map((a) => `${esc(a.user_name)} ${n(a.up_mb)} MB lúc ${when(a.hour_start * 1000)}`).join(' · ')}</div>`
+      : '';
+    return alerts + table([
+      { label: 'Người dùng', render: (u) => `<b>${esc(u.user_name)}</b>` },
+      { label: 'Yêu cầu', num: true, render: (u) => `${n(u.requests)}${u.denied ? ` <span class="pill err">${n(u.denied)} bị chặn</span>` : ''}` },
+      { label: 'Tải lên', num: true, render: (u) => bytes(u.up_bytes) },
+      { label: 'Tải về', num: true, render: (u) => bytes(u.down_bytes) },
+      { label: 'Tên miền nhiều nhất', render: (u) => `<div style="max-width:520px;overflow-wrap:anywhere">${(u.hosts || []).slice(0, 8).map((h) => `<span class="chip">${esc(h.host)} · ${n(h.requests)}</span>`).join(' ')}${u.host_count > 8 ? ` <span class="muted">+${u.host_count - 8}</span>` : ''}</div>` },
+    ], eg.users || [], 'Không có truy cập Internet trong khoảng này.');
+  }
+
+  async function renderTerminal() {
+    let d;
+    try { d = await api('/api/terminal/status'); }
+    catch (err) { return card('Terminal', `<div class="muted">${esc(err.message)}</div>`); }
+    const L = d.limits || {};
+    const ev = d.events_24h || {};
+    const all = d.terminals || [];
+    const running = all.filter((t) => t.state === 'running');
+    const hourButtons = [[24, '24 giờ'], [168, '7 ngày'], [720, '30 ngày'], [2160, '90 ngày']]
+      .map(([h, l]) => `<button class="btn" type="button" data-tm-hours="${h}" aria-pressed="${tm.hours === h}">${l}</button>`).join('');
+    const egressTitle = tm.egress
+      ? `Truy cập Internet từ terminal <span class="row" style="gap:4px;display:inline-flex">${hourButtons}<button class="btn" type="button" data-tm-egress-close>Đóng</button></span>`
+      : 'Truy cập Internet từ terminal <button class="btn" type="button" data-tm-egress>Xem</button>';
+    const egressBody = tm.egress
+      ? tmEgressHtml(tm.egress)
+      : '<div class="muted">Mọi truy cập Internet của terminal đi qua proxy (cổng 80 / 443, chặn địa chỉ nội bộ) và được ghi lại 90 ngày: tên miền, lượng tải lên / tải về của từng người. Cần xác thực để xem.</div>';
+    const terminals = table([
+      { label: 'Người dùng', render: (t) => `<b>${esc(t.user_name)}</b>${t.role === 'admin' ? ' <span class="pill">admin</span>' : ''}<div class="muted">${esc(t.user_email || '')}</div>` },
+      { label: 'Trạng thái', render: (t) => (t.state === 'running' ? `<span class="pill ok">${t.busy ? 'Đang chạy lệnh' : 'Đang chạy'}</span>` : t.state === 'stopped' ? '<span class="pill">Đã dừng</span>' : '<span class="pill">Chỉ còn file</span>') },
+      { label: 'Rảnh', render: (t) => (t.busy ? '—' : tmIdle(t.idle_seconds)) },
+      { label: 'Dung lượng', num: true, render: (t) => `${n(t.disk_mb)} MB${t.over_quota ? ' <span class="pill err">vượt hạn mức</span>' : ''}` },
+      { label: '', render: (t) => `<span class="row" style="gap:4px;flex-wrap:nowrap">${t.state === 'running' ? `<button class="btn" type="button" data-tm-stop="${esc(t.id)}">Dừng</button>` : ''}<button class="btn" type="button" data-tm-remove="${esc(t.id)}">Xóa terminal và file</button></span>` },
+    ], all, 'Chưa ai dùng terminal.');
+    const events = table([
+      { label: 'Lúc', render: (e) => when(e.ts * 1000) },
+      { label: 'Sự kiện', render: (e) => `<span class="pill ${TM_BAD.includes(e.kind) ? 'err' : ''}">${esc(TM_EVENT[e.kind] || e.kind)}</span>` },
+      { label: 'Người dùng', render: (e) => esc(e.user_name || '—') },
+      { label: 'Chi tiết', render: (e) => `<span class="muted" style="overflow-wrap:anywhere">${esc(e.detail || '')}</span>` },
+    ], d.recent_events || [], 'Chưa có sự kiện.');
+    return `${tm.note ? `<div class="card">${esc(tm.note)}</div>` : ''}
+      <div class="grid kpis">${kpi('Đang chạy', `${d.running} / ${d.max_running}`, `${d.admin_reserved} chỗ dành cho admin`)}
+        ${kpi('Mỗi terminal', `${L.cpus} CPU · ${n(L.memory_mb)} MB`, `ổ ${n(L.disk_quota_mb)} MB · dừng sau ${L.idle_stop_minutes} phút rảnh · xóa sau ${L.volume_days} ngày`)}
+        ${kpi('Hết chỗ (24 giờ)', n(ev.busy || 0), `nhường chỗ ${n(ev.evicted || 0)} lần`)}
+        ${kpi('Vượt RAM / dung lượng (24 giờ)', `${n(ev.oom || 0)} / ${n(ev.over_quota || 0)}`)}</div>
+      ${card(`Terminal của người dùng (${all.length})`, terminals, `${running.length} đang chạy; terminal dừng vẫn giữ file tới khi hết hạn`)}
+      ${card('Sự kiện gần đây', events)}
+      ${card(egressTitle, egressBody, 'qua egress-proxy')}`;
+  }
+
+  async function tmClick(b) {
+    if (b.dataset.tmEgress !== undefined || b.dataset.tmHours) {
+      if (!(await ensureSession('xem truy cập Internet của terminal'))) return true;
+      if (b.dataset.tmHours) tm.hours = +b.dataset.tmHours;
+      try { tm.egress = await api(`/api/admin/terminal/egress?hours=${tm.hours}`, { headers: editHeaders() }); tm.note = ''; }
+      catch (err) { tm.note = `Không đọc được log Internet: ${err.message}`; }
+      load(); return true;
+    }
+    if (b.dataset.tmEgressClose !== undefined) { tm.egress = null; load(); return true; }
+    const id = b.dataset.tmStop || b.dataset.tmRemove;
+    if (!id) return false;
+    if (!(await ensureSession('quản lý terminal'))) return true;
+    try {
+      if (b.dataset.tmStop) {
+        await api(`/api/admin/terminal/${encodeURIComponent(id)}/stop`, { method: 'POST', headers: editHeaders() });
+        tm.note = 'Đã dừng terminal (file vẫn giữ).';
+      } else {
+        if (!confirm('Xóa terminal và toàn bộ file trong đó? Không khôi phục được.')) return true;
+        await api(`/api/admin/terminal/${encodeURIComponent(id)}`, { method: 'DELETE', headers: editHeaders() });
+        tm.note = 'Đã xóa terminal và file.';
+      }
+    } catch (err) { tm.note = `Lỗi: ${err.message}`; }
+    load(); return true;
+  }
+
+  const RENDER = { files: renderFiles, trace: renderTrace, overview: renderOverview, load: renderLoad, tokens: renderTokens, models: renderModels, tools: renderTools, knowledge: renderKnowledge, tracker: renderTracker, reports: renderReports, terminal: renderTerminal, system: renderSystem };
 
   async function load() {
     const main = $('#main');
@@ -1915,7 +2003,7 @@
   function schedule() {
     clearInterval(timer);
     // Skip a refresh while the viewer is typing (search, reveal key), so the input is not wiped.
-    if ($('#auto').checked) timer = setInterval(() => document.visibilityState === 'visible' && !document.activeElement?.matches('input, select') && !(tab === 'system' && editor.open) && !(tab === 'knowledge' && filePanels.tab.viewer) && !(tab === 'files' && fp.view) && !(tab === 'reports' && (rp.edit || rp.settings)) && load(), 30000);
+    if ($('#auto').checked) timer = setInterval(() => document.visibilityState === 'visible' && !document.activeElement?.matches('input, select') && !(tab === 'system' && editor.open) && !(tab === 'knowledge' && filePanels.tab.viewer) && !(tab === 'files' && fp.view) && !(tab === 'reports' && (rp.edit || rp.settings)) && !(tab === 'terminal' && tm.egress) && load(), 30000);
   }
 
   document.addEventListener('input', (e) => {
@@ -1934,6 +2022,7 @@
     if (!b) return;
     if (tab === 'reports' && Object.keys(b.dataset).some((k) => k.startsWith('rp')) && (await rpClick(b))) return;
     if (tab === 'reports' && Object.keys(b.dataset).some((k) => k.startsWith('tg')) && (await tgClick(b))) return;
+    if (tab === 'terminal' && Object.keys(b.dataset).some((k) => k.startsWith('tm')) && (await tmClick(b))) return;
     if (b.dataset.txTeam) {
       if (!(await ensureSession('quản lý chủ kênh / người quản lý'))) return;
       try { tx.team = { ...(await api(`/api/admin/tracker/channels/${encodeURIComponent(b.dataset.txTeam)}/team`, { headers: editHeaders() })), id: b.dataset.txTeam }; }

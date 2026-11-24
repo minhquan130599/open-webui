@@ -883,6 +883,10 @@ app.include_router(reports_router, dependencies=[Depends(require_login)])
 from open_webui.monitoring.server.telegram import router as telegram_router  # noqa: E402
 
 app.include_router(telegram_router, dependencies=[Depends(require_login)])
+# Per-user terminals and their Internet use (terminal broker, see terminal.py).
+from open_webui.monitoring.server.terminal import router as terminal_router  # noqa: E402
+
+app.include_router(terminal_router, dependencies=[Depends(require_login)])
 
 
 @app.get('/healthz')

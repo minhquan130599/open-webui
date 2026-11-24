@@ -27,6 +27,7 @@ import argparse
 import json
 import mimetypes
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -116,6 +117,11 @@ def analyse(reply: dict) -> dict:
     failed = [c.get('name') for c in calls
               if c.get('status') == 'failed' or (results.get(c.get('call_id')) or {}).get('status') == 'failed']
     names = [f.get('name') or '' for f in data.get('files') or []]
+    tool_text = '\n'.join(
+        ''.join(str(p.get('text') or '') for p in (o.get('output') or []) if isinstance(p, dict))
+        if isinstance(o.get('output'), list) else str(o.get('output') or '')
+        for o in output if o.get('type') == 'function_call_output'
+    )
     return {
         'answers': answers,
         'tools': [c.get('name') for c in calls if not c.get('hidden')],
@@ -123,6 +129,8 @@ def analyse(reply: dict) -> dict:
         'files': names,
         'duplicate_files': sorted({n for n in names if names.count(n) > 1}),
         'seconds': reply.get('seconds'),
+        'tool_text': tool_text,
+        'answer_text': reply.get('content') or '',
     }
 
 
@@ -144,6 +152,14 @@ def check(case: dict, found: dict) -> list[str]:
             problems.append(f'called {name}')
     if len(found['failed']) > expect.get('max_failed_tools', 0):
         problems.append(f'failed tools: {", ".join(found["failed"])}')
+    for pattern in expect.get('tool_output_must_not_match') or []:
+        hit = re.search(pattern, found.get('tool_text', ''), re.I | re.M)
+        if hit:
+            problems.append(f'tool output shows {hit.group(0)[:80]!r}')
+    for pattern in expect.get('answer_must_not_match') or []:
+        hit = re.search(pattern, found.get('answer_text', ''), re.I | re.M)
+        if hit:
+            problems.append(f'answer shows {hit.group(0)[:80]!r}')
     for extension in expect.get('file_types') or []:
         if not any(n.lower().endswith('.' + extension) for n in found['files']):
             problems.append(f'no .{extension} file attached')
@@ -189,7 +205,7 @@ def main() -> int:
                 problems = check(case, found)
                 status = 'ok' if not problems else 'FAIL: ' + '; '.join(problems)
             failures += bool(problems)
-            rows.append({'case': label, 'status': status, **found})
+            rows.append({'case': label, 'status': status, **{k: v for k, v in found.items() if not k.endswith('_text')}})
             print(f'  {status}')
             if found:
                 print(f'  tools: {", ".join(found["tools"]) or "-"} | files: {", ".join(found["files"]) or "-"}'

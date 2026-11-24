@@ -1,7 +1,8 @@
 ﻿# Đóng gói image đã build (open-webui-local:latest từ update.ps1) thành file .tar để mang sang server khác.
 #   .\export-image.ps1             chỉ image NCS AI (Knight) (server đích tự tải postgres/redis/rustfs từ Docker Hub)
 #   .\export-image.ps1 -WithDeps   kèm cả postgres/redis/rustfs (server đích không có internet)
-#   .\export-image.ps1 -WithTerminal   kèm image Open Terminal (AI tạo file Word/Excel/PDF)
+#   .\export-image.ps1 -WithTerminal   kèm terminal cho AI: broker, terminal đã khóa, proxy ra Internet (do update.ps1
+#                                      build) + docker-socket-proxy + Open Terminal gốc
 #   Dùng chung được:  .\export-image.ps1 -WithTerminal -WithDeps   (đủ mọi image, server đích không cần internet)
 # Server đích:  docker load -i <file>.tar  rồi dùng deploy\docker-compose.yaml
 param([switch]$WithDeps, [switch]$WithTerminal)
@@ -22,11 +23,25 @@ docker tag $source "ncs-chatui:$version"
 docker tag $source "ncs-chatui:latest"
 $images = @("ncs-chatui:$version", "ncs-chatui:latest")
 if ($WithTerminal) {
-    # Đúng bản Terminal đang chạy trên máy này (chỉ tải về nếu máy chưa có)
+    # Terminal riêng cho từng người dùng (docs/terminal/PHUONG-AN-TACH-TERMINAL.md):
+    #   ncs-terminal-broker (broker), ncs-terminal (Open Terminal đã khóa), ncs-egress-proxy (squid), docker-socket-proxy.
+    # Image Open Terminal gốc: nền để build ncs-terminal, và để quay lui (profile legacy-terminal).
     $terminal = "ghcr.io/open-webui/open-terminal:latest"
     docker image inspect $terminal *> $null
     if ($LASTEXITCODE -ne 0) { docker pull $terminal; if ($LASTEXITCODE -ne 0) { exit 1 } }
-    $images += $terminal
+    $socketProxy = "tecnativa/docker-socket-proxy:latest"
+    docker image inspect $socketProxy *> $null
+    if ($LASTEXITCODE -ne 0) { docker pull $socketProxy; if ($LASTEXITCODE -ne 0) { exit 1 } }
+    # Đúng các image update.ps1 vừa build (cùng code với image NCS AI); không build lại ở đây.
+    foreach ($tag in @("ncs-terminal-broker:latest", "ncs-terminal:latest", "ncs-egress-proxy:latest")) {
+        docker image inspect $tag *> $null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "LOI: chua co image $tag. Chay update.ps1 voi docker-compose.yaml moi (co terminal-broker) truoc" -ForegroundColor Red
+            exit 1
+        }
+        $images += $tag
+    }
+    $images += @($terminal, $socketProxy)
 }
 if ($WithDeps) {
     $deps = @("pgvector/pgvector:pg17", "redis:7-alpine", "rustfs/rustfs:latest")

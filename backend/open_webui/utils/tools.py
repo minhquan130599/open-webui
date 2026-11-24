@@ -1628,7 +1628,9 @@ async def get_terminal_tools(
     # Find the cached spec data for this terminal
     if connection.get('owner_id') == user.id:
         url = connection['url']
-        openapi = await get_tool_server_data(url + '/openapi.json', {'X-User-Id': user.id})
+        from open_webui.utils.terminals import terminal_user_headers
+
+        openapi = await get_tool_server_data(url + '/openapi.json', terminal_user_headers(user))
         server_data = {
             'id': terminal_id,
             'url': url,
@@ -1648,7 +1650,9 @@ async def get_terminal_tools(
     # Build auth headers
     auth_type = connection.get('auth_type', 'bearer')
     cookies = getattr(request, 'cookies', {}) if connection.get('forward_cookies', False) else {}
-    headers = {'Content-Type': 'application/json', 'X-User-Id': user.id}
+    from open_webui.utils.terminals import terminal_user_headers
+
+    headers = {'Content-Type': 'application/json', **terminal_user_headers(user)}
 
     if auth_type == 'bearer':
         headers.update(bearer_auth_header(connection.get('key', '')))

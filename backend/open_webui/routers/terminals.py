@@ -36,6 +36,7 @@ from open_webui.utils.terminals import (
     terminal_context_config,
     terminal_context_id,
     terminal_contexts,
+    terminal_user_headers,
 )
 from starlette.background import BackgroundTask
 from starlette.requests import ClientDisconnect
@@ -232,7 +233,7 @@ async def browser_ws(ws: WebSocket, server_id: str, sid: str, ticket: str, kind:
     await ws.accept()
     base = get_terminal_server_url(connection).replace('https://', 'wss://').replace('http://', 'ws://')
     url = f'{base}/browser/view/{sid}/{quote(data["capability"], safe="")}/{kind}'
-    headers = {'X-User-Id': user.id, 'X-Session-Id': chat}
+    headers = {**terminal_user_headers(user), 'X-Session-Id': chat}
     if context:
         headers[TERMINAL_CONTEXT_HEADER] = context
     if data['relay'].get('authorization'):
@@ -339,7 +340,7 @@ async def proxy_terminal(
     if request.query_params:
         target_url += f'?{request.query_params}'
 
-    headers = {'X-User-Id': user.id}
+    headers = terminal_user_headers(user)
     # Forward per-session cwd tracking header
     session_id = request.path_params.get('chat_id') or request.headers.get('x-session-id')
     if (
@@ -644,7 +645,7 @@ async def _proxy_terminal_websocket(
             if key in ws.query_params:
                 upstream_params[key] = ws.query_params[key]
     context_id = terminal_context_id(connection, {'chat_id': chat_id}, 'chat')
-    upstream_headers = {'X-User-Id': user.id, 'X-Session-Id': chat_id}
+    upstream_headers = {**terminal_user_headers(user), 'X-Session-Id': chat_id}
     if terminal_context_config(connection, 'chat').get('context_id') == 'chat_id' and not context_id:
         await ws.close(code=4003, reason='A saved chat is required for this terminal')
         return
