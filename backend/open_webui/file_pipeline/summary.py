@@ -1,27 +1,21 @@
-"""Whole-file summaries by map-reduce, shared by the summarize_chat_file tool and the background pipeline.
+"""File summaries: one overview that covers every section, made part by part; details come from the text itself.
 
-The file is cut at section, sheet and page starts; each part is summarized on its own (with the page images of
-parts whose OCR is still unreliable). Nothing is thrown away: three levels are kept,
+  overview  The file is cut into parts (fixed page ranges for PDFs, planned once per file). Each part is sent to
+            the model on its own and comes back as its headings, in order, each with its pages and a few main
+            points. The overview is these parts put together in document order, so no section can be left out by
+            a merge; nothing is merged.
+  details   A question about one section or some pages does not use a summary: the original text of those pages
+            is given to the answering model, a page of it at a time when it is long (source_view).
 
-  parts     one summary per part (most detail)
-  sections  one per top-level section (chapter...), merged from its parts only when they are long
-  overall   the whole file, merged until it fits a length that grows with the file
-
-so a question picks the level it needs ("tóm tắt ngắn", "đầy đủ", "Chương II") and long results are delivered
-part by part. Results are cached on the file by content and focus, so the chat tool returns what the pipeline
-already made.
-
-Each part's summary is also kept on its own (by the part's text), so a part is sent to the model once: the
-background pipeline summarizes the parts whose pages are final while other pages are still being repaired, and
-an answer that needs the summary uses the parts already made. A PDF is cut into fixed page ranges (planned once
-per file), so repairing one page only changes the part that holds it.
+Part results are kept on the file by their text, so a part is sent to the model once: the background pipeline
+summarizes the parts whose pages are final while other pages are still being repaired, and a question uses the
+parts already made. A file uploaded again (same bytes) takes the overview made for the first copy.
 """
 
 import asyncio
 import hashlib
 import logging
 import re
-import time
 from typing import Awaitable, Callable, Optional
 
 from open_webui.utils.file_structure import build_outline, pages_between, render_pdf_page, split_segments
@@ -30,40 +24,46 @@ log = logging.getLogger(__name__)
 
 THINK_RE = re.compile(r'<think>.*?</think>', re.DOTALL)
 
-PART_PROMPT = """You are reading part {index} of {total} of the document "{name}"{pages}{section}.
-Summarize this part completely, in the language of the document, as bullet points in the order the content appears.
-Keep every heading (part, chapter, section, article, clause), every number, date, deadline, amount, threshold,
-person, organization, obligation, condition and exception, and write the page number in brackets after each point,
-like [tr.12]. Do not add anything that is not in the text and do not comment on missing context.{focus}{images}
+VERSION = 2
+
+PART_PROMPT = """You are reading part {index} of {total} of the document "{name}"{pages}. Page starts are marked [trang N].
+Write the overview of this part, in the language of the document. For every heading of this part (chapter, section,
+article, requirement group...), in the order they appear, and for text that continues a section from the previous
+part (start with its heading):
+
+## <heading as written in the document> [tr.<first page>-<last page>]
+- 2 to 5 main points: what the section is about, and its key numbers, dates, deadlines, amounts, thresholds,
+  roles, obligations, conditions and exceptions, each with its page like [tr.12]
+
+Cover every heading; do not leave one out. Keep it short (about {target} characters for this part): main points
+only, no detail lists, no introduction, no conclusion. Do not add anything that is not in the text.{images}
 
 <part>
 {text}
 </part>"""
 
-MERGE_PROMPT = """Below are consecutive partial summaries of the document "{name}"{scope}.
-Merge them into one summary of at most about {target} characters, in the language of the document, keeping the
-document order, every heading, number, date, deadline, obligation and exception, and the page references like
-[tr.12]; only remove repetition and shorten wording.{focus}
-
-{text}"""
-
 Complete = Callable[[object], Awaitable[str]]
 
 MAX_CACHED_PARTS = 400
 _part_locks: dict = {}
-# Part summaries still running after an answer stopped waiting: they finish and are kept for the next one.
-_detached: set = set()
+
+_HEADING_RE = re.compile(r'^##\s+(.+?)\s*\[\s*tr\.\s*(\d+)(?:\s*[-–]\s*(\d+))?\s*\]\s*$', re.MULTILINE)
 
 
-def cache_key(content: str, file_hash: Optional[str], focus: Optional[str]) -> str:
-    return hashlib.sha256(f'{len(content)}:{file_hash or ""}:{(focus or "").strip().lower()}'.encode()).hexdigest()[:16]
+def cache_key(content: str, file_hash: Optional[str], focus: Optional[str] = None) -> str:
+    return hashlib.sha256(
+        f'v{VERSION}:{len(content)}:{file_hash or ""}:{(focus or "").strip().lower()}'.encode()
+    ).hexdigest()[:16]
 
 
-def cached_summary(file, focus: Optional[str]) -> Optional[dict]:
+def _usable(cached) -> bool:
+    return isinstance(cached, dict) and cached.get('version') == VERSION and bool(cached.get('summary'))
+
+
+def cached_summary(file, focus: Optional[str] = None) -> Optional[dict]:
     content = (file.data or {}).get('content') or ''
     cached = ((file.data or {}).get('summaries') or {}).get(cache_key(content, file.hash, focus))
-    # Summaries stored before the three levels existed are made again, so every level can be asked for.
-    return cached if isinstance(cached, dict) and cached.get('summary') and cached.get('tiers') else None
+    return cached if _usable(cached) else None
 
 
 async def store_summary(file, focus: Optional[str], result: dict) -> None:
@@ -72,12 +72,34 @@ async def store_summary(file, focus: Optional[str], result: dict) -> None:
     content = (file.data or {}).get('content') or ''
     summaries = dict((file.data or {}).get('summaries') or {})
     summaries = dict(list(summaries.items())[-4:])
-    summaries[cache_key(content, file.hash, focus)] = result
+    summaries[cache_key(content, file.hash, focus)] = {**result, 'id': file.id, 'filename': file.filename}
     await Files.update_file_data_by_id(file.id, {'summaries': summaries})
 
 
-def part_key(text: str, pages: str, focus: Optional[str]) -> str:
-    return hashlib.sha256(f'{(focus or "").strip().lower()}|{pages}|{text}'.encode()).hexdigest()[:20]
+async def reuse_summary(file) -> Optional[dict]:
+    """The overview of another upload of the same file (same bytes, same extracted text), kept on this one."""
+    from sqlalchemy import select
+
+    from open_webui.internal.db import get_async_db_context
+    from open_webui.models.files import File
+
+    if not file.hash:
+        return None
+    key = cache_key((file.data or {}).get('content') or '', file.hash)
+    async with get_async_db_context() as db:
+        rows = (
+            await db.execute(select(File.data).where(File.hash == file.hash, File.id != file.id).limit(5))
+        ).all()
+    for (data,) in rows:
+        cached = ((data or {}).get('summaries') or {}).get(key)
+        if _usable(cached):
+            await store_summary(file, None, cached)
+            return {**cached, 'id': file.id, 'filename': file.filename}
+    return None
+
+
+def part_key(text: str, pages: str) -> str:
+    return hashlib.sha256(f'v{VERSION}|{pages}|{text}'.encode()).hexdigest()[:20]
 
 
 def cached_parts(file) -> dict:
@@ -85,7 +107,7 @@ def cached_parts(file) -> dict:
 
 
 async def store_part(file_id: str, key: str, text: str) -> None:
-    """Keep one part's summary on the file (the newest MAX_CACHED_PARTS)."""
+    """Keep one part's overview on the file (the newest MAX_CACHED_PARTS)."""
     from open_webui.models.files import Files
 
     lock = _part_locks.setdefault(file_id, asyncio.Lock())
@@ -133,9 +155,19 @@ async def ensure_plan(file, structure: dict, segment_chars: int) -> Optional[lis
     return ranges
 
 
-def target_chars(content_chars: int, ratio_pct: int, min_chars: int, max_chars: int) -> int:
-    """Length of the whole-file summary: a share of the file, within bounds."""
-    return max(min_chars, min(max_chars, content_chars * max(ratio_pct, 1) // 100))
+def part_target(part_chars: int, ratio_pct: int, min_chars: int) -> int:
+    """About how long one part's overview should be: a share of the part, at least min_chars."""
+    return max(min_chars, part_chars * max(ratio_pct, 1) // 100)
+
+
+def summary_ceiling(message) -> int:
+    """max_tokens for one part's overview: far above the length asked for (about a tenth of the part), so it only
+    stops a model that keeps repeating itself. Text runs at about 3 characters per token: a quarter of the
+    characters is about three quarters of the part's own tokens."""
+    text = message if isinstance(message, str) else ''.join(
+        item.get('text', '') for item in message if isinstance(item, dict)
+    )
+    return max(2048, len(text) // 4)
 
 
 def _page_label(pages: list[int]) -> str:
@@ -144,21 +176,49 @@ def _page_label(pages: list[int]) -> str:
     return f'tr.{pages[0]}' if len(pages) == 1 else f'tr.{pages[0]}-{pages[-1]}'
 
 
-def _sections(outline: dict, length: int, segments: list[tuple[int, int]]) -> list[tuple[str, int, int]]:
-    """(title, start, end) of top-level sections; without headings, groups of about four parts."""
-    headings = outline.get('headings') or []
-    if headings:
-        top = min(h['level'] for h in headings)
-        starts = [(h['title'], h['offset']) for h in headings if h['level'] == top]
-        if len(starts) >= 2:
-            if starts[0][1] > 0:
-                starts.insert(0, ('Phần đầu', 0))
-            return [
-                (title, start, starts[i + 1][1] if i + 1 < len(starts) else length)
-                for i, (title, start) in enumerate(starts)
-            ]
-    groups = [segments[i : i + 4] for i in range(0, len(segments), 4)]
-    return [(f'Phần {i + 1}', group[0][0], group[-1][1]) for i, group in enumerate(groups)]
+def _blocks_of(part: dict) -> list[dict]:
+    """A part's overview as its headings, each {'title', 'first', 'last', 'body', 'part'} (pages from the heading;
+    a part that names no heading is one block of its own pages)."""
+    text = part['text']
+    matches = list(_HEADING_RE.finditer(text))
+    blocks = []
+    lead = text[: matches[0].start()].strip() if matches else text.strip()
+    if lead:  # text before the first heading (or a part without headings)
+        blocks.append({'title': part['label'], 'first': part.get('first'), 'last': part.get('last'), 'body': lead})
+    for i, match in enumerate(matches):
+        first, last = int(match.group(2)), int(match.group(3) or match.group(2))
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        blocks.append({
+            'title': match.group(1).strip(),
+            'first': min(first, last),
+            'last': max(first, last),
+            'body': text[match.end() : end].strip(),
+        })
+    for block in blocks:
+        block['part'] = part['index']
+    return blocks
+
+
+def _join_blocks(parts: list[dict]) -> list[dict]:
+    """The blocks of all parts in order; a section running on into the next part is one block, not two."""
+    joined: list[dict] = []
+    for part in parts:
+        for block in _blocks_of(part):
+            previous = joined[-1] if joined else None
+            if previous and previous['part'] != block['part'] and _normalize(previous['title']) == _normalize(block['title']):
+                previous['last'] = max(previous['last'] or 0, block['last'] or 0) or None
+                previous['body'] = f'{previous["body"]}\n{block["body"]}'.strip()
+                previous['part'] = block['part']
+                continue
+            joined.append(dict(block))
+    return joined
+
+
+def _render(block: dict) -> str:
+    if block.get('first'):
+        pages = f'tr.{block["first"]}' if block['first'] == block['last'] else f'tr.{block["first"]}-{block["last"]}'
+        return f'## {block["title"]} [{pages}]\n{block["body"]}'.strip()
+    return f'## {block["title"]}\n{block["body"]}'.strip()
 
 
 async def summarize_file(
@@ -166,12 +226,10 @@ async def summarize_file(
     structure: dict,
     complete: Complete,
     *,
-    focus: Optional[str] = None,
     segment_chars: int,
     concurrency: int,
-    max_chars: int,
     ratio_pct: int = 8,
-    min_chars: int = 3000,
+    min_chars: int = 1500,
     image_max_side: int = 1600,
     pdf_path: Optional[str] = None,
     image_pages: Optional[set] = None,
@@ -180,21 +238,17 @@ async def summarize_file(
     part_cache: Optional[dict] = None,
     save_part: Optional[Callable[[str, str], Awaitable[None]]] = None,
     ready: Optional[Callable[[list], bool]] = None,
-    deadline: Optional[float] = None,
-    parts_only: bool = False,
-    detach: bool = False,
+    model_calls: bool = True,
 ) -> dict:
-    """Three-level summary of the whole file text: see the module docstring for the levels.
+    """The overview of the whole file text (see the module docstring).
 
     image_pages are pages whose text is unreliable; with pdf_path their images go with their part (2 at most).
-    plan: page ranges from ensure_plan (paged files). part_cache / save_part: part summaries made before / to keep.
+    plan: page ranges from ensure_plan (paged files). part_cache / save_part: part overviews made before / to keep.
     ready(pages): whether a part's pages are final (a part that is not is left for later).
-    deadline (time.monotonic()): parts not done by then are left out; with detach they keep running and are
-    saved for the next call. parts_only: stop after the parts (no merging).
-    A result missing parts or merging has complete=False and is not a whole-file summary to cache.
+    model_calls=False: only the parts already made (nothing is sent to the model).
+    A result missing parts has complete=False and is not cached as the file's overview.
     """
     content = (file.data or {}).get('content') or ''
-    outline = await asyncio.to_thread(build_outline, content, structure, 60)
     if plan and structure.get('pages'):
         offsets = {page: (start, end) for page, start, end in structure['pages']}
         segments = []
@@ -205,7 +259,7 @@ async def summarize_file(
                     offsets[numbers[0]][0],
                     offsets[numbers[-1]][1],
                     numbers,
-                    '\n'.join(content[offsets[n][0]:offsets[n][1]] for n in numbers),
+                    '\n'.join(f'[trang {n}]\n' + content[offsets[n][0]:offsets[n][1]] for n in numbers),
                 ))
     else:
         segments = [
@@ -215,32 +269,37 @@ async def summarize_file(
     total = len(segments)
     part_cache = part_cache if part_cache is not None else {}
     image_pages = image_pages or set()
-    focus_line = f'\nPay special attention to: {focus}' if focus else ''
     semaphore = asyncio.Semaphore(max(concurrency, 1))
-    overall_target = target_chars(len(content), ratio_pct, min_chars, max_chars)
     done = 0
 
     async def notify(text: str, finished: bool = False):
         if emit:
             await emit(text, finished)
 
-    async def ask(message) -> str:
-        async with semaphore:
-            return THINK_RE.sub('', await complete(message) or '').strip()
-
     async def part(index: int, start: int, end: int, pages: list, text: str) -> dict:
         nonlocal done
-        page_label = f' (pages {pages[0]}-{pages[-1]})' if len(pages) > 1 else (f' (page {pages[0]})' if pages else '')
-        titles = [h['title'] for h in outline.get('headings', []) if start <= h['offset'] < end and h['level'] <= 2]
-        section = f', covering {titles[0]}' + (f' … {titles[-1]}' if len(titles) > 1 else '') if titles else ''
+        entry = {
+            'index': index,
+            'label': f'Phần {index}/{total}',
+            'pages': _page_label(pages),
+            'first': pages[0] if pages else None,
+            'last': pages[-1] if pages else None,
+            'start': start,
+            'end': end,
+        }
+        key = part_key(text, _page_label(pages))
+        if part_cache.get(key):
+            done += 1
+            return {**entry, 'text': part_cache[key]}
+        if not model_calls or (ready and not ready(pages)):
+            return {**entry, 'pending': True}
         with_images = [page for page in pages if page in image_pages][:2] if pdf_path else []
         prompt = PART_PROMPT.format(
             index=index,
             total=total,
             name=file.filename,
-            pages=page_label,
-            section=section,
-            focus=focus_line,
+            pages=f' (pages {pages[0]}-{pages[-1]})' if len(pages) > 1 else (f' (page {pages[0]})' if pages else ''),
+            target=part_target(len(text), ratio_pct, min_chars),
             images=(
                 f'\nThe OCR text of page(s) {", ".join(map(str, with_images))} is unreliable; the page images are '
                 'attached, read those pages from the images.'
@@ -249,17 +308,6 @@ async def summarize_file(
             ),
             text=text,
         )
-        key = part_key(text, _page_label(pages), focus)
-        entry = {
-            'label': f'Phần {index}/{total}' + (f' – {titles[0]}' if titles else ''),
-            'pages': _page_label(pages),
-            'start': start,
-        }
-        if part_cache.get(key):
-            done += 1
-            return {**entry, 'text': part_cache[key]}
-        if (ready and not ready(pages)) or (deadline is not None and time.monotonic() >= deadline):
-            return {**entry, 'pending': True}
         message = prompt
         if with_images:
             images = []
@@ -270,200 +318,110 @@ async def summarize_file(
                 except Exception as error:
                     log.warning('summary: page %s of %s not rendered (%s)', page, file.id, error)
             message = [{'type': 'text', 'text': prompt}, *images]
-
-        async def run() -> str:
-            nonlocal done
-            summary = await ask(message)
-            if summary:
-                part_cache[key] = summary
-                if save_part:
-                    try:
-                        await save_part(key, summary)
-                    except Exception as error:
-                        log.warning('summary: part of %s not saved (%s)', file.id, error)
-            done += 1
-            await notify(f'Đã đọc {done}/{total} phần của {file.filename}')
-            return summary
-
-        if deadline is None:
-            summary = await run()
-        else:
-            task = asyncio.create_task(run())
-            finished, _ = await asyncio.wait({task}, timeout=max(deadline - time.monotonic(), 0))
-            if not finished:
-                if detach:
-                    _detached.add(task)
-                    task.add_done_callback(_detached.discard)
-                else:
-                    task.cancel()
-                return {**entry, 'pending': True, 'task': task}
-            summary = task.result()
-        return {**entry, 'text': summary or '(no summary returned)'}
-
-    async def merge(texts: list[str], target: int, scope: str) -> str:
-        """Merge texts in document order, in groups that fit one call, until the result fits target."""
-        rounds = 0
-        while (len(texts) > 1 or (texts and len(texts[0]) > target * 1.3)) and rounds < 6:
-            rounds += 1
-            groups, current = [], []
-            for text in texts:
-                if current and sum(len(t) for t in current) + len(text) > segment_chars:
-                    groups.append(current)
-                    current = []
-                current.append(text)
-            groups.append(current)
-            if len(groups) == len(texts) and len(texts) > 1:
-                groups = [texts[i : i + 2] for i in range(0, len(texts), 2)]
-            share = max(target // max(len(groups), 1), 1500)
-            merged = await asyncio.gather(
-                *(
-                    ask(MERGE_PROMPT.format(name=file.filename, scope=scope, target=share, focus=focus_line, text='\n\n'.join(group)))
-                    if len(group) > 1 or len(group[0]) > target * 1.3
-                    else asyncio.sleep(0, group[0])
-                    for group in groups
-                )
-            )
-            if len(merged) == len(texts) and all(a == b for a, b in zip(merged, texts)):
-                break
-            texts = list(merged)
-            if len(texts) == 1:
-                break
-        return texts[0] if texts else ''
+        async with semaphore:
+            summary = THINK_RE.sub('', await complete(message) or '').strip()
+        if summary:
+            part_cache[key] = summary
+            if save_part:
+                try:
+                    await save_part(key, summary)
+                except Exception as error:
+                    log.warning('summary: part of %s not saved (%s)', file.id, error)
+        done += 1
+        await notify(f'Đã đọc {done}/{total} phần của {file.filename}')
+        return {**entry, 'text': summary or '(không có nội dung tóm tắt)'}
 
     await notify(f'Đang đọc {file.filename} ({total} phần)')
     parts = list(await asyncio.gather(*(part(i + 1, *segment) for i, segment in enumerate(segments))))
+    made = [p for p in parts if not p.get('pending')]
     pending = [p for p in parts if p.get('pending')]
-    parts_done = [p for p in parts if not p.get('pending')]
-
-    def partial() -> dict:
-        return {
-            'id': file.id,
-            'filename': file.filename,
-            'complete': False,
-            'parts_read': len(parts_done),
-            'parts_total': total,
-            'pending_pages': [p['pages'] or p['label'] for p in pending],
-            'running': [p['task'] for p in pending if p.get('task')],
-            **({'pages': len(structure['pages'])} if structure.get('pages') else {}),
-            'coverage': [
-                item['title'] + (f' (tr.{item["page"]})' if item.get('page') else '')
-                for item in outline.get('headings', [])
-            ],
-            **({'focus': focus} if focus else {}),
-            'summary': '\n\n'.join(_block('###', p['label'], p['pages'], p['text']) for p in parts_done),
-            'tiers': {
-                'parts': [{k: p[k] for k in ('label', 'pages', 'text')} for p in parts_done],
-                'sections': [],
-                'overall': '',
-            },
-        }
-
-    if pending or parts_only:
-        return partial()
-
-    async def finish() -> dict:
-        # Sections: their parts as they are when short, merged when long.
-        section_ranges = _sections(outline, len(content), segments)
-        section_cap = max(4000, overall_target * 2 // max(len(section_ranges), 1))
-        sections = []
-        await notify(f'Đang gộp tóm tắt {file.filename}')
-        for title, start, end in section_ranges:
-            members = [p for p in parts if start <= p['start'] < end]
-            if not members:
-                continue
-            texts = [f'### {p["label"]} ({p["pages"]})\n{p["text"]}' if p['pages'] else f'### {p["label"]}\n{p["text"]}' for p in members]
-            joined = '\n\n'.join(texts)
-            pages = [p['pages'] for p in members if p['pages']]
-            page_range = ''
-            if pages:
-                first = pages[0].removeprefix('tr.').split('-')[0]
-                last = pages[-1].removeprefix('tr.').split('-')[-1]
-                page_range = f'tr.{first}' if first == last else f'tr.{first}-{last}'
-            text = joined if len(joined) <= section_cap else await merge(texts, section_cap, f', section "{title}"')
-            sections.append({'title': title, 'pages': page_range, 'text': text})
-
-        section_texts = [f'## {s["title"]}' + (f' ({s["pages"]})' if s['pages'] else '') + f'\n{s["text"]}' for s in sections]
-        joined = '\n\n'.join(section_texts)
-        overall = joined if len(joined) <= overall_target * 1.3 else await merge(section_texts, overall_target, '')
-
-        return {
-            'id': file.id,
-            'filename': file.filename,
-            'parts_read': total,
-            **({'pages': len(structure['pages'])} if structure.get('pages') else {}),
-            'coverage': [
-                item['title'] + (f' (tr.{item["page"]})' if item.get('page') else '') for item in outline.get('headings', [])
-            ],
-            **({'focus': focus} if focus else {}),
-            'summary': overall,
-            'tiers': {
-                'parts': [{k: p[k] for k in ('label', 'pages', 'text')} for p in parts],
-                'sections': sections,
-                'overall': overall,
-            },
-        }
-
-    if deadline is None:
-        return await finish()
-    task = asyncio.create_task(finish())
-    finished, _ = await asyncio.wait({task}, timeout=max(deadline - time.monotonic(), 1))
-    if finished:
-        return task.result()
-    if not detach:
-        task.cancel()
-        return partial()
-    # Merging a large file takes several model calls: cancelled at every deadline, a merge that needs longer
-    # than one answer's wait never finished and each call started it over. It keeps running instead; the
-    # caller gets the finished summary from `running` to keep.
-    _detached.add(task)
-    task.add_done_callback(_detached.discard)
-    return {**partial(), 'running': [task]}
+    blocks = _join_blocks(made)
+    result = {
+        'version': VERSION,
+        'id': file.id,
+        'filename': file.filename,
+        **({'pages': len(structure['pages'])} if structure.get('pages') else {}),
+        'parts_read': len(made),
+        'parts_total': total,
+        # Overview in document order, one block per heading.
+        'summary': '\n\n'.join(_render(block) for block in blocks),
+        'sections': [{k: block[k] for k in ('title', 'first', 'last', 'part')} for block in blocks],
+        'parts': [{k: p[k] for k in ('index', 'label', 'pages', 'first', 'last', 'start', 'end')} for p in parts],
+    }
+    if pending:
+        result.update(complete=False, pending_pages=[p['pages'] or p['label'] for p in pending])
+    return result
 
 
 def _normalize(text: str) -> str:
     import unicodedata
 
     text = unicodedata.normalize('NFD', (text or '').lower())
-    return ''.join(c for c in text if not unicodedata.combining(c)).replace('đ', 'd')
+    return ' '.join(''.join(c for c in text if not unicodedata.combining(c)).replace('đ', 'd').split())
 
 
-def select_view(result: dict, detail: str = 'normal', section: Optional[str] = None) -> list[str]:
-    """Blocks of the summary for a detail level (brief | normal | full), optionally one section."""
-    tiers = result.get('tiers') or {}
-    if not tiers:  # summaries cached before levels existed
-        return [result.get('summary') or '']
-    detail = (detail or 'normal').strip().lower()
-    if not tiers.get('sections'):  # partial result: only parts so far
-        detail = 'full'
-    if section:
-        key = _normalize(section)
-        page = re.search(r'(\d+)', key) if re.search(r'\b(tr|trang|page)\b', key) else None
-        if page:
-            number = int(page.group(1))
-
-            def covers(pages: str) -> bool:
-                bounds = [int(x) for x in re.findall(r'\d+', pages or '')]
-                return bool(bounds) and bounds[0] <= number <= bounds[-1]
-
-            hits = [p for p in tiers['parts'] if covers(p['pages'])]
-        else:
-            hits = [p for p in tiers['parts'] if key in _normalize(p['label'])]
-            matching_sections = [s for s in tiers.get('sections') or [] if key in _normalize(s['title'])]
-            if matching_sections and detail != 'full':
-                return [_block('##', s['title'], s['pages'], s['text']) for s in matching_sections]
-        if hits:
-            return [_block('###', p['label'], p['pages'], p['text']) for p in hits]
-        names = [s['title'] for s in tiers.get('sections') or []] or [p['label'] for p in tiers['parts']]
-        return [f'(Không tìm thấy phần "{section}"; các phần: ' + '; '.join(names) + ')']
-    if detail in ('brief', 'short', 'ngan'):
-        return [tiers['overall']]
-    if detail in ('full', 'day_du', 'detail'):
-        return [_block('###', p['label'], p['pages'], p['text']) for p in tiers['parts']]
-    return [_block('##', s['title'], s['pages'], s['text']) for s in tiers['sections']]
+def parse_pages(spec: str, last_page: int) -> list[int]:
+    """Pages named by "12", "12-18" or "3, 12-18" (within 1..last_page), in order, once each."""
+    pages: list[int] = []
+    for first, last in re.findall(r'(\d+)\s*(?:[-–]\s*(\d+))?', spec or ''):
+        low, high = int(first), int(last or first)
+        for page in range(min(low, high), max(low, high) + 1):
+            if 1 <= page <= last_page and page not in pages:
+                pages.append(page)
+    return pages
 
 
-def _block(level: str, title: str, pages: str, text: str) -> str:
-    return f'{level} {title}' + (f' ({pages})' if pages else '') + f'\n{text}'
+def find_sections(overview: Optional[dict], outline: dict, wanted: str) -> list[dict]:
+    """Sections whose title contains what was asked for (or is contained in it), from the overview's headings and
+    the file's own outline; each {'title', 'first', 'last'} (pages) or {'title', 'start', 'end'} (text offsets)."""
+    key = _normalize(wanted)
+    if not key:
+        return []
+
+    def matches(title: str) -> bool:
+        name = _normalize(title)
+        return bool(name) and (key in name or name in key)
+
+    hits = [s for s in (overview or {}).get('sections') or [] if matches(s['title']) and s.get('first')]
+    if hits:
+        return hits
+    headings = outline.get('headings') or []
+    found = []
+    for i, heading in enumerate(headings):
+        if not matches(heading['title']):
+            continue
+        following = [h for h in headings[i + 1 :] if h['level'] <= heading['level']]
+        end = following[0]['offset'] if following else outline.get('total_chars', heading['offset'])
+        found.append({'title': heading['title'], 'start': heading['offset'], 'end': end})
+    if not found:  # a file without pages: the overview's sections point at their part's text
+        for section in (overview or {}).get('sections') or []:
+            part = next((p for p in (overview or {}).get('parts') or [] if p['index'] == section.get('part')), None)
+            if part and matches(section['title']):
+                found.append({'title': section['title'], 'start': part['start'], 'end': part['end']})
+    return found
+
+
+def source_view(content: str, structure: dict, pages: list[int], ranges: list[tuple[int, int]]) -> list[str]:
+    """The original text of these pages (each marked [trang N]) or text ranges, in document order."""
+    if pages:
+        offsets = {page: (start, end) for page, start, end in structure.get('pages') or []}
+        return [f'[trang {page}]\n{content[offsets[page][0]:offsets[page][1]].strip()}' for page in pages if page in offsets]
+    blocks = []
+    for start, end in sorted(set(ranges)):
+        if blocks and start < blocks[-1][1]:  # overlapping ranges are read once
+            start = blocks[-1][1]
+        if start < end:
+            blocks.append((start, end))
+    return [content[start:end].strip() for start, end in blocks]
+
+
+def overview_blocks(result: dict) -> list[str]:
+    """The overview cut at its headings, so a long one is delivered in whole sections."""
+    text = result.get('summary') or ''
+    starts = [m.start() for m in re.finditer(r'^## ', text, re.MULTILINE)]
+    if not starts or starts[0] != 0:
+        starts = [0, *starts]
+    return [text[a:b].strip() for a, b in zip(starts, [*starts[1:], len(text)]) if text[a:b].strip()]
 
 
 def paginate(blocks: list[str], page_chars: int) -> list[str]:
@@ -485,3 +443,22 @@ def paginate(blocks: list[str], page_chars: int) -> list[str]:
     if current:
         pages.append(current)
     return pages or ['']
+
+
+__all__ = [
+    'build_outline',
+    'cache_key',
+    'cached_parts',
+    'cached_summary',
+    'ensure_plan',
+    'find_sections',
+    'overview_blocks',
+    'paginate',
+    'parse_pages',
+    'reuse_summary',
+    'source_view',
+    'store_part',
+    'store_summary',
+    'summarize_file',
+    'summary_ceiling',
+]

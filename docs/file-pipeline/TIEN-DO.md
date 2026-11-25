@@ -504,3 +504,24 @@ Chờ trích xuất chữ 161 giây; đọc file tới giới hạn đọc; summ
   rồi được khởi động lại (vô hại vì migration chạy trong transaction, nhưng log như hỏng).
 - `migrations/env.py`: trên Postgres giữ `pg_advisory_lock` trong lúc migrate; worker khác chờ, sau đó thấy database
   đã ở bản mới nhất nên không làm gì. Khóa tự nhả khi đóng kết nối.
+
+## Tóm tắt file: bản tổng quan đủ mọi mục, chi tiết đọc nguyên văn (25/11)
+
+- Vấn đề trên W (SRS OSINT3, 269 trang): bản tóm tắt "chi tiết" dài 165 nghìn ký tự (94% file gốc), trả 15 lần
+  "tiếp"; có phần model viết 19 nghìn token cho 12 nghìn token đầu vào; câu trả lời chờ tới 23,6 phút.
+- `file_pipeline/summary.py` viết lại (VERSION 2, bản cũ được làm lại khi có người hỏi):
+  - Mỗi phần (mặc định 20.000 ký tự, các trang đánh dấu `[trang N]`) được model viết thành các tiêu đề của phần,
+    mỗi tiêu đề `## <tiêu đề> [tr.a-b]` và 2–5 ý chính; độ dài khoảng `files.summary.ratio_pct` (10%) của phần.
+  - Bản tổng quan = các phần ghép theo thứ tự; mục kéo dài qua hai phần được gộp làm một. Không gộp tự do bằng model
+    nên không mục nào bị bỏ.
+  - Trần token cho mỗi phần chỉ để chặn model lặp (`summary_ceiling`, khoảng 3/4 số token của phần); chạm trần thì
+    giữ nguyên, không viết tiếp (`generate_text(continue_cut=False)`).
+  - Cùng file tải lên lại (cùng hash, cùng chữ): dùng lại bản tổng quan của lần trước (`reuse_summary`).
+- `summarize_chat_file(file_id, section, pages, part, focus)`:
+  - Không có section/pages: bản tổng quan, chờ tới khi xong (hiện tiến độ); mỗi lần trả tối đa
+    `files.summary.page_chars` (30.000) ký tự và không quá giới hạn đọc của câu trả lời; dài hơn thì "tiếp".
+  - Có section (tìm trong tiêu đề của bản tổng quan, rồi mục lục của file) hoặc pages: trả nguyên văn các trang đó,
+    cũng chia theo `page_chars`; không khớp mục nào thì trả danh sách tiêu đề kèm trang để model chọn.
+  - Bỏ `detail` (brief/normal/full) và các cài đặt `files.summary.max_chars`.
+- Test (model giả, file 40 trang 4 chương): 3 phần, tổng quan đủ 4 mục với trang đúng, mục qua hai phần được gộp,
+  tìm mục có dấu / không dấu, nguyên văn tr.9-19 chia 3 lần ở 8.000 ký tự.

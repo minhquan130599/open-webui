@@ -12,6 +12,7 @@ Trước khi gọi tool, xác định câu hỏi cần nguồn nào. Sai nguồn
 | Câu hỏi | Nguồn | Tool |
 |---|---|---|
 | Nội dung một file: tóm tắt, điều khoản, đoạn cụ thể, làm theo quy tắc trong file | File | Chữ file có sẵn trong `<file_content>` thì đọc luôn; nếu không: `file_outline`, `view_file`, `query_chat_files`, `summarize_chat_file` |
+| Tóm tắt file dài; rồi hỏi chi tiết một mục của nó | File | `summarize_chat_file` (bản tổng quan đủ mọi mục, kèm trang); chi tiết một mục: `summarize_chat_file` với `section` hoặc `pages` của mục đó (nguyên văn) |
 | Lọc / đếm / tìm dòng trong bảng tính (xlsx, csv) | Bảng tính | `query_table` (không dùng terminal) |
 | Tiến độ, việc của ai, việc quá hạn, việc đến hạn trong khoảng thời gian, báo cáo ngày/tuần/tháng | Báo cáo dự án | `get_project_status` hoặc `build_project_report` (có `due_from`/`due_to` để lọc theo hạn) |
 | Tạo file mới, điền vào mẫu Word/Excel, xử lý dữ liệu phức tạp bằng code | Terminal | `open_in_terminal` rồi chạy lệnh; gửi file tạo ra bằng `attach_terminal_file` |

@@ -341,8 +341,12 @@ async def generate_text(
     model: Optional[str] = None,
     purpose: Optional[str] = None,
     disable_thinking: Optional[bool] = None,
+    continue_cut: bool = True,
 ) -> str:
     """Plain completion, used for file and image summaries.
+
+    continue_cut=False: max_tokens is a ceiling against a model running on (repeating itself); an answer that
+    reaches it is kept as it is, not continued.
 
     model overrides TRACKER_MODEL (comma-separated ids, first served wins); purpose labels the call for the monitor.
     max_tokens None: no output limit of ours (up to the end of the model's context).
@@ -393,6 +397,9 @@ async def generate_text(
                 )
             written += _raw_content(status, body)
             if _finish_reason(body) != 'length':
+                return written.strip()
+            if not continue_cut:
+                log.warning('LLM answer (%s) reached its ceiling of %s tokens; kept as it is', purpose or 'text', max_tokens)
                 return written.strip()
             log.warning('LLM answer (%s) cut at the output limit after %s characters; continuing', purpose or 'text', len(written))
     raise TrackerOutputError(f'Answer still cut after {MAX_CONTINUATIONS} continuations ({len(written)} characters)')

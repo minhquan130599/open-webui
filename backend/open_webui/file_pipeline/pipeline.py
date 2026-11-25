@@ -343,9 +343,11 @@ async def _summarize(
         cached_parts,
         cached_summary,
         ensure_plan,
+        reuse_summary,
         store_part,
         store_summary,
         summarize_file,
+        summary_ceiling,
     )
     from open_webui.tracker.llm import generate_text
 
@@ -356,9 +358,10 @@ async def _summarize(
     async def complete(message) -> str:
         return await generate_text(
             [{'role': 'user', 'content': message}],
-            # No limit of ours: a complete part summary runs to 4-7k tokens (OSINT3 on W), and 4096 cut 5 of 9 calls
-            # short without a word. The model writes to the end of its context; a cut answer is continued.
-            max_tokens=None,
+            # A ceiling, not a length: a part's overview asks for about a tenth of the part. Without one a model
+            # that starts repeating itself writes until the context is full (19k tokens for a 12k-token part on W).
+            max_tokens=summary_ceiling(message),
+            continue_cut=False,
             model=model,
             purpose='file_summary',
             disable_thinking=settings['files.summary.disable_thinking'],
@@ -367,13 +370,14 @@ async def _summarize(
     async def emit(description: str, finished: bool = False) -> None:
         await job.progress(0, 0, description)
 
+    if not parts_only and await reuse_summary(file):
+        return True
     result = await summarize_file(
         file,
         structure,
         complete,
         segment_chars=settings['files.summary.segment_chars'],
         concurrency=settings['files.summary.concurrency'],
-        max_chars=settings['files.summary.max_chars'],
         ratio_pct=settings['files.summary.ratio_pct'],
         min_chars=settings['files.summary.min_chars'],
         emit=emit,
@@ -381,7 +385,6 @@ async def _summarize(
         part_cache=cached_parts(file),
         save_part=lambda key, text: store_part(file.id, key, text),
         ready=ready,
-        parts_only=parts_only,
     )
     if result.get('complete', True) and not parts_only:
         await store_summary(file, None, result)

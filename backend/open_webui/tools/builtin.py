@@ -3270,223 +3270,251 @@ async def _summary_completion(request: Request, user: UserModel, model_id: str, 
 
 # Tasks started by a tool that outlive its call (kept referenced until done).
 _BACKGROUND_TASKS: set = set()
-# (file id, summary cache key) -> the background task finishing that summary after an answer stopped waiting.
-_SUMMARY_RUNS: dict = {}
 
 
 async def summarize_chat_file(
     file_id: str,
-    focus: Optional[str] = None,
-    detail: str = 'normal',
     section: Optional[str] = None,
+    pages: Optional[str] = None,
     part: int = 1,
+    focus: Optional[str] = None,
     __request__: Request = None,
     __user__: dict = None,
     __metadata__: dict = None,
     __event_emitter__: callable = None,
 ) -> str:
     """
-    Summarize a whole attached file without leaving parts out. The server reads the file part by part
-    (pages with unreliable OCR are read from their images when the model supports vision) and keeps three
-    levels with page references: brief (whole file), normal (per chapter/section) and full (per part).
-    Use it for long files; files whose full text is already in the message can be read directly. The result
-    is complete: answer from it without re-reading the file. A long result comes in parts: answer from the
-    part you got and invite the user to type "tiếp" for the next one. A large file just uploaded takes minutes:
-    the call waits until the summary is done (the user sees the progress), so call it once and wait.
+    Summarize an attached file, or give the original text of one of its sections.
 
-    :param file_id: The ID of the file to summarize
-    :param focus: Optional topic the user asked about; the summary still covers the whole file, the result says to answer about this topic
-    :param detail: brief (short overview), normal (per chapter, default) or full (most detailed)
-    :param section: Optional chapter/section title or page ("Chương II", "trang 12") to summarize only that part
+    Without section/pages: the overview of the whole file. It lists every heading of the file in order, each with
+    its pages [tr.a-b] and its main points; present it as the summary, keeping every heading. A large file just
+    uploaded takes minutes: the call waits until the overview is done (the user sees the progress), so call it
+    once and wait.
+
+    With section or pages: the ORIGINAL text of that part of the file, to answer questions about its details
+    ("chi tiết phần X", "phần X nói gì", "điều kiện ở mục Y"). Use the pages shown next to the heading in the
+    overview when you have them.
+
+    A long result comes in parts: answer from the part you got and invite the user to type "tiếp"; when they do,
+    call again with part=N+1 and the same section/pages.
+
+    :param file_id: The ID of the file
+    :param section: Optional heading to read in full, as written in the overview or the file ("Quản lý người dùng")
+    :param pages: Optional pages to read in full, like "20-26" or "3, 12-18"
     :param part: Part number of a long result (1 first; then 2, 3... when the user types "tiếp")
-    :return: JSON with the summary (this part), part/parts_total, the covered sections and pages
+    :param focus: Optional topic the user asked about, for the overview (it still covers the whole file)
+    :return: JSON with the overview or the original text (this part), part/parts_total and a note on how to answer
     """
     if __request__ is None or not __user__:
         return JSONCodec.dumps({'error': 'Request and user context required'})
     try:
-        from open_webui.file_pipeline.settings import file_settings
-        from open_webui.file_pipeline.summary import cache_key, cached_summary, store_summary, summarize_file
-        from open_webui.utils.file_structure import get_structure, is_pdf
+        from open_webui.file_pipeline.models import FileJobs
+        from open_webui.file_pipeline.settings import file_settings, read_budget_chars
+        from open_webui.file_pipeline.summary import (
+            build_outline,
+            cached_parts,
+            cached_summary,
+            ensure_plan,
+            find_sections,
+            overview_blocks,
+            paginate,
+            parse_pages,
+            reuse_summary,
+            source_view,
+            store_part,
+            store_summary,
+            summarize_file,
+        )
+        from open_webui.models.files import Files
+        from open_webui.utils.file_structure import get_structure, is_pdf, is_spreadsheet
 
         file = await _readable_file(file_id, __user__)
         if not file:
             return JSONCodec.dumps({'error': 'File not found'})
-        if not ((file.data or {}).get('content') or '').strip():
+        content = (file.data or {}).get('content') or ''
+        if not content.strip():
             return JSONCodec.dumps({'error': 'The file has no extracted text'})
-        # The summary is always the whole-file one (made once, in the background, shared by every question). A focus
-        # only tells the answering model what to bring forward: summarizing again per focus re-read the whole file
-        # each time a model wrote "tóm tắt nội dung" there (13 calls of 150 s on a 269-page file).
-        emphasis = focus.strip() if isinstance(focus, str) and focus.strip().lower() not in ('', 'none', 'null') else None
-        focus = None
         settings = await file_settings()
+        structure = get_structure(file)
+        # One delivery stays well inside the model's context: the page size, and never more than the answer's
+        # budget for file text.
+        page_chars = max(3000, min(settings['files.summary.page_chars'], read_budget_chars(settings)))
+        emphasis = focus.strip() if isinstance(focus, str) and focus.strip().lower() not in ('', 'none', 'null') else None
+        section = section.strip() if isinstance(section, str) and section.strip().lower() not in ('none', 'null') else ''
+        pages = pages.strip() if isinstance(pages, str) and pages.strip().lower() not in ('none', 'null') else ''
 
-        # One result per answer. Models paged through part 2, 3... or asked again for an unfinished summary in the
-        # same answer, each call waiting up to files.summary.wait_seconds (35 minutes for one answer on W).
-        turn_key = (file.id, detail, (section or '').strip().lower())
+        # One result per answer. Models paged through part 2, 3... in the same answer (and overflowed it); the next
+        # part is for the user's "tiếp".
+        turn_key = (file.id, section.lower(), pages)
         given = __metadata__.setdefault('summary_parts_given', {}) if __metadata__ is not None else {}
         if turn_key in given:
             return JSONCodec.dumps(
                 {
-                    'note': f'Part {given[turn_key]} of this summary is already in this answer: answer from it now. '
-                    'Do not call summarize_chat_file again in this answer; the user types "tiếp" for the next part '
-                    'or asks again later for a summary still being made.'
+                    'note': f'Part {given[turn_key]} of this is already in this answer: answer from it now. Do not '
+                    'call summarize_chat_file again for it in this answer; the user types "tiếp" for the next part.'
                 },
                 ensure_ascii=False,
             )
-
-        def deliver(result: dict, cached: bool) -> str:
-            from open_webui.file_pipeline.summary import paginate, select_view
-
-            if not result.get('complete', True) and not result.get('parts_read'):
-                # Nothing summarized yet (a large file just uploaded). Given the headings, models wrote a "summary"
-                # of the table of contents and passed it off as the file's; they get no headings to do that with.
-                given[turn_key] = 1
-                return JSONCodec.dumps(
-                    {
-                        'id': result.get('id'),
-                        'filename': result.get('filename'),
-                        **({'pages': result['pages']} if result.get('pages') else {}),
-                        'complete': False,
-                        'parts_read': 0,
-                        'file_parts_total': result.get('parts_total'),
-                        'note': 'No part of this file is summarized yet: it is being summarized in the background '
-                        f'(0 of {result.get("parts_total", 0)} parts done). Do not write a summary from the title '
-                        'page, the headings or the first pages, and do not save a note. Tell the user in one or two '
-                        'sentences that the file is still being summarized and to ask again in a few minutes.',
-                    },
-                    ensure_ascii=False,
-                )
-
-            pages = paginate(select_view(result, detail, section), settings['files.summary.page_chars'])
-            index = min(max(int(part or 1), 1), len(pages))
-            complete = result.get('complete', True)
-            if complete:
-                note = (
-                    'This summary covers every part of the file in order, with page references [tr.N]. Answer from '
-                    'it now; do not read the file again to check it.'
-                )
-            else:
-                missing = ', '.join(result.get('pending_pages') or [])
-                read, total = result.get('parts_read', 0), result.get('parts_total', 0)
-                note = (
-                    (
-                        f'This summary is NOT complete yet: {read} of {total} parts are summarized, in order, with '
-                        'page references [tr.N]'
-                        + (f'; still being summarized in the background: {missing}' if missing else '')
-                        + '. Answer now from these parts, say plainly which pages are not covered yet, and suggest '
-                        'asking again in a few minutes for the rest.'
-                        if read < total
-                        else 'Every part of the file is summarized below, in order, with page references [tr.N]; the '
-                        'shorter whole-file version is still being made in the background. Answer now from these parts.'
-                    )
-                    + ' Do not call summarize_chat_file again or read the file again in this answer.'
-                )
-            if index < len(pages):
-                note += (
-                    f' This is part {index}/{len(pages)}. Stop here: answer from this part now and invite the user '
-                    f'to type "tiếp". Only when they do, in a later message, call summarize_chat_file with '
-                    f'part={index + 1} and the same detail/section.'
-                )
-            if emphasis:
-                note += (
-                    f' The user asked about: {emphasis}. Answer about that from this summary; for exact wording or '
-                    'details it leaves out, use query_chat_files.'
-                )
-            given[turn_key] = index
-            answer = {
-                'id': result.get('id'),
-                'filename': result.get('filename'),
-                'detail': detail,
-                **({'section': section} if section else {}),
-                'part': index,
-                'parts_total': len(pages),
-                'parts_read': result.get('parts_read'),
-                **({'complete': False, 'file_parts_total': result.get('parts_total')} if not complete else {}),
-                **({'pages': result['pages']} if result.get('pages') else {}),
-                'coverage': result.get('coverage'),
-                **({'cached': True} if cached else {}),
-                'summary': pages[index - 1],
-                'note': note,
-            }
-            # What the summary adds to the answer's context counts toward its read budget like file text.
-            _charge_read(__metadata__, pages[index - 1])
-            return JSONCodec.dumps(answer, ensure_ascii=False)
-
-        cached = cached_summary(file, focus)
-        if cached:
-            return deliver(cached, True)
 
         async def emit(description: str, finished: bool = False):
             if __event_emitter__:
                 await __event_emitter__({'type': 'status', 'data': {'description': description, 'done': finished}})
 
-        from open_webui.file_pipeline.models import FileJobs
-        from open_webui.file_pipeline.summary import cached_parts, ensure_plan, store_part
-        from open_webui.models.files import Files
-        from open_webui.utils.file_structure import is_spreadsheet
+        def page_of(chunks: list[str]) -> tuple[int, str]:
+            index = min(max(int(part or 1), 1), len(chunks))
+            given[turn_key] = index
+            _charge_read(__metadata__, chunks[index - 1])
+            return index, chunks[index - 1]
 
-        # The answer waits for the whole summary: people upload a file and ask for its summary right away, they do
-        # not come back later. Only a summary that stops moving (no new part for files.summary.wait_seconds: the
-        # model or the job is stuck) is given up, and the answer is written from the parts made by then.
-        stall_seconds = settings['files.summary.wait_seconds']
-        structure = get_structure(file)
-        segment_chars = settings['files.summary.segment_chars']
-        plan = await ensure_plan(file, structure, segment_chars)
-        common = dict(
-            focus=focus,
-            segment_chars=segment_chars,
-            concurrency=settings['files.summary.concurrency'],
-            max_chars=settings['files.summary.max_chars'],
-            ratio_pct=settings['files.summary.ratio_pct'],
-            min_chars=settings['files.summary.min_chars'],
-            plan=plan,
-        )
+        def more_note(index: int, total: int, what: str) -> str:
+            if index >= total:
+                return ''
+            return (
+                f' This is part {index}/{total} of {what}. Stop here: answer from this part and invite the user to '
+                f'type "tiếp". Only when they do, in a later message, call summarize_chat_file with part={index + 1} '
+                'and the same section/pages.'
+            )
 
-        async def unused_model(message) -> str:
-            raise RuntimeError('no model call expected')
-
-        async def parts_made() -> dict:
-            """The part summaries already made, without asking the model for anything."""
+        async def overview_so_far() -> Optional[dict]:
+            """The finished overview, or the parts made so far (nothing is sent to the model)."""
             current = await Files.get_file_by_id(file.id) or file
-            made = await summarize_file(
+            found = cached_summary(current) or await reuse_summary(current)
+            if found:
+                return found
+            plan = await ensure_plan(current, get_structure(current), settings['files.summary.segment_chars'])
+
+            async def unused_model(message) -> str:
+                raise RuntimeError('no model call expected')
+
+            return await summarize_file(
                 current,
                 get_structure(current),
                 unused_model,
-                **common,
+                segment_chars=settings['files.summary.segment_chars'],
+                concurrency=1,
+                plan=plan,
                 part_cache=cached_parts(current),
-                ready=lambda pages: False,
-                parts_only=True,
+                model_calls=False,
             )
-            made.pop('running', None)
-            return made
 
-        # An earlier answer left this summary running: wait for that run instead of starting the same work again.
-        run_key = (file.id, cache_key((file.data or {}).get('content') or '', file.hash, focus))
-        earlier = _SUMMARY_RUNS.get(run_key)
-        if earlier and not earlier.done():
-            await emit(f'Đang chờ bản tóm tắt {file.filename} đang làm dở')
-            await asyncio.wait({earlier})
-            cached = cached_summary(await Files.get_file_by_id(file.id) or file, focus)
-            if cached:
-                await emit(f'Đã có bản tóm tắt {file.filename}', True)
-                return deliver(cached, True)
-            result = await parts_made()
-            await emit(f'Dùng {result.get("parts_read", 0)}/{result.get("parts_total", 0)} phần đã tóm tắt của {file.filename}', True)
-            return deliver(result, True)
+        # ---- details: the original text of a section or of some pages
+        if section or pages:
+            total_pages = len(structure.get('pages') or [])
+            wanted_pages: list[int] = parse_pages(pages, total_pages) if pages and total_pages else []
+            ranges: list[tuple[int, int]] = []
+            label = f'trang {pages}' if wanted_pages else ''
+            if not wanted_pages:
+                overview = await overview_so_far()
+                outline = await asyncio.to_thread(build_outline, content, structure, 400)
+                hits = find_sections(overview, outline, section or pages)
+                if not hits:
+                    headings = [
+                        f'{s["title"]} (tr.{s["first"]}-{s["last"]})' if s.get('first') else s['title']
+                        for s in (overview or {}).get('sections') or []
+                    ] or [
+                        f'{h["title"]} (tr.{h["page"]})' if h.get('page') else h['title']
+                        for h in outline.get('headings') or []
+                    ]
+                    return JSONCodec.dumps(
+                        {
+                            'id': file.id,
+                            'filename': file.filename,
+                            'error': f'No heading of the file matches "{section or pages}".',
+                            'headings': headings[:200],
+                            'note': 'Pick the matching heading (or its pages) from this list and call again with '
+                            'section or pages; if none matches, ask the user which part they mean.',
+                        },
+                        ensure_ascii=False,
+                    )
+                for hit in hits:
+                    if hit.get('first'):
+                        wanted_pages.extend(p for p in range(hit['first'], hit['last'] + 1) if p not in wanted_pages)
+                    else:
+                        ranges.append((hit['start'], hit['end']))
+                wanted_pages.sort()
+                label = '; '.join(
+                    f'{h["title"]} (tr.{h["first"]}-{h["last"]})' if h.get('first') else h['title'] for h in hits
+                )
+            chunks = paginate(source_view(content, structure, wanted_pages, ranges), page_chars)
+            index, text = page_of(chunks)
+            return JSONCodec.dumps(
+                {
+                    'id': file.id,
+                    'filename': file.filename,
+                    'source': label,
+                    'part': index,
+                    'parts_total': len(chunks),
+                    'text': text,
+                    'note': 'This is the ORIGINAL text of the file (page starts are marked [trang N]). Answer the '
+                    'user from it, with page references [tr.N]; do not invent anything it does not say.'
+                    + more_note(index, len(chunks), 'this text'),
+                },
+                ensure_ascii=False,
+            )
 
-        # The background pipeline is summarizing this file (or is about to): it sends every part to the model
-        # already, so wait for it instead of summarizing the same text a second time, then use its parts.
+        # ---- the overview of the whole file
+        def deliver(result: dict) -> str:
+            if not result.get('parts_read'):
+                given[turn_key] = 1
+                return JSONCodec.dumps(
+                    {
+                        'id': file.id,
+                        'filename': file.filename,
+                        **({'pages': result['pages']} if result.get('pages') else {}),
+                        'note': 'The overview of this file could not be made yet. Do not write a summary from the '
+                        'title page, the headings or the first pages, and do not save a note. Tell the user in one '
+                        'or two sentences that the file is still being processed and to ask again shortly.',
+                    },
+                    ensure_ascii=False,
+                )
+            chunks = paginate(overview_blocks(result), page_chars)
+            index, text = page_of(chunks)
+            if result.get('complete', True):
+                note = (
+                    'This overview covers every heading of the file, in order, each with its pages [tr.a-b] and its '
+                    'main points. Present it as the summary of the file: keep every heading and its pages, shorten '
+                    'nothing away. For the details of a heading, call summarize_chat_file with its pages.'
+                )
+            else:
+                missing = ', '.join(result.get('pending_pages') or [])
+                note = (
+                    f'This overview is NOT complete: {result.get("parts_read")} of {result.get("parts_total")} parts '
+                    f'are done; not covered yet: {missing}. Present what is here, keeping every heading, and say '
+                    'plainly which pages are not covered.'
+                )
+            if emphasis:
+                note += f' The user asked about: {emphasis}. Bring that forward; for its details read its pages.'
+            return JSONCodec.dumps(
+                {
+                    'id': file.id,
+                    'filename': file.filename,
+                    **({'pages': result['pages']} if result.get('pages') else {}),
+                    'part': index,
+                    'parts_total': len(chunks),
+                    **({'complete': False} if not result.get('complete', True) else {}),
+                    'overview': text,
+                    'note': note + more_note(index, len(chunks), 'the overview'),
+                },
+                ensure_ascii=False,
+            )
+
+        found = cached_summary(file) or await reuse_summary(file)
+        if found:
+            return deliver(found)
+
+        # The background pipeline makes the overview of a long file right after upload: wait for it. The answer
+        # waits for the whole overview (people upload and ask at once); only one that stops moving (no new part
+        # for files.summary.wait_seconds) is given up, and answered from the parts made by then.
+        stall_seconds = settings['files.summary.wait_seconds']
         background = (
-            focus is None
-            and settings['files.summary.precompute']
-            and len((file.data or {}).get('content') or '') >= settings['files.summary.precompute_min_chars']
+            settings['files.summary.precompute']
+            and len(content) >= settings['files.summary.precompute_min_chars']
             and not is_spreadsheet(file.filename, (file.meta or {}).get('content_type'))
         )
         if background:
             job = await FileJobs.get(file.id)
             seen, moved_at, shown = None, time.monotonic(), ''
             while job and job.status in ('queued', 'running'):
-                # Progress: the job's stage and counter, and the part summaries kept on the file.
                 progress = (job.status, job.stage, JSONCodec.dumps(job.progress or {}), len(cached_parts(file)))
                 if progress != seen:
                     seen, moved_at = progress, time.monotonic()
@@ -3499,30 +3527,27 @@ async def summarize_chat_file(
                     shown = status_text
                     await emit(status_text)
                 await asyncio.sleep(3)
-                file = await Files.get_file_by_id(file.id)
-                cached = cached_summary(file, None)
-                if cached:
+                file = await Files.get_file_by_id(file.id) or file
+                found = cached_summary(file)
+                if found:
                     await emit(f'Đã có bản tóm tắt {file.filename}', True)
-                    return deliver(cached, True)
+                    return deliver(found)
                 job = await FileJobs.get(file.id)
-            if job and job.status == 'running':
-                # parts_only: with every part made, the merge is the background job's (it raised "no model call
-                # expected" here).
-                result = await parts_made()
+            if job and job.status == 'running':  # stuck: answer from the parts made
+                result = await overview_so_far()
                 await emit(f'Dùng {result.get("parts_read", 0)}/{result.get("parts_total", 0)} phần đã tóm tắt của {file.filename}', True)
-                return deliver(result, True)
-            file = await Files.get_file_by_id(file.id)
-            cached = cached_summary(file, focus)
-            if cached:
-                return deliver(cached, True)
+                return deliver(result)
+            found = cached_summary(file) or await reuse_summary(file)
+            if found:
+                return deliver(found)
             structure = get_structure(file)
 
+        # Not made in the background (a shorter file, or the job could not): made here, with the answering model.
         models = __request__.app.state.MODELS
         chat_model = settings['files.summary.chat_model']
         model_id = chat_model if chat_model in models else (__metadata__ or {}).get('model_id')
         if model_id not in models:
             return JSONCodec.dumps({'error': 'No model available to summarize the file'})
-
         user = UserModel(**__user__)
         vision = (models[model_id].get('info', {}).get('meta', {}).get('capabilities') or {}).get('vision', True)
         low_pages = set(structure.get('low_quality_pages') or [])
@@ -3531,7 +3556,6 @@ async def summarize_chat_file(
             from open_webui.storage.provider import Storage
 
             pdf_path = await asyncio.to_thread(Storage.get_file, file.path)
-
         file_id_value = file.id
         result = await summarize_file(
             file,
@@ -3539,42 +3563,25 @@ async def summarize_chat_file(
             lambda message: _summary_completion(
                 __request__, user, model_id, message, settings['files.summary.disable_thinking']
             ),
-            **common,
+            segment_chars=settings['files.summary.segment_chars'],
+            concurrency=settings['files.summary.concurrency'],
+            ratio_pct=settings['files.summary.ratio_pct'],
+            min_chars=settings['files.summary.min_chars'],
             image_max_side=settings['files.page_image_max_side'],
             pdf_path=pdf_path,
             image_pages=low_pages,
             emit=emit,
+            plan=await ensure_plan(file, structure, settings['files.summary.segment_chars']),
             part_cache=cached_parts(file),
             save_part=lambda key, text: store_part(file_id_value, key, text),
         )
-        running = result.pop('running', None) or []
         if result.get('complete', True):
-            await store_summary(file, focus, result)
-            await emit(f'Đã tóm tắt xong {file.filename}', True)
-            return deliver(result, False)
-        job_can_finish = focus is None and not is_spreadsheet(file.filename, (file.meta or {}).get('content_type'))
-        if running or job_can_finish:
-            # The rest is finished in the background, so the next question gets the whole summary: a merge still
-            # running here is kept when it ends; parts still running are left for the background job.
-            async def finish_in_background() -> None:
-                outcomes = await asyncio.gather(*running, return_exceptions=True) if running else []
-                whole = next((o for o in outcomes if isinstance(o, dict) and o.get('tiers') and o.get('complete', True)), None)
-                if whole:
-                    await store_summary(await Files.get_file_by_id(file_id_value) or file, focus, whole)
-                elif job_can_finish:
-                    await FileJobs.enqueue(file_id_value, {'summary_only': True})
-
-            task = asyncio.create_task(finish_in_background())
-            _BACKGROUND_TASKS.add(task)
-            task.add_done_callback(_BACKGROUND_TASKS.discard)
-            _SUMMARY_RUNS[run_key] = task
-            task.add_done_callback(lambda done, key=run_key: _SUMMARY_RUNS.pop(key, None) if _SUMMARY_RUNS.get(key) is done else None)
-        await emit(f'Đã tóm tắt {result.get("parts_read", 0)}/{result.get("parts_total", 0)} phần của {file.filename}', True)
-        return deliver(result, False)
+            await store_summary(file, None, result)
+        await emit(f'Đã tóm tắt xong {file.filename}', True)
+        return deliver(result)
     except Exception as e:
         log.exception(f'summarize_chat_file error: {e}')
         return JSONCodec.dumps({'error': str(e)})
-
 
 _TABLE_CACHE: dict = {}  # file id -> (hash, monotonic time, sheets); a few recent spreadsheets
 
