@@ -405,10 +405,19 @@ async def summarize_file(
 
     if deadline is None:
         return await finish()
-    try:
-        return await asyncio.wait_for(finish(), timeout=max(deadline - time.monotonic(), 1))
-    except asyncio.TimeoutError:
+    task = asyncio.create_task(finish())
+    finished, _ = await asyncio.wait({task}, timeout=max(deadline - time.monotonic(), 1))
+    if finished:
+        return task.result()
+    if not detach:
+        task.cancel()
         return partial()
+    # Merging a large file takes several model calls: cancelled at every deadline, a merge that needs longer
+    # than one answer's wait never finished and each call started it over. It keeps running instead; the
+    # caller gets the finished summary from `running` to keep.
+    _detached.add(task)
+    task.add_done_callback(_detached.discard)
+    return {**partial(), 'running': [task]}
 
 
 def _normalize(text: str) -> str:

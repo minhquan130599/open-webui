@@ -186,7 +186,11 @@ async def _read_stream(response) -> str:
 
 
 async def _post(
-    session: aiohttp.ClientSession, payload: dict, model: Optional[str] = None, purpose: Optional[str] = None
+    session: aiohttp.ClientSession,
+    payload: dict,
+    model: Optional[str] = None,
+    purpose: Optional[str] = None,
+    meta: Optional[dict] = None,
 ) -> tuple[int, dict | str]:
     """POST /chat/completions, moving to the next endpoint when one is down, refuses or lacks the model.
 
@@ -220,7 +224,7 @@ async def _post(
             await asyncio.sleep(_TRANSIENT_WAITS[attempt])
         timer.stop()
         failed = status == 0 or status in _FAILOVER_STATUSES or status >= 500
-        _record(endpoint, model, timer, status, text, failover=index > 0, failed=failed, purpose=purpose)
+        _record(endpoint, model, timer, status, text, failover=index > 0, failed=failed, purpose=purpose, meta=meta)
         if failed:
             errors.append(f'{endpoint.name} ({model}): {status or "no response"} {_short(text)}')
             _down_until[endpoint.url] = time.monotonic() + TRACKER_LLM_COOLDOWN
@@ -254,15 +258,18 @@ def _record(
     failover: bool,
     failed: bool,
     purpose: Optional[str] = None,
+    meta: Optional[dict] = None,
 ) -> None:
     """One tracker LLM call for the monitor: endpoint, model, duration, tokens, failover.
 
     Calls made for another purpose (file OCR repair, file summaries) are recorded as kind 'file_llm'.
     """
-    usage = {}
+    usage, cut = {}, False
     if not failed:
         try:
-            usage = (JSONCodec.loads(text) or {}).get('usage') or {}
+            body = JSONCodec.loads(text) or {}
+            usage = body.get('usage') or {}
+            cut = _finish_reason(body) == 'length'
         except Exception:
             usage = {}
     perf.record(
@@ -277,6 +284,8 @@ def _record(
         output_tokens=usage.get('completion_tokens'),
         meta={'url': endpoint.url, 'http_status': status, 'failover': failover}
         | ({'purpose': purpose} if purpose else {})
+        | ({'finish_reason': 'length'} if cut else {})
+        | (meta or {})
         | ({'error': text[:300]} if failed else {}),
     )
 
@@ -291,13 +300,15 @@ def extract_json(text: str) -> dict:
     return JSONCodec.loads(text[start : end + 1])
 
 
-def _payload(messages: list[dict], max_tokens: int, disable_thinking: Optional[bool] = None) -> dict:
+def _payload(messages: list[dict], max_tokens: Optional[int], disable_thinking: Optional[bool] = None) -> dict:
+    # max_tokens None: not sent, the server lets the model write up to the end of its context window.
     payload = {
         'messages': messages,
         'temperature': 0.1,
-        'max_tokens': max_tokens,
         'stream': False,
     }
+    if max_tokens:
+        payload['max_tokens'] = max_tokens
     if TRACKER_DISABLE_THINKING if disable_thinking is None else disable_thinking:
         payload['chat_template_kwargs'] = {'enable_thinking': False}
     return payload
@@ -312,9 +323,21 @@ def _content(status: int, body) -> str:
         raise TrackerLLMError(f'Unexpected LLM response: {str(body)[:500]}')
 
 
+CONTINUE_PROMPT = 'Viết tiếp đúng từ chỗ đang dừng ở trên, không lặp lại phần đã viết.'
+MAX_CONTINUATIONS = 3
+# Off for the process lifetime once a server refused continue_final_message and the plain way worked instead.
+_continue_supported = True
+
+
+def _raw_content(status: int, body) -> str:
+    """The answer text as written (not stripped), so a continuation joins it exactly."""
+    _content(status, body)  # raises on a failed or malformed answer
+    return _THINK_RE.sub('', body['choices'][0]['message'].get('content') or '')
+
+
 async def generate_text(
     messages: list[dict],
-    max_tokens: int = 1024,
+    max_tokens: Optional[int] = 1024,
     model: Optional[str] = None,
     purpose: Optional[str] = None,
     disable_thinking: Optional[bool] = None,
@@ -322,14 +345,57 @@ async def generate_text(
     """Plain completion, used for file and image summaries.
 
     model overrides TRACKER_MODEL (comma-separated ids, first served wins); purpose labels the call for the monitor.
+    max_tokens None: no output limit of ours (up to the end of the model's context).
+
+    An answer cut at the output limit (finish_reason "length") is continued from where it stopped instead of
+    being kept cut: the same messages plus what was written, with vLLM's continue_final_message (the model goes on
+    inside its own answer); a server without it gets the text back as an assistant turn and is asked to go on.
+    Only the missing end is written again. An answer that still cannot be finished (the context is full) raises
+    TrackerOutputError rather than passing a cut text as complete.
     """
-    payload = _payload(messages, max_tokens, disable_thinking)
     if purpose:
-        # File summaries and OCR repairs can run longer than a proxy waits for a first byte.
-        payload.update(stream=True, stream_options={'include_usage': True})
-    timeout = aiohttp.ClientTimeout(total=TRACKER_LLM_TIMEOUT, sock_connect=20)
+        # Streamed: file summaries and OCR repairs run for minutes. A total limit cut them while the model was still
+        # writing; only a stream silent for TRACKER_LLM_TIMEOUT (queued too long, or hung) is given up.
+        timeout = aiohttp.ClientTimeout(total=None, sock_connect=20, sock_read=TRACKER_LLM_TIMEOUT)
+    else:
+        timeout = aiohttp.ClientTimeout(total=TRACKER_LLM_TIMEOUT, sock_connect=20)
+    global _continue_supported
+    written = ''
     async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
-        return _content(*await _post(session, payload, model=model, purpose=purpose))
+        for round_ in range(MAX_CONTINUATIONS + 1):
+            if not written:
+                attempts = [(messages, {})]
+            else:
+                attempts = [
+                    ([*messages, {'role': 'assistant', 'content': written}, {'role': 'user', 'content': CONTINUE_PROMPT}], {}),
+                ]
+                if _continue_supported:
+                    attempts.insert(0, (
+                        [*messages, {'role': 'assistant', 'content': written}],
+                        {'continue_final_message': True, 'add_generation_prompt': False},
+                    ))
+            for index, (conversation, extra) in enumerate(attempts):
+                payload = _payload(conversation, max_tokens, disable_thinking) | extra
+                if purpose:
+                    payload.update(stream=True, stream_options={'include_usage': True})
+                status, body = await _post(
+                    session, payload, model=model, purpose=purpose, meta={'continuation': round_} if round_ else None
+                )
+                if not (status == 400 and written):  # a 400 on a continuation: try the next way to ask
+                    if index and status == 200:
+                        log.info('LLM server does not take continue_final_message; continuing with a follow-up turn')
+                        _continue_supported = False
+                    break
+            if status == 400 and written:
+                raise TrackerOutputError(
+                    f'Answer cut at the output limit and cannot be continued ({len(written)} characters written): '
+                    f'{str(body)[:300]}'
+                )
+            written += _raw_content(status, body)
+            if _finish_reason(body) != 'length':
+                return written.strip()
+            log.warning('LLM answer (%s) cut at the output limit after %s characters; continuing', purpose or 'text', len(written))
+    raise TrackerOutputError(f'Answer still cut after {MAX_CONTINUATIONS} continuations ({len(written)} characters)')
 
 
 async def generate_state_update(messages: list[dict]) -> StateDelta:

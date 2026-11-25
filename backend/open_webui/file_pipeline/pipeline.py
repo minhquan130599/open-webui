@@ -356,7 +356,9 @@ async def _summarize(
     async def complete(message) -> str:
         return await generate_text(
             [{'role': 'user', 'content': message}],
-            max_tokens=4096,
+            # No limit of ours: a complete part summary runs to 4-7k tokens (OSINT3 on W), and 4096 cut 5 of 9 calls
+            # short without a word. The model writes to the end of its context; a cut answer is continued.
+            max_tokens=None,
             model=model,
             purpose='file_summary',
             disable_thinking=settings['files.summary.disable_thinking'],
