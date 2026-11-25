@@ -142,3 +142,13 @@ Trạng thái: **đóng gói và hướng dẫn xong**. Chưa build, chưa cài.
 - [docker/.env.example](../../docker/.env.example): thêm `REDIS_PASSWORD`, `TERMINAL_BROKER_ADMIN_KEY`, giới hạn terminal.
 - Quy trình chi tiết cho từng máy (W → T1/T2 → S1/S2), kèm lưu ý khi sửa `.env` / compose: file
   `E:\key\deloy\QUY-TRINH-BUILD-TEST-TRIEN-KHAI.md` (ngoài repo, vì có IP và tài khoản các máy).
+
+## 25/11: chạy thật lần đầu trên W
+
+- Lỗi: terminal không khởi động (`term-spec` thoát mã 126, `python3-ot: bad interpreter: Operation not permitted`).
+  Open Terminal bản mới gắn file capability `cap_setgid` lên `python3-ot` (cho chế độ nhiều người dùng). Container bỏ
+  hết quyền nên kernel từ chối chạy file đó. Sửa: `terminal-image/Dockerfile` gỡ file capability khỏi mọi file (chép
+  lại file), và dừng build nếu còn sót.
+- Lỗi: `broker.smoke` gửi `wait` trong body, nhưng Open Terminal nhận `wait` trên URL, nên lệnh chạy ngầm và trả về rỗng.
+  Sửa: gửi `wait` trên URL, lệnh chưa xong thì hỏi lại `/execute/{id}/status`.
+- Kết quả trên W (Docker Desktop): `broker.smoke --memory` **32/32 PASS**.

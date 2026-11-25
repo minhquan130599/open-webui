@@ -27,11 +27,18 @@ class Terminal:
         self.client, self.user, self.path = client, user, execute_path
 
     async def run(self, command: str, wait: int = 60) -> tuple[int | None, str, dict]:
-        r = await self.client.post(self.path, json={'command': command, 'wait': wait},
-                                   headers={'X-User-Id': self.user, 'X-User-Role': 'user'}, timeout=wait + 60)
+        # Open Terminal takes `wait` as a query parameter; in the body it is ignored and the command runs detached.
+        headers = {'X-User-Id': self.user, 'X-User-Role': 'user'}
+        r = await self.client.post(self.path, params={'wait': wait}, json={'command': command},
+                                   headers=headers, timeout=wait + 60)
         data = r.json() if r.headers.get('content-type', '').startswith('application/json') else {}
         if r.status_code >= 400:
             return None, str(data.get('error') or r.text)[:500], data
+        if data.get('status') == 'running' and data.get('id'):  # slower than `wait`: ask once more
+            r = await self.client.get(f'{self.path}/{data["id"]}/status', params={'wait': wait},
+                                      headers=headers, timeout=wait + 60)
+            if r.status_code < 400 and r.headers.get('content-type', '').startswith('application/json'):
+                data = r.json()
         output = ''.join(str(o.get('data', '')) for o in data.get('output') or [] if isinstance(o, dict))
         return data.get('exit_code'), output, data
 

@@ -27,6 +27,15 @@ RUN set -eux; \
     # No privilege escalation inside the terminal
     apt-get purge -y sudo || true; \
     rm -f /etc/sudoers /etc/sudoers.d/* || true; \
+    # Open Terminal's interpreter carries file capabilities (cap_setgid, for its multi-user mode). With every
+    # capability dropped the kernel refuses to exec such a file ("bad interpreter: Operation not permitted").
+    # One user per container needs none, and no file can use them here anyway: strip them from every binary
+    # (copying a file drops its capabilities).
+    for f in $(find / -xdev -type f -perm /111 -exec getcap {} + 2>/dev/null | awk '{print $1}'); do \
+        cp -p "$f" "$f.nocap" && mv -f "$f.nocap" "$f"; \
+    done; \
+    test -z "$(find / -xdev -type f -perm /111 -exec getcap {} + 2>/dev/null)"; \
+    test -n "$(command -v open-terminal)"; \
     apt-get autoremove -y; \
     rm -rf /var/lib/apt/lists/* /root/.cache; \
     # The broker mounts the per-user volume on /home/user and gives the shared terminal a tmpfs owned by uid 1000
