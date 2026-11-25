@@ -2,8 +2,9 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 from abc import ABC, abstractmethod
-from typing import BinaryIO, Dict, Tuple
+from typing import BinaryIO, Callable, Dict, Tuple
 
 import boto3
 from botocore.config import Config
@@ -40,6 +41,26 @@ if not USE_SLIM:
     from google.cloud.exceptions import GoogleCloudError, NotFound
 
 log = logging.getLogger(__name__)
+
+
+def _download_to(local_file_path: str, write: Callable[[BinaryIO], None]) -> None:
+    """Fill local_file_path through a temp file swapped in at the end.
+
+    Several readers share one local copy per object. Rewriting it in place truncated it under a reader that had it
+    open (a PDF page being rendered: "PDFium: Data format error"); a swapped-in file leaves open readers on the old one.
+    The short temp name also keeps clear of NAME_MAX with long non-ASCII file names.
+    """
+    fd, temp_path = tempfile.mkstemp(dir=os.path.dirname(local_file_path) or '.', prefix='.dl-')
+    try:
+        with os.fdopen(fd, 'wb') as handle:
+            write(handle)
+        os.replace(temp_path, local_file_path)
+    except BaseException:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+        raise
 
 
 class StorageProvider(ABC):
@@ -169,9 +190,7 @@ class S3StorageProvider(StorageProvider):
         try:
             s3_key = self._extract_s3_key(file_path)
             local_file_path = self._get_local_file_path(s3_key)
-            # download_file's temp name caps characters, not bytes, so non-ASCII names can exceed NAME_MAX
-            with open(local_file_path, 'wb') as local_file:
-                self.s3_client.download_fileobj(self.bucket_name, s3_key, local_file)
+            _download_to(local_file_path, lambda handle: self.s3_client.download_fileobj(self.bucket_name, s3_key, handle))
             return local_file_path
         except ClientError as e:
             raise RuntimeError(f'Error downloading file from S3: {e}')
@@ -243,7 +262,7 @@ class GCSStorageProvider(StorageProvider):
             filename = file_path.removeprefix('gs://').split('/')[1]
             local_file_path = os.path.join(UPLOAD_DIR, filename)
             blob = self.bucket.get_blob(filename)
-            blob.download_to_filename(local_file_path)
+            _download_to(local_file_path, blob.download_to_file)
 
             return local_file_path
         except NotFound as e:
@@ -307,8 +326,7 @@ class AzureStorageProvider(StorageProvider):
             filename = file_path.split('/')[-1]
             local_file_path = os.path.join(UPLOAD_DIR, filename)
             blob_client = self.container_client.get_blob_client(filename)
-            with open(local_file_path, 'wb') as download_file:
-                download_file.write(blob_client.download_blob().readall())
+            _download_to(local_file_path, lambda handle: handle.write(blob_client.download_blob().readall()))
             return local_file_path
         except ResourceNotFoundError as e:
             raise RuntimeError(f'Error downloading file from Azure Blob Storage: {e}')

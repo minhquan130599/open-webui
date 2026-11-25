@@ -200,10 +200,15 @@ async def _repair_pages(
             hint = OCR_HINT.format(ocr=(row.raw_text or '')[:6000]) if settings['files.repair.ocr_hint'] else ''
             language = '' if profile['foreign_is_content'] else LATIN_ONLY
             prompt = REPAIR_PROMPT.format(page=row.page, name=file.filename, language=language, ocr=hint)
-            attempts = 0
+            # Every page is queued at once behind `concurrency` slots: time spent waiting for a slot is kept apart
+            # from the model's own time, or the last pages of a long file look like 10-minute calls.
+            attempts = wait_ms = model_ms = 0
             while True:
                 attempts += 1
+                queued = time.perf_counter()
                 async with semaphore:
+                    wait_ms += _ms(queued)
+                    called = time.perf_counter()
                     text = await generate_text(
                         [{'role': 'user', 'content': [{'type': 'text', 'text': prompt}, {'type': 'image_url', 'image_url': {'url': image}}]}],
                         max_tokens=4096,
@@ -211,6 +216,7 @@ async def _repair_pages(
                         purpose='file_repair',
                         disable_thinking=settings['files.summary.disable_thinking'],
                     )
+                    model_ms += _ms(called)
                 text = (text or '').strip()
                 if not text:
                     raise ValueError('model returned no text')
@@ -219,8 +225,7 @@ async def _repair_pages(
                 if 'foreign_script' not in result['issues'] or attempts >= 2:
                     break
                 prompt += RETRY_NOTE
-            record['ms'] = _ms(started)
-            record['attempts'] = attempts
+            record.update(ms=_ms(started), wait_ms=wait_ms, model_ms=model_ms, attempts=attempts)
             record.update(score_after=result['score'], issues_after=result['issues'])
             better = result['score'] >= (row.raw_score or 0)
             await FilePages.save(

@@ -1505,14 +1505,15 @@
       { label: 'Điểm dùng', num: true, render: (p) => score(p.score) },
       { label: 'Vấn đề', render: (p) => { const i = p.issues || {}; return `${(i.issues || []).map((x) => `<span class="pill warn">${esc(FP_ISSUE[x] || x)}</span>`).join(' ')}<div class="muted" style="font-size:11px">${i.words ? `${n(i.words)} từ · hợp lệ ${pct(i.valid_ratio || 0, 1)}` : ''}${i.garbled_ratio ? ` · rác ${pct(i.garbled_ratio, 1)}` : ''}</div>`; } },
       { label: 'Trạng thái', render: (p) => `<span class="pill ${(PAGE_STATUS[p.status] || ['', p.status])[0]}">${(PAGE_STATUS[p.status] || ['', p.status])[1]}</span>` },
-      { label: 'Sửa bằng vision', render: (p) => { const r = p.repair; if (!r) return '—'; return `<span class="muted" style="font-size:11.5px">${esc(r.model || '')} · ${ms(r.ms)}${r.score_after !== undefined ? ` · ${Math.round(r.score_before || 0)} → ${Math.round(r.score_after)}` : ''}${r.used === false ? ' · <b>không dùng</b> (không tốt hơn)' : ''}${r.error ? ` · <span style="color:var(--red)">${esc(r.error)}</span>` : ''}</span>`; } },
+      { label: 'Sửa bằng vision', render: (p) => { const r = p.repair; if (!r) return '—'; return `<span class="muted" style="font-size:11.5px">${esc(r.model || '')} · ${r.model_ms !== undefined ? `model ${ms(r.model_ms)}${r.attempts > 1 ? ` (${r.attempts} lần)` : ''}${r.wait_ms >= 1000 ? ` · chờ lượt ${ms(r.wait_ms)}` : ''}` : ms(r.ms)}${r.score_after !== undefined ? ` · ${Math.round(r.score_before || 0)} → ${Math.round(r.score_after)}` : ''}${r.used === false ? ' · <b>không dùng</b> (không tốt hơn)' : ''}${r.error ? ` · <span style="color:var(--red)">${esc(r.error)}</span>` : ''}</span>`; } },
       { label: '', render: (p) => `<button class="btn" type="button" data-fp-page="${p.page}">Xem</button>` },
     ], pages, 'Không có trang nào (file không phải PDF hoặc chưa xử lý).');
     // Counted from the pages themselves: a re-run keeps earlier repairs, so per-run stats would show 0.
     const lowAtStart = d.pages.filter((p) => p.repair || ['low', 'unverified', 'failed'].includes(p.status)).length;
     const repaired = d.pages.filter((p) => p.status === 'repaired').length;
     const unsure = d.pages.filter((p) => ['low', 'unverified', 'failed'].includes(p.status)).length;
-    const repairMs = d.pages.reduce((sum, p) => sum + ((p.repair && p.repair.ms) || 0), 0);
+    // Pages are repaired several at a time, so their own times overlap: the stage's wall time is the total.
+    const repairMs = st.repair_ms || 0;
     const kpis = [
       kpi('Trang', n(d.pages.length || st.pages)),
       kpi('OCR kém lúc đầu', n(lowAtStart)),
