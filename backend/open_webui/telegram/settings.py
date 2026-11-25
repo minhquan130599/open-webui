@@ -20,7 +20,7 @@ SETTINGS: list[tuple[str, str, Any]] = [
     ('telegram.rate_per_minute', 'int:1-120', 10),
     ('telegram.max_running', 'int:1-50', 5),  # questions answered at the same time, whole app
     ('telegram.new_chat_hours', 'int:1-168', 4),
-    ('telegram.answer_minutes', 'int:1-30', 10),  # longest wait for an answer
+    ('telegram.answer_minutes', 'int:1-30', 30),  # longest wait for an answer (a large file's summary takes minutes)
     ('telegram.blocked_channels', 'list', []),  # channel ids that cannot be asked from Telegram
 ]
 BY_KEY = {key: (kind, default) for key, kind, default in SETTINGS}

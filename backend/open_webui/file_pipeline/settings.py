@@ -70,10 +70,11 @@ FILE_SETTINGS: list[dict] = [
     {'key': 'files.summary.concurrency', 'label': 'Số phần tóm tắt cùng lúc', 'type': 'int', 'min': 1, 'max': 16,
      'section': 'summary', 'default': 6,
      'help': _GPU_NOTE + ' Cũng là số phần tracker đọc cùng lúc khi trích việc từ file.'},
-    {'key': 'files.summary.wait_seconds', 'label': 'Thời gian tối đa tóm tắt trong một câu trả lời (giây)', 'type': 'int',
-     'min': 10, 'max': 1800, 'default': 150, 'section': 'summary',
-     'help': 'Dùng ngay các phần đã tóm tắt sẵn, tóm tắt tiếp phần còn lại tối đa bấy nhiêu giây rồi trả lời từ phần '
-             'đã có; phần chưa xong chạy tiếp ở nền.'},
+    {'key': 'files.summary.wait_seconds', 'label': 'Bỏ chờ tóm tắt khi không có tiến triển trong (giây)', 'type': 'int',
+     'min': 120, 'max': 3600, 'default': 600, 'section': 'summary',
+     'help': 'Hỏi tóm tắt file thì câu trả lời chờ đến khi tóm tắt xong (hiện tiến độ từng phần). Chỉ khi quá bấy '
+             'nhiêu giây không xong thêm phần nào (model hoặc job bị treo) mới trả lời từ các phần đã có. Phải dài hơn '
+             'thời gian tóm tắt một phần.'},
     {'key': 'files.summary.precompute_min_chars', 'label': 'Tóm tắt sẵn khi file dài từ (ký tự)', 'type': 'int',
      'min': 0, 'max': 10_000_000, 'default': 30_000, 'section': 'summary', 'advanced': True,
      'show_if': {'files.summary.precompute': [True]}},

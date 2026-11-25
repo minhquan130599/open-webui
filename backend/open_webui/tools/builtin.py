@@ -3291,9 +3291,8 @@ async def summarize_chat_file(
     levels with page references: brief (whole file), normal (per chapter/section) and full (per part).
     Use it for long files; files whose full text is already in the message can be read directly. The result
     is complete: answer from it without re-reading the file. A long result comes in parts: answer from the
-    part you got and invite the user to type "tiếp" for the next one. A large file not yet summarized may come
-    back with complete=false (the rest is summarized in the background): answer from the parts given and say
-    which pages are not covered yet.
+    part you got and invite the user to type "tiếp" for the next one. A large file just uploaded takes minutes:
+    the call waits until the summary is done (the user sees the progress), so call it once and wait.
 
     :param file_id: The ID of the file to summarize
     :param focus: Optional topic the user asked about; the summary still covers the whole file, the result says to answer about this topic
@@ -3337,6 +3336,26 @@ async def summarize_chat_file(
 
         def deliver(result: dict, cached: bool) -> str:
             from open_webui.file_pipeline.summary import paginate, select_view
+
+            if not result.get('complete', True) and not result.get('parts_read'):
+                # Nothing summarized yet (a large file just uploaded). Given the headings, models wrote a "summary"
+                # of the table of contents and passed it off as the file's; they get no headings to do that with.
+                given[turn_key] = 1
+                return JSONCodec.dumps(
+                    {
+                        'id': result.get('id'),
+                        'filename': result.get('filename'),
+                        **({'pages': result['pages']} if result.get('pages') else {}),
+                        'complete': False,
+                        'parts_read': 0,
+                        'file_parts_total': result.get('parts_total'),
+                        'note': 'No part of this file is summarized yet: it is being summarized in the background '
+                        f'(0 of {result.get("parts_total", 0)} parts done). Do not write a summary from the title '
+                        'page, the headings or the first pages, and do not save a note. Tell the user in one or two '
+                        'sentences that the file is still being summarized and to ask again in a few minutes.',
+                    },
+                    ensure_ascii=False,
+                )
 
             pages = paginate(select_view(result, detail, section), settings['files.summary.page_chars'])
             index = min(max(int(part or 1), 1), len(pages))
@@ -3406,9 +3425,10 @@ async def summarize_chat_file(
         from open_webui.models.files import Files
         from open_webui.utils.file_structure import is_spreadsheet
 
-        # One answer spends at most files.summary.wait_seconds on the summary; what is not done by then keeps
-        # being summarized in the background and the answer is written from the parts already made.
-        deadline = time.monotonic() + settings['files.summary.wait_seconds']
+        # The answer waits for the whole summary: people upload a file and ask for its summary right away, they do
+        # not come back later. Only a summary that stops moving (no new part for files.summary.wait_seconds: the
+        # model or the job is stuck) is given up, and the answer is written from the parts made by then.
+        stall_seconds = settings['files.summary.wait_seconds']
         structure = get_structure(file)
         segment_chars = settings['files.summary.segment_chars']
         plan = await ensure_plan(file, structure, segment_chars)
@@ -3445,7 +3465,7 @@ async def summarize_chat_file(
         earlier = _SUMMARY_RUNS.get(run_key)
         if earlier and not earlier.done():
             await emit(f'Đang chờ bản tóm tắt {file.filename} đang làm dở')
-            await asyncio.wait({earlier}, timeout=max(deadline - time.monotonic(), 0))
+            await asyncio.wait({earlier})
             cached = cached_summary(await Files.get_file_by_id(file.id) or file, focus)
             if cached:
                 await emit(f'Đã có bản tóm tắt {file.filename}', True)
@@ -3464,8 +3484,20 @@ async def summarize_chat_file(
         )
         if background:
             job = await FileJobs.get(file.id)
-            while job and job.status in ('queued', 'running') and time.monotonic() < deadline:
-                await emit(f'Đang chờ bản tóm tắt nền của {file.filename}')
+            seen, moved_at, shown = None, time.monotonic(), ''
+            while job and job.status in ('queued', 'running'):
+                # Progress: the job's stage and counter, and the part summaries kept on the file.
+                progress = (job.status, job.stage, JSONCodec.dumps(job.progress or {}), len(cached_parts(file)))
+                if progress != seen:
+                    seen, moved_at = progress, time.monotonic()
+                elif time.monotonic() - moved_at > stall_seconds:
+                    log.warning('summarize_chat_file: no progress on %s for %ss; answering from what is made', file.id, stall_seconds)
+                    break
+                label = (job.progress or {}).get('label') if job.status == 'running' else 'đang chờ đến lượt xử lý'
+                status_text = f'Đang tóm tắt {file.filename}: {label or "đang chuẩn bị"}'
+                if status_text != shown:
+                    shown = status_text
+                    await emit(status_text)
                 await asyncio.sleep(3)
                 file = await Files.get_file_by_id(file.id)
                 cached = cached_summary(file, None)
@@ -3473,7 +3505,7 @@ async def summarize_chat_file(
                     await emit(f'Đã có bản tóm tắt {file.filename}', True)
                     return deliver(cached, True)
                 job = await FileJobs.get(file.id)
-            if job and job.status in ('queued', 'running'):
+            if job and job.status == 'running':
                 # parts_only: with every part made, the merge is the background job's (it raised "no model call
                 # expected" here).
                 result = await parts_made()
@@ -3514,8 +3546,6 @@ async def summarize_chat_file(
             emit=emit,
             part_cache=cached_parts(file),
             save_part=lambda key, text: store_part(file_id_value, key, text),
-            deadline=deadline,
-            detach=True,
         )
         running = result.pop('running', None) or []
         if result.get('complete', True):
