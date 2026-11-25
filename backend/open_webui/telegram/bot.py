@@ -64,7 +64,6 @@ _waiting = 0
 
 _recent_updates: dict[int, None] = {}
 _already_told: dict[str, float] = {}
-_quiet_links: dict[str, int] = {}  # sender -> stale link codes being handled: no "already linked" reply
 
 
 def _seen(update_id) -> bool:
@@ -79,26 +78,17 @@ def _seen(update_id) -> bool:
     return False
 
 
-STALE_SECONDS = 90  # messages older than this when read were sent while the bot was stopped
+UPDATES_PER_READ = 100  # Telegram's getUpdates page size
 
 
-def _is_link(update: dict) -> bool:
-    text = ((update.get('message') or {}).get('text') or '').strip()
-    return (text.startswith('/start ') and len(text.split()) > 1) or text.startswith('/link ')
-
-
-def _stale(update: dict, backlog: bool) -> bool:
-    """Sent while nobody was reading (the app restarting or being updated): handling a pile of old taps and
-    questions at once floods the chat, so they are skipped. Link codes are kept (they expire on their own).
-    Buttons carry no time of their own: those found in the first read after starting are the stale ones."""
+def _stale(update: dict, reading_since: int, draining: bool) -> bool:
+    """Sent while nobody was reading (the app stopped, restarting or being updated): everything is skipped, link
+    codes included, and only what is sent once the bot reads again is handled. A message carries its send time;
+    a button tap does not, so taps still waiting when reading starts (`draining`) are the old ones."""
     if 'callback_query' in update:
-        return backlog
+        return draining
     message = update.get('message')
-    return bool(message) and not _is_link(update) and _old(message)
-
-
-def _old(message: dict) -> bool:
-    return time.time() - (message.get('date') or time.time()) > STALE_SECONDS
+    return bool(message) and (message.get('date') or 0) < reading_since
 
 
 async def _skip_stale(settings: dict, updates: list) -> None:
@@ -126,17 +116,6 @@ async def _skip_stale(settings: dict, updates: list) -> None:
             )
         except Exception:
             log.debug('Telegram: could not send the skipped note to %s', chat_id, exc_info=True)
-
-
-async def _quietly(app, settings: dict, update: dict) -> None:
-    sender = str((update['message'].get('from') or {}).get('id'))
-    _quiet_links[sender] = _quiet_links.get(sender, 0) + 1
-    try:
-        await _handle_update(app, settings, update)
-    finally:
-        _quiet_links[sender] -= 1
-        if not _quiet_links[sender]:
-            del _quiet_links[sender]
 
 
 def _spawn(coro) -> None:
@@ -207,6 +186,9 @@ async def bot_loop(app) -> None:
     lease_id = None
     commands_for = None
     state: dict = {}
+    reading_since = 0  # unix time this worker started reading: messages sent before it are skipped
+    draining = False  # still reading what waited while nobody read (more than one page of it may wait)
+    skipped: list = []
     log.info('Telegram bot loop started')
     while True:
         try:
@@ -223,17 +205,23 @@ async def bot_loop(app) -> None:
                 await asyncio.sleep(20)
                 continue
             # First read after starting (or taking over from another worker): what is waiting was sent while
-            # nobody read; it is read at once (no waiting) and the stale part skipped.
-            backlog = lease_id is None
+            # nobody read; it is read at once (no waiting) and skipped.
+            if lease_id is None:
+                reading_since, draining = int(time.time()), True
             lease_id = held['lease_id']
             state = held['data'] or {}
             if commands_for != token:
                 await api.set_commands(token, COMMANDS)
                 commands_for = token
-            updates = await api.get_updates(token, int(state.get('offset', 0)), 0 if backlog else POLL_SECONDS)
-            offset = int(state.get('offset', 0))
-            for update in updates:
-                offset = max(offset, int(update.get('update_id', 0)) + 1)
+            # The offset belongs to one bot: after the token changed to another bot, the old bot's offset (far past the
+            # new bot's update ids) confirmed nothing, and the same updates came back on every read, without end.
+            bot_id = token.split(':', 1)[0]
+            if state.get('bot') != bot_id:
+                state = {'bot': bot_id}
+            saved = int(state.get('offset', 0))
+            updates = await api.get_updates(token, saved, 0 if draining else POLL_SECONDS)
+            # Telegram returns updates from `saved` on: the next offset follows the newest one returned.
+            offset = max((int(update.get('update_id', 0)) + 1 for update in updates), default=saved)
             # Saved before handling: an update is handled at most once even if this worker stops. When the save
             # does not go through (the lease moved to another worker meanwhile), nothing is handled here: the
             # worker holding the lease reads the same updates and handles them once.
@@ -243,22 +231,19 @@ async def bot_loop(app) -> None:
                 lease_id = None
                 continue
             STATUS.update(state)
-            stale = []
             for update in updates:
                 if _seen(update.get('update_id')):
                     log.warning('Telegram: update %s came again; ignored', update.get('update_id'))
                     continue
-                if _stale(update, backlog):
-                    stale.append(update)
-                    continue
-                if _is_link(update) and _old(update['message']):
-                    # A link opened while the bot was stopped: still used (it may link someone new), but
-                    # "already linked" is not said for it.
-                    _spawn(_quietly(app, settings, update))
+                if _stale(update, reading_since, draining):
+                    skipped.append(update)
                     continue
                 _spawn(_handle_update(app, settings, update))
-            if stale:
-                _spawn(_skip_stale(settings, stale))
+            if len(updates) < UPDATES_PER_READ:
+                draining = False
+            if skipped and not draining:  # one note per chat for everything that waited
+                _spawn(_skip_stale(settings, skipped))
+                skipped = []
         except asyncio.CancelledError:
             # Shutting down: hand the lease back so the next start reads at once instead of waiting it out.
             if lease_id:
@@ -484,8 +469,8 @@ async def _link_account(ctx: Ctx, code: str) -> None:
     log.info('Telegram: link code from %s: %s', ctx.tg_id, status)
     if status == 'already':
         # Nothing changed: a link opened again (browser and app both open it, Start pressed twice, several links
-        # tapped) is answered once per 10 minutes, and not at all when it was sent while the bot was stopped.
-        if ctx.tg_id in _quiet_links or time.monotonic() - _already_told.get(ctx.tg_id, -1e9) < 600:
+        # tapped) is answered once per 10 minutes.
+        if time.monotonic() - _already_told.get(ctx.tg_id, -1e9) < 600:
             return
         _already_told[ctx.tg_id] = time.monotonic()
     if status == 'invalid':
