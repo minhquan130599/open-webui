@@ -130,9 +130,12 @@ services:
       - TERMINAL_RUNTIME=${TERMINAL_RUNTIME:-}
       - TERMINAL_READ_ONLY=${TERMINAL_READ_ONLY:-true}   # false nếu Open Terminal không chạy được khi chỉ đọc
       - UPLOAD_ALERT_MB_PER_HOUR=${TERMINAL_UPLOAD_ALERT_MB:-50}
+      - TERMINAL_LXCFS=${TERMINAL_LXCFS:-auto}   # auto = dùng LXCFS khi máy có cài (apt install lxcfs); off = tắt
     volumes:
       - terminal-broker:/data
       - egress-logs:/var/log/squid:ro
+      # LXCFS của máy (nếu có): terminal thấy RAM / CPU theo giới hạn của nó. Máy không cài thì thư mục rỗng.
+      - /var/lib/lxcfs:/lxcfs:ro,rslave
     networks: [default, terminal-net, broker-docker]
     restart: unless-stopped
 

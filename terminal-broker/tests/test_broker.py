@@ -13,7 +13,8 @@ from fastapi.testclient import TestClient
 
 from broker import egress
 from broker.config import Settings
-from broker.pool import SPEC, Busy, Pool, user_hash
+from broker.docker_api import DockerError
+from broker.pool import LXCFS_FILES, SPEC, Busy, Pool, user_hash
 from broker.proxy import Proxy
 from broker.store import Store
 
@@ -25,6 +26,7 @@ class FakeDocker:
         self.calls: list[tuple] = []
         self.du_kb = 1000
         self.next_ip = 10
+        self.refuse_lxcfs = False
 
     async def create_volume(self, name, labels):
         self.volumes.add(name)
@@ -38,6 +40,7 @@ class FakeDocker:
         if not c:
             return None
         return {'State': {'Running': c['running']},
+                'Mounts': [{'Destination': m['Target']} for m in c['spec']['HostConfig']['Mounts']],
                 'NetworkSettings': {'Networks': {'terminal-net': {'IPAddress': c['ip']}}}}
 
     async def create(self, name, spec):
@@ -46,6 +49,9 @@ class FakeDocker:
         self.calls.append(('create', name))
 
     async def start(self, name):
+        mounts = self.containers[name]['spec']['HostConfig']['Mounts']
+        if self.refuse_lxcfs and any(m['Target'] == '/proc/meminfo' for m in mounts):
+            raise DockerError(f'POST /containers/{name}/start: 500 error mounting "/var/lib/lxcfs/proc/meminfo"')
         self.containers[name]['running'] = True
         self.calls.append(('start', name))
 
@@ -86,7 +92,8 @@ async def ready(url, key):
 
 def make_pool(**overrides):
     s = Settings(api_key='broker-key', admin_key='admin-key', max_running=3, admin_reserved=1, evict_min_idle=120,
-                 wait_seconds=10, idle_stop=900, stopped_remove=86400, volume_remove=7 * 86400, disk_quota_mb=5)
+                 wait_seconds=10, idle_stop=900, stopped_remove=86400, volume_remove=7 * 86400, disk_quota_mb=5,
+                 lxcfs_check_dir='/nonexistent-lxcfs')
     for k, v in overrides.items():
         setattr(s, k, v)
     docker, clock = FakeDocker(), Clock()
@@ -118,6 +125,80 @@ def test_each_user_gets_an_own_locked_down_container():
         assert host['Mounts'][0]['Source'] == f'term-home-{user_hash("alice")}'
         assert any(e.startswith('HTTPS_PROXY=') for e in spec['Env'])
         assert f'OPEN_TERMINAL_API_KEY={a.api_key}' in spec['Env']
+    run(go())
+
+
+def fake_lxcfs(tmp_path, files=LXCFS_FILES):
+    for rel in files:
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('MemTotal:        2097152 kB\n')
+    return str(tmp_path)
+
+
+def lxcfs_targets(docker, user):
+    mounts = docker.containers[f'term-{user_hash(user)}']['spec']['HostConfig']['Mounts']
+    return {m['Target']: m for m in mounts if m['Type'] == 'bind'}
+
+
+def test_lxcfs_files_are_mounted_when_the_host_runs_lxcfs(tmp_path):
+    async def go():
+        pool, docker, _ = make_pool(lxcfs_check_dir=fake_lxcfs(tmp_path))
+        await pool.endpoint('alice', 'user')
+        mounts = lxcfs_targets(docker, 'alice')
+        assert set(mounts) == {f'/{rel}' for rel in LXCFS_FILES}
+        assert mounts['/proc/meminfo'] == {'Type': 'bind', 'Source': '/var/lib/lxcfs/proc/meminfo',
+                                           'Target': '/proc/meminfo', 'ReadOnly': True}
+        env = docker.containers[f'term-{user_hash("alice")}']['spec']['Env']
+        assert 'OMP_NUM_THREADS=1' in env and 'OPENBLAS_NUM_THREADS=1' in env
+        assert pool.status()['lxcfs'] is True
+    run(go())
+
+
+def test_no_lxcfs_mounts_when_lxcfs_is_off_or_not_running(tmp_path):
+    async def go():
+        # lxcfs not running: its directory is empty (Docker made it for the broker's mount)
+        pool, docker, _ = make_pool(lxcfs_check_dir=str(tmp_path))
+        await pool.endpoint('alice', 'user')
+        assert lxcfs_targets(docker, 'alice') == {} and pool.status()['lxcfs'] is False
+        # switched off
+        pool, docker, _ = make_pool(lxcfs_check_dir=fake_lxcfs(tmp_path), lxcfs='off')
+        await pool.endpoint('alice', 'user')
+        assert lxcfs_targets(docker, 'alice') == {}
+        # an older lxcfs without some files: mount what it has
+        other = tmp_path / 'old'
+        pool, docker, _ = make_pool(lxcfs_check_dir=fake_lxcfs(other, ('proc/meminfo', 'proc/cpuinfo')))
+        await pool.endpoint('alice', 'user')
+        assert set(lxcfs_targets(docker, 'alice')) == {'/proc/meminfo', '/proc/cpuinfo'}
+    run(go())
+
+
+def test_a_terminal_starts_without_lxcfs_when_docker_refuses_it(tmp_path):
+    async def go():
+        pool, docker, _ = make_pool(lxcfs_check_dir=fake_lxcfs(tmp_path))
+        docker.refuse_lxcfs = True
+        await pool.endpoint('alice', 'user')
+        assert docker.running() == [f'term-{user_hash("alice")}']
+        assert lxcfs_targets(docker, 'alice') == {} and pool.lxcfs_failed
+        await pool.endpoint('bob', 'user')  # later terminals do not try again
+        assert lxcfs_targets(docker, 'bob') == {}
+    run(go())
+
+
+def test_a_stopped_terminal_made_with_lxcfs_is_made_again_when_lxcfs_is_gone(tmp_path):
+    async def go():
+        pool, docker, clock = make_pool(lxcfs_check_dir=fake_lxcfs(tmp_path))
+        await pool.endpoint('alice', 'user')
+        name = f'term-{user_hash("alice")}'
+        clock.now += 901
+        await pool.reap()
+        assert name not in docker.running()
+        # lxcfs stopped: the old container cannot start any more
+        (tmp_path / 'proc' / 'meminfo').unlink()
+        docker.refuse_lxcfs = True
+        await pool.endpoint('alice', 'user')
+        assert docker.running() == [name] and lxcfs_targets(docker, 'alice') == {}
+        assert ('remove', name) in docker.calls and f'term-home-{user_hash("alice")}' in docker.volumes
     run(go())
 
 

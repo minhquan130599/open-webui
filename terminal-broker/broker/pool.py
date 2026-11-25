@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import math
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -20,12 +21,17 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 
 from broker.config import Settings
-from broker.docker_api import LABEL, DockerApi
+from broker.docker_api import LABEL, DockerApi, DockerError
 from broker.store import Store, Terminal
 
 log = logging.getLogger('broker.pool')
 
 SPEC = 'spec'  # the shared terminal that answers requests made without a user (tool list, system prompt)
+
+# Files LXCFS serves per container (from its cgroup) instead of the kernel's whole-machine figures. `free`, `top`,
+# psutil, os.cpu_count() and the libraries that size their threads / caches read these.
+LXCFS_FILES = ('proc/meminfo', 'proc/cpuinfo', 'proc/stat', 'proc/uptime', 'proc/loadavg', 'proc/diskstats',
+               'proc/swaps', 'sys/devices/system/cpu/online')
 
 
 class Busy(Exception):
@@ -42,6 +48,10 @@ class Endpoint:
     url: str
     api_key: str
     over_quota: bool
+
+
+def _uses_lxcfs(info: dict) -> bool:
+    return any(m.get('Destination') == '/proc/meminfo' for m in info.get('Mounts') or [])
 
 
 def user_hash(user_id: str) -> str:
@@ -65,6 +75,7 @@ class Pool:
         self._lock = asyncio.Lock()
         self._user_locks: dict[str, asyncio.Lock] = {}
         self._touched: dict[str, float] = {}
+        self.lxcfs_failed = False  # Docker refused the LXCFS mounts once: stop using them
 
     # ------------------------------------------------------------ names
 
@@ -143,13 +154,35 @@ class Pool:
                 self.starting.pop(h, None)
             return Endpoint(h, self.url(t), t.api_key, bool(t.over_quota))
 
-    def _spec(self, t: Terminal) -> dict:
+    def lxcfs_mounts(self) -> list[dict]:
+        """Bind mounts of the LXCFS files the host serves now; none when lxcfs is off, absent or not answering."""
+        s = self.s
+        if s.lxcfs in ('off', 'false', '0', 'no', '') or self.lxcfs_failed:
+            return []
+        mounts = []
+        for rel in LXCFS_FILES:
+            try:
+                with open(f'{s.lxcfs_check_dir}/{rel}', 'rb') as f:
+                    f.read(16)  # a dead FUSE mount fails here (ENOTCONN), not at open()
+            except OSError:
+                if rel == 'proc/meminfo':
+                    return []  # lxcfs not running: terminals show the server's figures, as without it
+                continue  # an older lxcfs without this file
+            mounts.append({'Type': 'bind', 'Source': f'{s.lxcfs_host_dir}/{rel}', 'Target': f'/{rel}',
+                           'ReadOnly': True})
+        return mounts
+
+    def _spec(self, t: Terminal, lxcfs: bool = True) -> dict:
         s = self.s
         proxy = s.proxy_url
+        threads = str(max(1, math.ceil(s.cpus)))
         env = [
             f'OPEN_TERMINAL_API_KEY={t.api_key}',
             f'OPEN_TERMINAL_MAX_SESSIONS={s.max_sessions}',
             'OPEN_TERMINAL_LOG_RETENTION=604800',
+            # Libraries otherwise start one thread per CPU of the whole server
+            f'OMP_NUM_THREADS={threads}', f'OPENBLAS_NUM_THREADS={threads}', f'MKL_NUM_THREADS={threads}',
+            f'NUMEXPR_MAX_THREADS={threads}',
         ]
         if proxy:
             env += [f'HTTP_PROXY={proxy}', f'HTTPS_PROXY={proxy}', f'http_proxy={proxy}', f'https_proxy={proxy}',
@@ -160,6 +193,8 @@ class Pool:
             mounts.append({'Type': 'volume', 'Source': t.volume, 'Target': s.home})
         else:  # the shared terminal keeps nothing
             tmpfs[s.home] = f'rw,nosuid,nodev,size={s.tmp_mb}m,uid=1000,gid=1000'
+        if lxcfs:
+            mounts += self.lxcfs_mounts()
         host = {
             'NetworkMode': s.network,
             'Memory': s.memory_bytes,
@@ -194,11 +229,18 @@ class Pool:
         if info is None:
             if t.volume:
                 await self.docker.create_volume(t.volume, {f'{LABEL}.user': h})
-            t.api_key = secrets.token_urlsafe(32)  # a new container gets a new key
-            await self.docker.create(t.name, self._spec(t))
+            await self._create_and_start(t)
             self.store.event('created', user_id, h)
-        if not (info or {}).get('State', {}).get('Running'):
-            await self.docker.start(t.name)
+        elif not (info.get('State') or {}).get('Running'):
+            try:
+                await self.docker.start(t.name)
+            except DockerError:
+                if not _uses_lxcfs(info):
+                    raise
+                # Made while lxcfs ran, and lxcfs is gone now: make it again (the user's files are in the volume)
+                log.warning('%s cannot start without lxcfs; making it again', t.name)
+                await self.docker.remove(t.name)
+                await self._create_and_start(t)
         t.state = 'running'
         self.store.save(t)
         info = await self.docker.inspect(t.name) or {}
@@ -209,6 +251,22 @@ class Pool:
             await self._stop(t, 'start_failed')
             raise StartFailed(f'terminal {h} did not become ready')
         return t
+
+    async def _create_and_start(self, t: Terminal) -> None:
+        t.api_key = secrets.token_urlsafe(32)  # a new container gets a new key
+        spec = self._spec(t)
+        try:
+            await self.docker.create(t.name, spec)
+            await self.docker.start(t.name)
+        except DockerError:
+            if not any(m['Target'] == '/proc/meminfo' for m in spec['HostConfig']['Mounts']):
+                raise
+            # Docker refused the LXCFS mounts: a terminal without them beats no terminal
+            log.exception('%s fails with LXCFS; LXCFS stays off until the broker restarts', t.name)
+            self.lxcfs_failed = True
+            await self.docker.remove(t.name)
+            await self.docker.create(t.name, self._spec(t, lxcfs=False))
+            await self.docker.start(t.name)
 
     async def _wait_ready(self, t: Terminal, seconds: int = 60) -> bool:
         deadline = self.clock() + seconds
@@ -370,6 +428,7 @@ class Pool:
             'admin_reserved': self.s.admin_reserved,
             'limits': {'cpus': self.s.cpus, 'memory_mb': self.s.memory_mb, 'disk_quota_mb': self.s.disk_quota_mb,
                        'idle_stop_minutes': self.s.idle_stop // 60, 'volume_days': self.s.volume_remove // 86400},
+            'lxcfs': bool(self.lxcfs_mounts()),
             'terminals': terminals,
             'events_24h': self.store.counts(now - 86400),
             'recent_events': self.store.recent_events(30),

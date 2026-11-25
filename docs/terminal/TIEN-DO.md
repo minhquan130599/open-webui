@@ -152,3 +152,20 @@ Trạng thái: **đóng gói và hướng dẫn xong**. Chưa build, chưa cài.
 - Lỗi: `broker.smoke` gửi `wait` trong body, nhưng Open Terminal nhận `wait` trên URL, nên lệnh chạy ngầm và trả về rỗng.
   Sửa: gửi `wait` trên URL, lệnh chưa xong thì hỏi lại `/execute/{id}/status`.
 - Kết quả trên W (Docker Desktop): `broker.smoke --memory` **32/32 PASS**.
+
+## 25/11: LXCFS — terminal thấy RAM / CPU của chính nó
+
+Trước đó AI trong terminal đọc `free` / `/proc/meminfo` / `lscpu` ra cấu hình **cả máy chủ** (72 nhân, 63 GB) và đem trả
+lời người dùng. Giới hạn vẫn được áp dụng (cgroup), chỉ hiển thị sai.
+
+- Broker (`TERMINAL_LXCFS=auto`, mặc định): máy có chạy `lxcfs` thì gắn (chỉ đọc) `/proc/meminfo`, `cpuinfo`, `stat`,
+  `uptime`, `loadavg`, `diskstats`, `swaps`, `/sys/devices/system/cpu/online` của LXCFS vào terminal mới tạo. Broker
+  thấy LXCFS của máy qua `/var/lib/lxcfs:/lxcfs:ro,rslave` (compose). Không có LXCFS thì như cũ.
+- Docker từ chối gắn thì tạo terminal không có LXCFS và tắt LXCFS tới khi broker khởi động lại. Terminal cũ được tạo khi
+  có LXCFS mà nay không khởi động được (LXCFS đã dừng) thì được tạo lại, giữ volume.
+- Biến `OMP_NUM_THREADS` / `OPENBLAS_NUM_THREADS` / `MKL_NUM_THREADS` / `NUMEXPR_MAX_THREADS` = số CPU giới hạn.
+- `/_broker/status` có `lxcfs`. Smoke thêm 2 mục: RAM ≤ giới hạn, `os.cpu_count()` ≤ số CPU (SKIP khi không có LXCFS).
+- Skill `chon-nguon` quy tắc 7: hỏi cấu hình thì trả lời theo giới hạn, không đưa số liệu cả máy chủ.
+- Cài trên máy Linux: `E:\key\deloy\QUY-TRINH-BUILD-TEST-TRIEN-KHAI.md` mục 1.1 (`lxcfs --enable-cfs`).
+- Kiểm tra: 22 test broker PASS. Trên W: không có LXCFS → smoke 30/30 + SKIP; giả lập LXCFS (file giả ở
+  `/var/lib/lxcfs`) → 32/32, `free` = 2048 MB, `os.cpu_count()` = 1. **Chưa thử với lxcfs thật** (cần T1/T2).

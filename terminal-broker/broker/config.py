@@ -48,6 +48,12 @@ class Settings:
     runtime: str = field(default_factory=lambda: os.getenv('TERMINAL_RUNTIME', ''))  # e.g. runsc (gVisor)
     max_sessions: int = field(default_factory=lambda: _int('TERMINAL_MAX_SESSIONS', 4))
     proxy_url: str = field(default_factory=lambda: os.getenv('TERMINAL_PROXY_URL', 'http://egress-proxy:3128'))
+    # LXCFS: /proc/meminfo, /proc/cpuinfo... showing the terminal's own limits instead of the whole server.
+    # auto = use it when the host runs lxcfs (seen through `lxcfs_check_dir`, the host's `lxcfs_host_dir` mounted
+    # into the broker), off = never.
+    lxcfs: str = field(default_factory=lambda: os.getenv('TERMINAL_LXCFS', 'auto').strip().lower())
+    lxcfs_host_dir: str = field(default_factory=lambda: os.getenv('LXCFS_HOST_DIR', '/var/lib/lxcfs'))
+    lxcfs_check_dir: str = field(default_factory=lambda: os.getenv('LXCFS_CHECK_DIR', '/lxcfs'))
 
     # Capacity
     max_running: int = field(default_factory=lambda: _int('MAX_RUNNING', 10))

@@ -115,6 +115,27 @@ async def main(memory: bool) -> int:
         code, out, _ = await a.run('cat /sys/fs/cgroup/memory.max 2>/dev/null; cat /sys/fs/cgroup/cpu.max 2>/dev/null')
         check('memory limited to 2 GB', '2147483648' in out, out)
 
+        # What the terminal reports about the machine (LXCFS on the host): its own limits, not the server's
+        status = {}
+        if ADMIN_KEY:
+            r = await client.get('/_broker/status', headers={'Authorization': f'Bearer {ADMIN_KEY}'}, timeout=30)
+            status = r.json() if r.status_code == 200 else {}
+        limits = status.get('limits') or {}
+        if status.get('lxcfs'):
+            code, out, _ = await a.run('free -m | awk \'/^Mem:/ {print "MEM=" $2}\'; '
+                                       'python3 -c "import os; print(\'CPUS=\', os.cpu_count())"')
+            mem = next((w[4:] for w in out.split() if w.startswith('MEM=')), '')
+            want = int(limits.get('memory_mb') or 2048)
+            check(f'the terminal sees its own RAM ({want} MB), not the server\'s',
+                  mem.isdigit() and int(mem) <= want, out)
+            cpus = out.split('CPUS=')[-1].split()[:1]
+            check(f'the terminal sees its own CPUs ({limits.get("cpus")}), not the server\'s',
+                  bool(cpus) and cpus[0].isdigit() and int(cpus[0]) <= max(1, -(-float(limits.get('cpus') or 1) // 1)),
+                  out + '  (lxcfs needs --enable-cfs, see the deployment guide)')
+        else:
+            print('SKIP  LXCFS is not used on this machine: the terminal sees the server\'s RAM / CPUs'
+                  + ('' if ADMIN_KEY else ' (no BROKER_ADMIN_KEY to ask)'))
+
         if memory:
             code, out, data = await a.run('python3 -c "x = bytearray(3 * 1024**3); print(len(x))"', wait=120)
             check('a process over 2 GB is stopped and explained', code in (137, -9) and 'note' in data, str(data)[:300])
