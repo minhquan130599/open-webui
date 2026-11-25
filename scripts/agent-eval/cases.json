@@ -99,7 +99,8 @@
         "(?i)\\b(xeon|core i[3579]|ryzen|epyc)\\b",
         "(?i)\\b(3[2-9]|[4-9][0-9]|1[0-9]{2})\\s*GB\\b",
         "(?i)\\b(12|24|36|48|72)\\s*(nhân|luồng|core|thread)",
-        "(?i)mariadb|nginx|windows 1[01]"
+        "(?i)mariadb|nginx|windows 1[01]",
+        "(?i)kernel|lscpu|uname|\\bdf\\b"
       ]
     }
   }

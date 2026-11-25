@@ -146,6 +146,9 @@ from pydantic.fields import FieldInfo
 
 log = logging.getLogger(__name__)
 
+# Answers made outside the chat page (Telegram bot, channel AI): nobody can answer an ask_user question there
+NON_INTERACTIVE_SESSIONS = ('telegram:', 'channel:')
+
 
 async def build_tool_server_headers(
     connection: dict,
@@ -734,10 +737,13 @@ async def get_builtin_tools(
     if is_builtin_tool_enabled('time'):
         builtin_functions.extend([get_current_timestamp, calculate_timestamp])
 
-    if is_builtin_tool_enabled('user_input', True):
+    metadata = extra_params.get('__metadata__') or {}
+    # ask_user needs the chat page to show the question and send the answer back. Telegram and channel answers have no
+    # such place (the answer would wait forever), so there the model asks in its reply and the user answers next.
+    interactive = not str(metadata.get('session_id') or '').startswith(NON_INTERACTIVE_SESSIONS)
+    if is_builtin_tool_enabled('user_input', True) and interactive:
         builtin_functions.append(ask_user)
 
-    metadata = extra_params.get('__metadata__') or {}
     chat_files = metadata.get('files') or extra_params.get('__files__') or []
     has_chat_files = any(
         isinstance(item, dict)
