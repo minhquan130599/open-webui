@@ -525,3 +525,21 @@ Chờ trích xuất chữ 161 giây; đọc file tới giới hạn đọc; summ
   - Bỏ `detail` (brief/normal/full) và các cài đặt `files.summary.max_chars`.
 - Test (model giả, file 40 trang 4 chương): 3 phần, tổng quan đủ 4 mục với trang đúng, mục qua hai phần được gộp,
   tìm mục có dấu / không dấu, nguyên văn tr.9-19 chia 3 lần ở 8.000 ký tự.
+- Sửa sau khi chạy thật trên W (VERSION 3, bản tổng quan được làm lại khi có người hỏi):
+  - Hỏi "phần quản lý hội nhóm có những tính năng gì": model dùng `query_chat_files` 3 lần (16 nghìn ký tự mỗi lần)
+    và ảnh trang, ngữ cảnh đầy. Mô tả `query_chat_files` / `summarize_chat_file` nói rõ: hỏi một mục chứa gì thì gọi
+    thẳng `summarize_chat_file(section=...)`; kết quả nguyên văn ghi không cần tìm lại.
+  - Tiêu đề có cấp (`##` mục, `###` mục con...): đọc một mục là đọc cả các mục con của nó (2.13 → tr.192-208 gồm
+    2.13.2, 2.13.3). So khớp tiêu đề bỏ dấu câu ("HỘI - NHÓM" = "hội nhóm").
+  - Chữ ở đầu một phần chưa có tiêu đề được nối vào mục trước, tới trang của tiêu đề đầu tiên của phần.
+- Hỏi một chủ đề (`summarize_chat_file(section, question)`): chọn mục theo nghĩa, không theo tên tiêu đề:
+  - Tìm vector trên chỉ mục của file (40 đoạn, cấu hình hybrid / reranker như `query_chat_files`), mỗi đoạn trỏ về
+    trang của nó; mỗi đoạn tính điểm cho mục hẹp nhất chứa nó (trọng số 1/sqrt(thứ hạng)); tiêu đề trùng tên chủ đề
+    tính bằng mục tốt nhất. Lấy các mục đạt từ 30% điểm cao nhất, tối đa 8 × `page_chars` ký tự; mục con kéo theo
+    phần mở đầu của mục cha.
+  - Nguồn vừa một lần đọc (`page_chars`): trả nguyên văn. Dài hơn: hệ thống tự đọc hết trong câu trả lời, từng đoạn
+    `segment_chars` song song, model ghi lại mọi thứ liên quan câu hỏi kèm [tr.N] (đoạn không liên quan bị bỏ), gộp
+    lại tới khi vừa; không bắt người dùng gõ "tiếp". "tiếp" chỉ còn cho bản tổng quan dài hơn một câu trả lời.
+  - Test (số liệu giả theo các mục của OSINT3 trên W): hỏi bằng từ đồng nghĩa không có trong tiêu đề vẫn lấy được
+    2.13 (kèm mục cha), 2.13.2, 2.13.3, "Danh sách thành viên trong hội - nhóm", "Nhật ký hoạt động của hội - nhóm";
+    59 nghìn ký tự nguồn đọc bằng 4 lần gọi model, ghi chú phủ 26/26 trang liên quan.

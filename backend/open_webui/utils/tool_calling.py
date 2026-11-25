@@ -354,10 +354,12 @@ def prepare_tool_call(call, schema=None, *, display_labels=False, approval_revie
 
 
 def final_answer_payload(payload):
-    """Make one OpenAI-compatible continuation request with tools disabled."""
-    return {
-        **payload,
-        'tools': [],
-        'tool_choice': 'none',
-        'messages': [*payload.get('messages', []), {'role': 'system', 'content': FINAL_ANSWER_PROMPT}],
-    }
+    """Make one OpenAI-compatible continuation request with tools disabled.
+
+    The tool list is left out, not sent empty: vLLM (and OpenAI) refuse `tools: []` ("`tools` must not be an empty
+    array"), which ended the answer with that error instead of the final answer. tool_choice goes with it, since
+    it may only be sent together with tools. The tool calls already in the messages stay valid without the list.
+    """
+    final = {key: value for key, value in payload.items() if key not in ('tools', 'tool_choice', 'parallel_tool_calls')}
+    final['messages'] = [*payload.get('messages', []), {'role': 'system', 'content': FINAL_ANSWER_PROMPT}]
+    return final

@@ -2830,8 +2830,10 @@ async def query_chat_files(
 ) -> str:
     """
     Search files attached to the current chat using semantic/vector search and return the matching passages.
-    Use it to find specific facts; to read a whole file use view_file, to summarize a long file use
-    summarize_chat_file.
+    Use it to find one specific fact (a number, a name, a clause) when you do not know where it is. It returns
+    scattered fragments: to know what a section, chapter or feature of a long file contains ("phần X có những gì",
+    "chi tiết mục Y") use summarize_chat_file with section, which gives that section's whole text at once; to
+    summarize a long file use summarize_chat_file; to read a whole short file use view_file.
     Pass file_id from the attached_files block to search one file, or omit it to search all attached chat files.
 
     :param query: The search query to find semantically relevant content
@@ -3268,6 +3270,59 @@ async def _summary_completion(request: Request, user: UserModel, model_id: str, 
     return ''.join(parts)
 
 
+async def _search_file_positions(request, user: dict, file, structure: dict, query: str, k: int) -> list[dict]:
+    """Where in a file the passages closest in meaning to `query` are, best first: {'offset', 'page'} each.
+
+    The same search as query_chat_files (embedding, hybrid and reranker as configured), on this one file; only the
+    positions are kept, to choose whole sections to read.
+    """
+    from open_webui.retrieval.utils import get_sources_from_items
+    from open_webui.utils.file_structure import page_at
+
+    embedding_function = getattr(request.app.state, 'EMBEDDING_FUNCTION', None)
+    if not embedding_function or not query.strip():
+        return []
+    rag_config = await Config.get_many(
+        'rag.top_k_reranker', 'rag.relevance_threshold', 'rag.hybrid_bm25_weight', 'rag.enable_hybrid_search'
+    )
+    user_model = UserModel(**user)
+    try:
+        sources = await get_sources_from_items(
+            request=request,
+            items=[{'type': 'file', 'id': file.id, 'name': file.filename}],
+            queries=[query],
+            embedding_function=lambda queries, prefix: embedding_function(queries, prefix=prefix, user=user_model),
+            k=k,
+            reranking_function=(
+                (lambda q, docs: request.app.state.RERANKING_FUNCTION(q, docs, user=user_model))
+                if getattr(request.app.state, 'RERANKING_FUNCTION', None)
+                else None
+            ),
+            k_reranker=max(k, rag_config.get('rag.top_k_reranker') or 0),
+            r=rag_config.get('rag.relevance_threshold'),
+            hybrid_bm25_weight=rag_config.get('rag.hybrid_bm25_weight'),
+            hybrid_search=rag_config.get('rag.enable_hybrid_search'),
+            full_context=False,
+            user=user_model,
+            full_context_char_threshold=0,
+        )
+    except Exception as error:
+        log.warning('summarize_chat_file: search in %s failed (%s)', file.id, error)
+        return []
+    positions = []
+    for source in sources or []:
+        for metadata in source.get('metadata') or []:
+            metadata = metadata if isinstance(metadata, dict) else {}
+            offset = metadata.get('start_index')
+            page = metadata.get('page_label')
+            if page is None and offset is not None and structure.get('pages'):
+                page = page_at(structure, int(offset))
+            if page is None and isinstance(metadata.get('page'), int):
+                page = metadata['page'] + 1
+            positions.append({'offset': int(offset) if offset is not None else None, 'page': int(page) if page else None})
+    return positions
+
+
 # Tasks started by a tool that outlive its call (kept referenced until done).
 _BACKGROUND_TASKS: set = set()
 
@@ -3275,6 +3330,7 @@ _BACKGROUND_TASKS: set = set()
 async def summarize_chat_file(
     file_id: str,
     section: Optional[str] = None,
+    question: Optional[str] = None,
     pages: Optional[str] = None,
     part: int = 1,
     focus: Optional[str] = None,
@@ -3284,26 +3340,26 @@ async def summarize_chat_file(
     __event_emitter__: callable = None,
 ) -> str:
     """
-    Summarize an attached file, or give the original text of one of its sections.
+    Summarize a long attached file, or answer what one of its topics contains, from the whole file.
 
     Without section/pages: the overview of the whole file. It lists every heading of the file in order, each with
     its pages [tr.a-b] and its main points; present it as the summary, keeping every heading. A large file just
     uploaded takes minutes: the call waits until the overview is done (the user sees the progress), so call it
     once and wait.
 
-    With section or pages: the ORIGINAL text of that part of the file, to answer questions about its details
-    ("chi tiết phần X", "phần X nói gì", "điều kiện ở mục Y"). Use the pages shown next to the heading in the
-    overview when you have them.
-
-    A long result comes in parts: answer from the part you got and invite the user to type "tiếp"; when they do,
-    call again with part=N+1 and the same section/pages.
+    With section: what the file says about that topic ("phần X có những tính năng gì", "chi tiết mục Y", "điều kiện
+    về Z"), in the user's own words (other wordings and synonyms are fine). The server finds every section of the
+    file about it by meaning, reads all of them in full and gives you their text, or, when that is too long for one
+    read, notes from all of it that bear on the question. Answer from that; it covers the whole file, so do not
+    search again. Call it once per topic.
 
     :param file_id: The ID of the file
-    :param section: Optional heading to read in full, as written in the overview or the file ("Quản lý người dùng")
-    :param pages: Optional pages to read in full, like "20-26" or "3, 12-18"
-    :param part: Part number of a long result (1 first; then 2, 3... when the user types "tiếp")
+    :param section: The topic or section the user asks about, in their words ("quản lý hội nhóm")
+    :param question: The user's question about it, for what to keep when the text is long (default: section)
+    :param pages: Optional exact pages to read instead, like "20-26" or "3, 12-18"
+    :param part: Part of a long overview (1 first; 2, 3... when the user types "tiếp" for the rest of the summary)
     :param focus: Optional topic the user asked about, for the overview (it still covers the whole file)
-    :return: JSON with the overview or the original text (this part), part/parts_total and a note on how to answer
+    :return: JSON with the overview (this part), or the text / notes of the topic, and a note on how to answer
     """
     if __request__ is None or not __user__:
         return JSONCodec.dumps({'error': 'Request and user context required'})
@@ -3319,7 +3375,10 @@ async def summarize_chat_file(
             overview_blocks,
             paginate,
             parse_pages,
+            pick_regions,
+            rank_regions,
             reuse_summary,
+            with_parents,
             source_view,
             store_part,
             store_summary,
@@ -3397,18 +3456,70 @@ async def summarize_chat_file(
                 model_calls=False,
             )
 
-        # ---- details: the original text of a section or of some pages
+        # ---- a topic of the file: every section about it, found by meaning, read in full
         if section or pages:
+            question_text = question.strip() if isinstance(question, str) and question.strip().lower() not in ('', 'none', 'null') else ''
+            question_text = question_text or section or f'trang {pages}'
             total_pages = len(structure.get('pages') or [])
+            page_len = {page: end - start for page, start, end in structure.get('pages') or []}
             wanted_pages: list[int] = parse_pages(pages, total_pages) if pages and total_pages else []
             ranges: list[tuple[int, int]] = []
             label = f'trang {pages}' if wanted_pages else ''
+            # Read at most this much source for one topic (the notes step reads it in segment_chars pieces).
+            max_read = page_chars * 8
             if not wanted_pages:
+                await emit(f'Đang tìm các phần về "{section}" trong {file.filename}')
                 overview = await overview_so_far()
                 outline = await asyncio.to_thread(build_outline, content, structure, 400)
-                hits = find_sections(overview, outline, section or pages)
-                if not hits:
-                    headings = [
+                query = section if question_text == section else f'{section}\n{question_text}'
+                hits = await _search_file_positions(__request__, __user__, file, structure, query, k=40)
+                # A heading named like the topic counts as much as the best match by meaning.
+                named = find_sections(overview, outline, section)
+                if total_pages:
+                    regions = [
+                        {'lo': s['first'], 'hi': s['last'], 'title': s['title'], 'level': s.get('level')}
+                        for s in (overview or {}).get('sections') or []
+                        if s.get('first')
+                    ]
+                    all_regions = list(regions)
+                    hit_pages = [hit['page'] for hit in hits if hit.get('page')]
+                    if not regions:  # the overview is not made yet: the pages the search found
+                        regions = [{'lo': page, 'hi': page, 'title': f'tr.{page}'} for page in dict.fromkeys(hit_pages)]
+                    ranked = rank_regions(regions, hit_pages)
+                    top = ranked[0]['score'] if ranked else 1.0
+                    ranked = [
+                        *({'lo': h['first'], 'hi': h['last'], 'title': h['title'], 'score': top} for h in named if h.get('first')),
+                        *ranked,
+                    ]
+                    picked = with_parents(
+                        pick_regions(
+                            ranked, lambda r: sum(page_len.get(p, 0) for p in range(r['lo'], r['hi'] + 1)), max_read
+                        ),
+                        all_regions,
+                    )
+                    for region in picked:
+                        wanted_pages.extend(p for p in range(region['lo'], region['hi'] + 1) if p not in wanted_pages)
+                    wanted_pages.sort()
+                else:
+                    headings = outline.get('headings') or []
+                    regions = []
+                    for i, heading in enumerate(headings):
+                        following = [h for h in headings[i + 1 :] if h['level'] <= heading['level']]
+                        end = following[0]['offset'] if following else len(content)
+                        regions.append({'lo': heading['offset'], 'hi': end, 'title': heading['title']})
+                    hit_offsets = [hit['offset'] for hit in hits if hit.get('offset') is not None]
+                    if not regions:  # no headings: the text around each match
+                        regions = [{'lo': max(0, o - 3000), 'hi': min(len(content), o + 6000), 'title': ''} for o in hit_offsets]
+                    ranked = rank_regions(regions, hit_offsets)
+                    top = ranked[0]['score'] if ranked else 1.0
+                    ranked = [
+                        *({'lo': h['start'], 'hi': h['end'], 'title': h['title'], 'score': top} for h in named if 'start' in h),
+                        *ranked,
+                    ]
+                    picked = pick_regions(ranked, lambda r: r['hi'] - r['lo'], max_read)
+                    ranges = [(region['lo'], region['hi']) for region in picked]
+                if not wanted_pages and not ranges:
+                    titles = [
                         f'{s["title"]} (tr.{s["first"]}-{s["last"]})' if s.get('first') else s['title']
                         for s in (overview or {}).get('sections') or []
                     ] or [
@@ -3419,35 +3530,73 @@ async def summarize_chat_file(
                         {
                             'id': file.id,
                             'filename': file.filename,
-                            'error': f'No heading of the file matches "{section or pages}".',
-                            'headings': headings[:200],
-                            'note': 'Pick the matching heading (or its pages) from this list and call again with '
-                            'section or pages; if none matches, ask the user which part they mean.',
+                            'error': f'Nothing in the file is about "{section}".',
+                            'headings': titles[:200],
+                            'note': 'Tell the user the file does not cover this, or, if one of these headings is '
+                            'what they mean, call again with its pages.',
                         },
                         ensure_ascii=False,
                     )
-                for hit in hits:
-                    if hit.get('first'):
-                        wanted_pages.extend(p for p in range(hit['first'], hit['last'] + 1) if p not in wanted_pages)
-                    else:
-                        ranges.append((hit['start'], hit['end']))
-                wanted_pages.sort()
                 label = '; '.join(
-                    f'{h["title"]} (tr.{h["first"]}-{h["last"]})' if h.get('first') else h['title'] for h in hits
+                    region['title'] + (f' (tr.{region["lo"]}-{region["hi"]})' if total_pages else '')
+                    for region in picked
+                    if region.get('title')
                 )
-            chunks = paginate(source_view(content, structure, wanted_pages, ranges), page_chars)
-            index, text = page_of(chunks)
+            blocks = source_view(content, structure, wanted_pages, ranges)
+            text = '\n\n'.join(blocks)
+            given[turn_key] = 1
+            if len(text) <= page_chars:
+                _charge_read(__metadata__, text)
+                return JSONCodec.dumps(
+                    {
+                        'id': file.id,
+                        'filename': file.filename,
+                        'source': label,
+                        'text': text,
+                        'note': 'This is the ORIGINAL text of every part of the file about this topic (page starts '
+                        'are marked [trang N]). Answer the user from it now, completely, with page references '
+                        '[tr.N]; do not search the file again, and do not invent anything it does not say.',
+                    },
+                    ensure_ascii=False,
+                )
+
+            # Too long to read at once: read all of it here, piece by piece, for what bears on the question.
+            from open_webui.file_pipeline.summary import extract_for_question, summary_ceiling
+            from open_webui.tracker.llm import generate_text
+
+            async def complete(message) -> str:
+                return await generate_text(
+                    [{'role': 'user', 'content': message}],
+                    max_tokens=summary_ceiling(message),
+                    continue_cut=False,
+                    model=settings['files.summary.model'] or None,
+                    purpose='file_topic',
+                    disable_thinking=settings['files.summary.disable_thinking'],
+                )
+
+            await emit(f'Đang đọc {len(text) // 1000} nghìn ký tự về "{section or pages}" trong {file.filename}')
+            notes = await extract_for_question(
+                file.filename,
+                question_text,
+                blocks,
+                complete,
+                chunk_chars=settings['files.summary.segment_chars'],
+                fit_chars=page_chars,
+                concurrency=settings['files.summary.concurrency'],
+                emit=emit,
+            )
+            await emit(f'Đã đọc xong các phần về "{section or pages}"', True)
+            _charge_read(__metadata__, notes)
             return JSONCodec.dumps(
                 {
                     'id': file.id,
                     'filename': file.filename,
                     'source': label,
-                    'part': index,
-                    'parts_total': len(chunks),
-                    'text': text,
-                    'note': 'This is the ORIGINAL text of the file (page starts are marked [trang N]). Answer the '
-                    'user from it, with page references [tr.N]; do not invent anything it does not say.'
-                    + more_note(index, len(chunks), 'this text'),
+                    'notes': notes or '(Không có nội dung liên quan.)',
+                    'note': f'These notes were taken from the whole original text of every part of the file about '
+                    f'this topic ({len(text)} characters, read in full) for the question: {question_text}. Answer the '
+                    'user from them now, completely, with page references [tr.N]; do not search the file again, and '
+                    'do not invent anything they do not say.',
                 },
                 ensure_ascii=False,
             )

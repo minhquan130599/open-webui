@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 THINK_RE = re.compile(r'<think>.*?</think>', re.DOTALL)
 
-VERSION = 2
+VERSION = 3
 
 PART_PROMPT = """You are reading part {index} of {total} of the document "{name}"{pages}. Page starts are marked [trang N].
 Write the overview of this part, in the language of the document. For every heading of this part (chapter, section,
@@ -35,6 +35,8 @@ part (start with its heading):
 - 2 to 5 main points: what the section is about, and its key numbers, dates, deadlines, amounts, thresholds,
   roles, obligations, conditions and exceptions, each with its page like [tr.12]
 
+Write the heading's level with the number of #: ## for a top-level section (chapter, "2.13"), ### for its
+subsections ("2.13.2"), #### below that. The pages of a heading are its own text, before its first subsection.
 Cover every heading; do not leave one out. Keep it short (about {target} characters for this part): main points
 only, no detail lists, no introduction, no conclusion. Do not add anything that is not in the text.{images}
 
@@ -47,7 +49,7 @@ Complete = Callable[[object], Awaitable[str]]
 MAX_CACHED_PARTS = 400
 _part_locks: dict = {}
 
-_HEADING_RE = re.compile(r'^##\s+(.+?)\s*\[\s*tr\.\s*(\d+)(?:\s*[-–]\s*(\d+))?\s*\]\s*$', re.MULTILINE)
+_HEADING_RE = re.compile(r'^(#{2,6})\s+(.+?)\s*\[\s*tr\.\s*(\d+)(?:\s*[-–]\s*(\d+))?\s*\]\s*$', re.MULTILINE)
 
 
 def cache_key(content: str, file_hash: Optional[str], focus: Optional[str] = None) -> str:
@@ -183,13 +185,21 @@ def _blocks_of(part: dict) -> list[dict]:
     matches = list(_HEADING_RE.finditer(text))
     blocks = []
     lead = text[: matches[0].start()].strip() if matches else text.strip()
-    if lead:  # text before the first heading (or a part without headings)
-        blocks.append({'title': part['label'], 'first': part.get('first'), 'last': part.get('last'), 'body': lead})
+    if lead:  # text before the first heading (or a part without headings): up to the first heading's page
+        blocks.append({
+            'title': part['label'],
+            'level': 2,
+            'first': part.get('first'),
+            'last': int(matches[0].group(3)) if matches else part.get('last'),
+            'body': lead,
+            'lead': True,
+        })
     for i, match in enumerate(matches):
-        first, last = int(match.group(2)), int(match.group(3) or match.group(2))
+        first, last = int(match.group(3)), int(match.group(4) or match.group(3))
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         blocks.append({
-            'title': match.group(1).strip(),
+            'title': match.group(2).strip(),
+            'level': len(match.group(1)),
             'first': min(first, last),
             'last': max(first, last),
             'body': text[match.end() : end].strip(),
@@ -205,20 +215,26 @@ def _join_blocks(parts: list[dict]) -> list[dict]:
     for part in parts:
         for block in _blocks_of(part):
             previous = joined[-1] if joined else None
+            # Text at the top of a part with no heading of its own goes on the section before it.
+            if block.get('lead') and previous and previous['last'] and part.get('first'):
+                previous['last'] = max(previous['last'], block['last'] or 0)
+                previous['body'] = f'{previous["body"]}\n{block["body"]}'.strip()
+                continue
             if previous and previous['part'] != block['part'] and _normalize(previous['title']) == _normalize(block['title']):
                 previous['last'] = max(previous['last'] or 0, block['last'] or 0) or None
                 previous['body'] = f'{previous["body"]}\n{block["body"]}'.strip()
                 previous['part'] = block['part']
                 continue
-            joined.append(dict(block))
+            joined.append({k: v for k, v in block.items() if k != 'lead'})
     return joined
 
 
 def _render(block: dict) -> str:
+    marks = '#' * min(max(block.get('level') or 2, 2), 6)
     if block.get('first'):
         pages = f'tr.{block["first"]}' if block['first'] == block['last'] else f'tr.{block["first"]}-{block["last"]}'
-        return f'## {block["title"]} [{pages}]\n{block["body"]}'.strip()
-    return f'## {block["title"]}\n{block["body"]}'.strip()
+        return f'{marks} {block["title"]} [{pages}]\n{block["body"]}'.strip()
+    return f'{marks} {block["title"]}\n{block["body"]}'.strip()
 
 
 async def summarize_file(
@@ -345,7 +361,7 @@ async def summarize_file(
         'parts_total': total,
         # Overview in document order, one block per heading.
         'summary': '\n\n'.join(_render(block) for block in blocks),
-        'sections': [{k: block[k] for k in ('title', 'first', 'last', 'part')} for block in blocks],
+        'sections': [{k: block.get(k) for k in ('title', 'level', 'first', 'last', 'part')} for block in blocks],
         'parts': [{k: p[k] for k in ('index', 'label', 'pages', 'first', 'last', 'start', 'end')} for p in parts],
     }
     if pending:
@@ -357,7 +373,9 @@ def _normalize(text: str) -> str:
     import unicodedata
 
     text = unicodedata.normalize('NFD', (text or '').lower())
-    return ' '.join(''.join(c for c in text if not unicodedata.combining(c)).replace('đ', 'd').split())
+    text = ''.join(c for c in text if not unicodedata.combining(c)).replace('đ', 'd')
+    # Words only: "HỘI - NHÓM", "hội nhóm" and "Hội-nhóm" are the same heading.
+    return ' '.join(re.sub(r'[^\w]+', ' ', text).split())
 
 
 def parse_pages(spec: str, last_page: int) -> list[int]:
@@ -382,7 +400,19 @@ def find_sections(overview: Optional[dict], outline: dict, wanted: str) -> list[
         name = _normalize(title)
         return bool(name) and (key in name or name in key)
 
-    hits = [s for s in (overview or {}).get('sections') or [] if matches(s['title']) and s.get('first')]
+    # A section is its heading and its subsections (the headings after it at a deeper level), so "2.13 Quản lý
+    # hội - nhóm" brings 2.13.2 and 2.13.3 with it.
+    sections = (overview or {}).get('sections') or []
+    hits = []
+    for i, section in enumerate(sections):
+        if not (section.get('first') and matches(section['title'])):
+            continue
+        level, last = section.get('level') or 2, section['last']
+        for child in sections[i + 1 :]:
+            if (child.get('level') or 2) <= level:
+                break
+            last = max(last, child.get('last') or last)
+        hits.append({**section, 'last': last})
     if hits:
         return hits
     headings = outline.get('headings') or []
@@ -401,6 +431,135 @@ def find_sections(overview: Optional[dict], outline: dict, wanted: str) -> list[
     return found
 
 
+def rank_regions(regions: list[dict], hits: list[int]) -> list[dict]:
+    """Regions ({'lo', 'hi', ...}: page or offset bounds) scored by the search hits that fall in them.
+
+    hits are positions (pages or offsets) in rank order, best first; a hit counts for the narrowest region that
+    holds it (a subsection rather than its chapter), weighted by its rank. The weight falls slowly (1/sqrt): a
+    section read for nothing costs one reading step, which drops it as unrelated; a section missed loses part of
+    the answer. Regions without a hit are left out.
+    """
+    scores: dict[int, float] = {}
+    for rank, position in enumerate(hits):
+        holding = [i for i, region in enumerate(regions) if region['lo'] <= position <= region['hi']]
+        if holding:
+            narrowest = min(holding, key=lambda i: regions[i]['hi'] - regions[i]['lo'])
+            scores[narrowest] = scores.get(narrowest, 0.0) + 1.0 / (rank + 1) ** 0.5
+    return [{**regions[i], 'score': score} for i, score in sorted(scores.items(), key=lambda item: -item[1])]
+
+
+def with_parents(picked: list[dict], regions: list[dict]) -> list[dict]:
+    """Picked subsections bring their parent section's own text (its introduction before its first subsection):
+    regions are in document order, each with a 'level'; the parent is the nearest earlier one at a lower level."""
+    out = list(picked)
+    keys = {(r['lo'], r['hi']) for r in picked}
+    for region in picked:
+        level = region.get('level') or 2
+        index = next((i for i, r in enumerate(regions) if (r['lo'], r['hi']) == (region['lo'], region['hi'])), None)
+        if index is None:
+            continue
+        parent = next((r for r in reversed(regions[:index]) if (r.get('level') or 2) < level), None)
+        if parent and (parent['lo'], parent['hi']) not in keys:
+            keys.add((parent['lo'], parent['hi']))
+            out.append({**parent, 'score': region.get('score', 0)})
+    return sorted(out, key=lambda r: r['lo'])
+
+
+def pick_regions(ranked: list[dict], size_of: Callable[[dict], int], max_size: int, share: float = 0.3) -> list[dict]:
+    """The regions worth reading: those scoring at least `share` of the best one, best first while they fit in
+    max_size (size_of a region), returned in document order."""
+    if not ranked:
+        return []
+    best = ranked[0]['score']
+    picked, used, seen = [], 0, set()
+    for region in ranked:
+        if region['score'] < best * share:
+            break
+        if (region['lo'], region['hi']) in seen:  # found both by its name and by meaning
+            continue
+        seen.add((region['lo'], region['hi']))
+        size = size_of(region)
+        if picked and used + size > max_size:
+            continue
+        picked.append(region)
+        used += size
+    return sorted(picked, key=lambda region: region['lo'])
+
+
+EXTRACT_PROMPT = """The user asked about the document "{name}": {question}
+Below is the original text of {where} (page starts are marked [trang N]). Write down everything in it that answers or
+bears on the question, in the language of the document: every relevant feature, screen, field, button, rule,
+condition, permission, number and exception, with its page like [tr.12], in document order. Keep the details; leave
+out only what has nothing to do with the question. If nothing here is relevant, write only: KHÔNG LIÊN QUAN
+
+<text>
+{text}
+</text>"""
+
+COMBINE_PROMPT = """Below are notes taken, in order, from parts of the document "{name}" for the question: {question}
+Combine them into one set of notes in document order: keep every relevant item with its page [tr.N]; remove only
+repetition.
+
+{text}"""
+
+NOTHING = 'KHÔNG LIÊN QUAN'
+
+
+async def extract_for_question(
+    name: str,
+    question: str,
+    blocks: list[str],
+    complete: Complete,
+    *,
+    chunk_chars: int,
+    fit_chars: int,
+    concurrency: int,
+    emit: Optional[Callable[[str, bool], Awaitable[None]]] = None,
+) -> str:
+    """Notes answering `question` from source text too long to give the answering model at once.
+
+    The text is cut into chunks of chunk_chars, each read by the model on its own (in parallel) for what bears on
+    the question; the notes are put together in order and, while longer than fit_chars, combined again. Nothing
+    is left for the user to ask for: the whole text is read within the answer.
+    """
+    chunks = paginate(blocks, chunk_chars)
+    semaphore = asyncio.Semaphore(max(concurrency, 1))
+    done = 0
+
+    def where(chunk: str) -> str:
+        pages = re.findall(r'^\[trang (\d+)\]', chunk, re.MULTILINE)
+        return f'pages {pages[0]}-{pages[-1]}' if pages else 'a part of it'
+
+    async def read(chunk: str) -> str:
+        nonlocal done
+        async with semaphore:
+            note = THINK_RE.sub('', await complete(
+                EXTRACT_PROMPT.format(name=name, question=question, where=where(chunk), text=chunk)
+            ) or '').strip()
+        done += 1
+        if emit:
+            await emit(f'Đã đọc {done}/{len(chunks)} đoạn liên quan của {name}', False)
+        return '' if not note or note.upper().startswith(NOTHING) else note
+
+    notes = [note for note in await asyncio.gather(*(read(chunk) for chunk in chunks)) if note]
+    for _ in range(3):
+        joined = '\n\n'.join(notes)
+        if len(joined) <= fit_chars or len(notes) <= 1:
+            return joined
+        groups = paginate(notes, chunk_chars)
+        if emit:
+            await emit(f'Đang gộp ghi chú của {name}', False)
+
+        async def combine(group: str) -> str:
+            async with semaphore:
+                return THINK_RE.sub('', await complete(
+                    COMBINE_PROMPT.format(name=name, question=question, text=group)
+                ) or '').strip()
+
+        notes = [note for note in await asyncio.gather(*(combine(group) for group in groups)) if note]
+    return '\n\n'.join(notes)
+
+
 def source_view(content: str, structure: dict, pages: list[int], ranges: list[tuple[int, int]]) -> list[str]:
     """The original text of these pages (each marked [trang N]) or text ranges, in document order."""
     if pages:
@@ -416,7 +575,7 @@ def source_view(content: str, structure: dict, pages: list[int], ranges: list[tu
 
 
 def overview_blocks(result: dict) -> list[str]:
-    """The overview cut at its headings, so a long one is delivered in whole sections."""
+    """The overview cut at its top-level headings, so a long one is delivered in whole sections."""
     text = result.get('summary') or ''
     starts = [m.start() for m in re.finditer(r'^## ', text, re.MULTILINE)]
     if not starts or starts[0] != 0:
@@ -451,7 +610,11 @@ __all__ = [
     'cached_parts',
     'cached_summary',
     'ensure_plan',
+    'extract_for_question',
     'find_sections',
+    'pick_regions',
+    'rank_regions',
+    'with_parents',
     'overview_blocks',
     'paginate',
     'parse_pages',
