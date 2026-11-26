@@ -335,8 +335,11 @@ async def summarize_file(
                     log.warning('summary: page %s of %s not rendered (%s)', page, file.id, error)
             message = [{'type': 'text', 'text': prompt}, *images]
         async with semaphore:
-            summary = THINK_RE.sub('', await complete(message) or '').strip()
-        if summary:
+            raw = await complete(message)
+        # A part cut at the output ceiling is used now but not kept: kept, it would stand as complete for good.
+        cut = bool(getattr(raw, 'cut', False))
+        summary = THINK_RE.sub('', raw or '').strip()
+        if summary and not cut:
             part_cache[key] = summary
             if save_part:
                 try:
@@ -345,7 +348,7 @@ async def summarize_file(
                     log.warning('summary: part of %s not saved (%s)', file.id, error)
         done += 1
         await notify(f'Đã đọc {done}/{total} phần của {file.filename}')
-        return {**entry, 'text': summary or '(không có nội dung tóm tắt)'}
+        return {**entry, 'text': summary or '(không có nội dung tóm tắt)', **({'cut': True} if cut else {})}
 
     await notify(f'Đang đọc {file.filename} ({total} phần)')
     parts = list(await asyncio.gather(*(part(i + 1, *segment) for i, segment in enumerate(segments))))
@@ -366,6 +369,10 @@ async def summarize_file(
     }
     if pending:
         result.update(complete=False, pending_pages=[p['pages'] or p['label'] for p in pending])
+    cut = [p for p in made if p.get('cut')]
+    if cut:
+        # Not complete, so not stored as the file's overview: the next request makes those parts again.
+        result.update(complete=False, cut_pages=[p['pages'] or p['label'] for p in cut])
     return result
 
 
@@ -499,7 +506,8 @@ full. If nothing here is relevant, write only: KHÔNG LIÊN QUAN
 
 COMBINE_PROMPT = """Below are notes taken, in order, from parts of the document "{name}" for the question: {question}
 Combine them into one set of notes in document order: keep every relevant item with its page [tr.N]; remove only
-repetition. Keep commands, configuration lines and examples exactly as they are, every line.
+repetition. Keep commands, configuration lines and examples exactly as they are, every line. Stay within about
+{target} characters: shorten the wording and merge points said more than once, but leave out no relevant item.
 
 {text}"""
 
@@ -545,20 +553,26 @@ async def extract_for_question(
     notes = [note for note in await asyncio.gather(*(read(chunk) for chunk in chunks)) if note]
     for _ in range(3):
         joined = '\n\n'.join(notes)
-        if len(joined) <= fit_chars or len(notes) <= 1:
+        if len(joined) <= fit_chars:
             return joined
+        # Too long for the answering model: combined again, each group asked for its share of fit_chars (a single
+        # note too long is split and combined too, not passed on as it is).
         groups = paginate(notes, chunk_chars)
+        target = max(fit_chars // max(len(groups), 1), 2000)
         if emit:
             await emit(f'Đang gộp ghi chú của {name}', False)
 
         async def combine(group: str) -> str:
             async with semaphore:
                 return THINK_RE.sub('', await complete(
-                    COMBINE_PROMPT.format(name=name, question=question, text=group)
+                    COMBINE_PROMPT.format(name=name, question=question, text=group, target=target)
                 ) or '').strip()
 
         notes = [note for note in await asyncio.gather(*(combine(group) for group in groups)) if note]
-    return '\n\n'.join(notes)
+    joined = '\n\n'.join(notes)
+    if len(joined) > fit_chars:
+        log.warning('extract_for_question: notes for %s still %s chars after combining (limit %s)', name, len(joined), fit_chars)
+    return joined
 
 
 def source_view(content: str, structure: dict, pages: list[int], ranges: list[tuple[int, int]]) -> list[str]:

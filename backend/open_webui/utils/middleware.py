@@ -1511,7 +1511,8 @@ async def wait_for_attached_files(files: list[dict], metadata: dict) -> None:
 
 
 async def prepare_latest_attachments(
-    messages: list, user, model: dict, terminal: bool = False, metadata: Optional[dict] = None
+    messages: list, user, model: dict, terminal: bool = False, metadata: Optional[dict] = None,
+    room_chars: Optional[int] = None,
 ) -> None:
     """Describe the newest user message's files (ids, sizes, layout) and include small ones in full.
 
@@ -1538,7 +1539,12 @@ async def prepare_latest_attachments(
         return
     from open_webui.file_pipeline.settings import file_settings
 
-    inline_ids = choose_inline(infos, budget=(await file_settings())['files.attach.inline_max_chars'])
+    # Whole file text goes inline up to the set size, and only while it leaves the request room (room_chars: what
+    # the chat, system prompt and tool definitions leave free; a fifth of that is kept for the answer's tool use).
+    inline_budget = (await file_settings())['files.attach.inline_max_chars']
+    if room_chars is not None:
+        inline_budget = min(inline_budget, room_chars * 4 // 5)
+    inline_ids = choose_inline(infos, budget=inline_budget)
     latest['attachment_block'] = {
         'ids': [info['id'] for info in infos],
         'text': format_attachment_block(
@@ -2352,8 +2358,23 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             message['output'] = strip_tool_images(message['output'], model)
 
     if metadata['include_file_context']:
+        from open_webui.file_pipeline.settings import file_settings
+        from open_webui.utils import context_fit
+
+        fit_limits = context_fit.limits(await file_settings())
         await prepare_latest_attachments(
-            form_data.get('messages', []), user, model, terminal=bool(form_data.get('terminal_id')), metadata=metadata
+            form_data.get('messages', []),
+            user,
+            model,
+            terminal=bool(form_data.get('terminal_id')),
+            metadata=metadata,
+            room_chars=context_fit.room_chars(
+                form_data.get('messages', []),
+                fit_limits['budget'],
+                fit_limits['chars_per_token'],
+                fit_limits['image_tokens'],
+                context_fit.tools_tokens(model.get('id', ''), fit_limits['budget']),
+            ),
         )
 
     form_data['messages'] = process_messages_with_output(
@@ -2685,15 +2706,25 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             if skill and skill.is_active:
                 available_skills.append(skill)
 
+        from open_webui.utils.skill_files import frontmatter as skill_frontmatter
+
         skill_manifest = ''
         for skill in available_skills:
-            if skill_tools_enabled:
+            # "preload: true" in a skill's frontmatter: its text is in the system prompt from the start, instead of
+            # the model spending a call on view_skill for it in every answer.
+            preload = str(skill_frontmatter(skill.content or '').get('preload', '')).strip().lower() in ('true', 'yes', '1')
+            if skill_tools_enabled and not preload:
                 skill_manifest += (
                     f'<skill>\n<id>{skill.id}</id>\n<name>{skill.name}</name>\n'
                     f'<description>{skill.description or ""}</description>\n</skill>\n'
                 )
                 continue
-            if skill.id in activated_skill_ids or not use_builtin_tools or not model_builtin_tools.get('skills', True):
+            if (
+                preload
+                or skill.id in activated_skill_ids
+                or not use_builtin_tools
+                or not model_builtin_tools.get('skills', True)
+            ):
                 from open_webui.models.skills import get_skill_snapshot
 
                 version_id = skill_versions.get(skill.id) or skill.version_id
@@ -3250,6 +3281,28 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         if context_summary:
             summary_content = f'[CONVERSATION SUMMARY]\n{context_summary}'
             form_data['messages'] = add_or_update_system_message(summary_content, form_data['messages'], append=True)
+
+    # The first call inside the model's context too (the tool loop fits every later one), and the room it leaves
+    # for the file text this answer may read through tools (summarize_chat_file, view_file...).
+    from open_webui.file_pipeline.settings import file_settings
+    from open_webui.utils import context_fit
+
+    fit_limits = context_fit.limits(await file_settings())
+    context_fit.remember_tools(model.get('id', ''), form_data.get('tools'), fit_limits['chars_per_token'])
+    form_data['messages'], _ = context_fit.fit_request(
+        form_data.get('messages') or [],
+        fit_limits['budget'],
+        fit_limits['chars_per_token'],
+        fit_limits['image_tokens'],
+        form_data.get('tools'),
+    )
+    metadata['context_room_chars'] = context_fit.room_chars(
+        form_data['messages'],
+        fit_limits['budget'],
+        fit_limits['chars_per_token'],
+        fit_limits['image_tokens'],
+        len(str(form_data.get('tools') or '')) // max(fit_limits['chars_per_token'], 1),
+    )
 
     return form_data, metadata, events, False
 

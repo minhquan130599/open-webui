@@ -335,6 +335,13 @@ def _raw_content(status: int, body) -> str:
     return _THINK_RE.sub('', body['choices'][0]['message'].get('content') or '')
 
 
+class CutText(str):
+    """Text kept as it was when the model reached the output ceiling (continue_cut=False): a str like any other,
+    with .cut set, so a caller that keeps results (summary parts) does not keep this one as complete."""
+
+    cut = True
+
+
 async def generate_text(
     messages: list[dict],
     max_tokens: Optional[int] = 1024,
@@ -346,7 +353,7 @@ async def generate_text(
     """Plain completion, used for file and image summaries.
 
     continue_cut=False: max_tokens is a ceiling against a model running on (repeating itself); an answer that
-    reaches it is kept as it is, not continued.
+    reaches it is kept as it is, not continued, and returned as a CutText (its .cut tells the caller).
 
     model overrides TRACKER_MODEL (comma-separated ids, first served wins); purpose labels the call for the monitor.
     max_tokens None: no output limit of ours (up to the end of the model's context).
@@ -400,7 +407,7 @@ async def generate_text(
                 return written.strip()
             if not continue_cut:
                 log.warning('LLM answer (%s) reached its ceiling of %s tokens; kept as it is', purpose or 'text', max_tokens)
-                return written.strip()
+                return CutText(written.strip())
             log.warning('LLM answer (%s) cut at the output limit after %s characters; continuing', purpose or 'text', len(written))
     raise TrackerOutputError(f'Answer still cut after {MAX_CONTINUATIONS} continuations ({len(written)} characters)')
 

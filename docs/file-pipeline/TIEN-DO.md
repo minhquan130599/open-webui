@@ -655,3 +655,24 @@ tunnel đi tìm OpenVPN rồi ra 81 token không chữ). Nay không nhờ model 
   ngôn ngữ người dùng, không đưa suy nghĩ vào câu trả lời). Trước đây chúng chỉ nằm trong skill, model đọc qua
   `view_skill` nên bị đẩy ra xa khi ngữ cảnh dài. Skill chon-nguon bỏ hai nguyên tắc trùng, còn bảng chọn nguồn và
   các quy tắc terminal / hạ tầng.
+
+## Sửa theo bản rà soát xử lý file (26/11)
+
+1. Hỏi chủ đề khi bản tổng quan mới làm một phần: luôn thêm các dải trang quanh chỗ tìm trúng mà các mục của bản tổng
+   quan chưa phủ (không lấn vào trang đã có mục); tiêu đề tìm theo tên từ outline (vị trí ký tự) đổi sang trang. Mô
+   phỏng câu "quản lý hội nhóm" với tổng quan mới tới tr.46: trước chọn 2.3 Quản lý người dùng (tr.28–42), nay
+   chọn tr.191–208.
+2. `context_fit.fit`: kết quả tool cũ trong lượt không còn bị cắt còn 300 ký tự đầu (mất điều kiện / lệnh ở giữa,
+   cuối) mà thay bằng một dòng "đã đọc <tool>(<tham số>), cần lại thì gọi lại".
+3. Skill có `preload: true` trong frontmatter được đưa nguyên vào system prompt thay vì model phải gọi `view_skill`
+   mỗi câu; chon-nguon bật `preload: true`.
+4. Ngân sách context theo từng request: `context_fit.fit_request` trước lần gọi model đầu (cắt kết quả tool, rồi bỏ
+   các lượt cũ nhất, giữ system và câu hỏi cuối); `room_chars` = phần còn trống sau chat, system prompt và mô tả
+   tool. Nguyên văn file đưa inline tối đa 4/5 phần còn trống (mô tả tool lấy theo request trước của model, chưa có
+   thì 1/5 ngân sách); lượng chữ một câu trả lời được đọc qua tool = min(cài đặt, phần còn trống)
+   (`metadata['context_room_chars']`, `_answer_read_budget`). Token vẫn ước lượng theo ký tự / token.
+5. Tóm tắt bị cắt: `generate_text(continue_cut=False)` trả `CutText` (chuỗi có `.cut`); phần tóm tắt bị cắt vẫn dùng
+   nhưng không lưu cache và bản tổng quan đánh dấu chưa đủ (`cut_pages`) nên không lưu như bản hoàn chỉnh; ghi chú
+   theo câu hỏi dài hơn giới hạn thì gộp tiếp kể cả khi chỉ còn một ghi chú, mỗi nhóm được giao độ dài mục tiêu.
+6. Tóm tắt nền chỉ cho file dài hơn ngưỡng đưa nguyên văn (`precompute_from_chars` = max(ngưỡng tóm tắt sẵn, ngưỡng
+   inline + 1)).

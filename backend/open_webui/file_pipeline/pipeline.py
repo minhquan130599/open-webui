@@ -24,7 +24,7 @@ from typing import Optional
 from langchain_core.documents import Document
 
 from open_webui.file_pipeline.models import FileJobs, FilePages
-from open_webui.file_pipeline.settings import file_settings
+from open_webui.file_pipeline.settings import file_settings, precompute_from_chars
 from open_webui.utils.answer_load import give_way
 from open_webui.utils.file_structure import (
     build_file_structure,
@@ -422,7 +422,7 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
         # with query_table and their task tables go to the tracker row by row.
         wants_summary = not spreadsheet and (
             bool(options.get('summary_only'))
-            or (settings['files.summary.precompute'] and len(content) >= settings['files.summary.precompute_min_chars'])
+            or (settings['files.summary.precompute'] and len(content) >= precompute_from_chars(settings))
         )
 
         async def summary_stage(current_file, current_structure) -> None:

@@ -77,6 +77,8 @@ FILE_SETTINGS: list[dict] = [
              'thời gian tóm tắt một phần.'},
     {'key': 'files.summary.precompute_min_chars', 'label': 'Tóm tắt sẵn khi file dài từ (ký tự)', 'type': 'int',
      'min': 0, 'max': 10_000_000, 'default': 30_000, 'section': 'summary', 'advanced': True,
+     'help': 'File ngắn hơn ngưỡng "Đưa nguyên văn file đính kèm tới" không bao giờ được tóm tắt sẵn, vì nguyên văn '
+             'đã nằm trong chat.',
      'show_if': {'files.summary.precompute': [True]}},
     {'key': 'files.summary.model', 'label': 'Model tóm tắt nền', 'type': 'text', 'default': '',
      'section': 'summary', 'advanced': True,
@@ -152,6 +154,11 @@ async def file_settings() -> dict:
     values = {key: stored[key] if stored.get(key) is not None else s['default'] for key, s in FILE_SETTINGS_BY_KEY.items()}
     _cache = (time.monotonic() + _CACHE_SECONDS, values)
     return values
+
+
+def precompute_from_chars(settings: dict) -> int:
+    """Files are summarized ahead from this length: never one whose whole text goes to the chat inline anyway."""
+    return max(settings['files.summary.precompute_min_chars'], settings['files.attach.inline_max_chars'] + 1)
 
 
 def read_budget_chars(settings: dict) -> int:

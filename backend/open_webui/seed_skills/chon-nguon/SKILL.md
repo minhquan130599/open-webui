@@ -1,6 +1,7 @@
 ---
 name: chon-nguon
 description: Chọn đúng nguồn thông tin trước khi trả lời: nội dung file đính kèm, báo cáo tiến độ dự án (tracker), hay tra cứu bảng tính. Luôn được nạp sẵn ở mọi cuộc trò chuyện.
+preload: true
 ---
 
 # Chọn nguồn thông tin

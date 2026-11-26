@@ -3155,11 +3155,21 @@ def _view_file_section(file, content: str, page, sheet, offset: int, max_chars: 
     return result
 
 
-async def _read_budget_exhausted(metadata: Optional[dict]) -> Optional[str]:
-    """Message when this answer has already read its budget of file text (files.read_budget_chars), else None."""
-    from open_webui.file_pipeline.settings import file_settings, read_budget_chars
+def _answer_read_budget(settings: dict, metadata: Optional[dict]) -> int:
+    """File text this answer may read: the set budget (files.read_budget_chars), and no more than the room the
+    request left when it was built (context_room_chars: chat, system prompt and tool definitions taken off)."""
+    from open_webui.file_pipeline.settings import read_budget_chars
 
-    budget = read_budget_chars(await file_settings())
+    budget = read_budget_chars(settings)
+    room = (metadata or {}).get('context_room_chars')
+    return min(budget, room) if isinstance(room, int) and budget else budget
+
+
+async def _read_budget_exhausted(metadata: Optional[dict]) -> Optional[str]:
+    """Message when this answer has already read its budget of file text (_answer_read_budget), else None."""
+    from open_webui.file_pipeline.settings import file_settings
+
+    budget = _answer_read_budget(await file_settings(), metadata)
     if not budget or metadata is None:
         return None
     used = metadata.get('file_read_chars', 0)
@@ -3397,7 +3407,7 @@ async def _summarize_chat_file(
 ) -> str:
     try:
         from open_webui.file_pipeline.models import FileJobs
-        from open_webui.file_pipeline.settings import file_settings, read_budget_chars
+        from open_webui.file_pipeline.settings import file_settings, precompute_from_chars
         from open_webui.file_pipeline.summary import (
             build_outline,
             cached_parts,
@@ -3417,7 +3427,7 @@ async def _summarize_chat_file(
             summarize_file,
         )
         from open_webui.models.files import Files
-        from open_webui.utils.file_structure import get_structure, is_pdf, is_spreadsheet
+        from open_webui.utils.file_structure import get_structure, is_pdf, is_spreadsheet, page_at
 
         file = await _readable_file(file_id, __user__)
         if not file:
@@ -3429,7 +3439,7 @@ async def _summarize_chat_file(
         structure = get_structure(file)
         # One delivery stays well inside the model's context: the page size, and never more than the answer's
         # budget for file text.
-        page_chars = max(3000, min(settings['files.summary.page_chars'], read_budget_chars(settings)))
+        page_chars = max(3000, min(settings['files.summary.page_chars'], _answer_read_budget(settings, __metadata__)))
         emphasis = focus.strip() if isinstance(focus, str) and focus.strip().lower() not in ('', 'none', 'null') else None
         section = section.strip() if isinstance(section, str) and section.strip().lower() not in ('none', 'null') else ''
         pages = pages.strip() if isinstance(pages, str) and pages.strip().lower() not in ('none', 'null') else ''
@@ -3494,7 +3504,7 @@ async def _summarize_chat_file(
         stall_seconds = settings['files.summary.wait_seconds']
         background = (
             settings['files.summary.precompute']
-            and len(content) >= settings['files.summary.precompute_min_chars']
+            and len(content) >= precompute_from_chars(settings)
             and not is_spreadsheet(file.filename, (file.meta or {}).get('content_type'))
         )
 
@@ -3557,23 +3567,34 @@ async def _summarize_chat_file(
                     ]
                     all_regions = list(regions)
                     hit_pages = [hit['page'] for hit in hits if hit.get('page')]
-                    if not regions:
-                        # No overview (its job is stuck): runs of the pages the search found, with the page on each
-                        # side, since a section rarely sits on one page.
-                        regions = []
-                        for page in sorted(set(hit_pages)):
-                            if regions and page - regions[-1]['hi'] <= 3:
-                                regions[-1]['hi'] = min(page + 1, total_pages)
-                            else:
-                                regions.append({'lo': max(page - 1, 1), 'hi': min(page + 1, total_pages)})
-                        for region in regions:
-                            region['title'] = f'tr.{region["lo"]}-{region["hi"]}'
+                    # Pages the search found that no section of the overview covers (none made yet, or an overview
+                    # still being made, which covers only its first parts): runs of them with the page on each side
+                    # (a section rarely sits on one page), kept off the pages the sections already cover.
+                    covered = {page for region in regions for page in range(region['lo'], region['hi'] + 1)}
+                    runs: list[dict] = []
+                    for page in sorted({page for page in hit_pages if page not in covered}):
+                        lo = page - 1 if page > 1 and page - 1 not in covered else page
+                        hi = page + 1 if page < total_pages and page + 1 not in covered else page
+                        if runs and lo <= runs[-1]['hi'] + 2:
+                            runs[-1]['hi'] = max(runs[-1]['hi'], hi)
+                        else:
+                            runs.append({'lo': lo, 'hi': hi})
+                    for run in runs:
+                        run['title'] = f'tr.{run["lo"]}-{run["hi"]}'
+                    regions = [*regions, *runs]
                     ranked = rank_regions(regions, hit_pages)
                     top = ranked[0]['score'] if ranked else 1.0
-                    ranked = [
-                        *({'lo': h['first'], 'hi': h['last'], 'title': h['title'], 'score': top} for h in named if h.get('first')),
-                        *ranked,
-                    ]
+                    # Headings named like the topic: the overview's carry pages, the outline's text offsets.
+                    named_pages = []
+                    for h in named:
+                        if h.get('first'):
+                            named_pages.append({'lo': h['first'], 'hi': h['last'], 'title': h['title'], 'score': top})
+                        elif 'start' in h:
+                            first = page_at(structure, int(h['start']))
+                            last = page_at(structure, max(int(h['start']), int(h['end']) - 1))
+                            if first and last:
+                                named_pages.append({'lo': first, 'hi': last, 'title': h['title'], 'score': top})
+                    ranked = [*named_pages, *ranked]
                     picked = with_parents(
                         pick_regions(
                             ranked, lambda r: sum(page_len.get(p, 0) for p in range(r['lo'], r['hi'] + 1)), max_read
@@ -3708,10 +3729,11 @@ async def _summarize_chat_file(
                 )
             else:
                 missing = ', '.join(result.get('pending_pages') or [])
-                note = (
-                    f'This overview is not complete: {result.get("parts_read")} of {result.get("parts_total")} parts '
-                    f'are done; pages not covered yet: {missing}.'
-                )
+                shortened = ', '.join(result.get('cut_pages') or [])
+                note = f'This overview is not complete: {result.get("parts_read")} of {result.get("parts_total")} parts are done'
+                note += f'; pages not covered yet: {missing}' if missing else ''
+                note += f'; pages whose summary stopped at the length limit (partly covered): {shortened}' if shortened else ''
+                note += '.'
             if emphasis:
                 note += f' Topic the user asked about: {emphasis}.'
             return JSONCodec.dumps(

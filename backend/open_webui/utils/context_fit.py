@@ -3,10 +3,12 @@
 The window and the estimate come from the file settings (model.context_tokens, model.answer_reserve_tokens,
 model.chars_per_token, model.image_tokens), so a model with a larger context only needs those values changed.
 
-When the messages would not fit, the oldest page images are dropped first, then the oldest tool results are cut
-to a short stub, then the newest tool result is shortened; the user's question, the system prompt and the
-model's own messages are never touched. A request that is nearly full is turned into a final-answer request, so
-the answer is written from what was read instead of failing on the next call.
+When the messages would not fit, the oldest page images are dropped first, then the oldest tool results are set
+aside (a line saying what was read and how to read it again), then the newest tool result is shortened; the
+user's question, the system prompt and the model's own messages are never touched. A request that is nearly full
+is turned into a final-answer request, so the answer is written from what was read instead of failing on the next
+call. Before the first call, fit_request also leaves out the oldest whole turns when that is not enough, and the
+room left (room_chars) sets how much file text the answer may take in, inline or through the file tools.
 """
 
 import logging
@@ -17,6 +19,10 @@ log = logging.getLogger(__name__)
 TRIMMED_NOTE = '[Phần kết quả này đã lược bớt để vừa ngữ cảnh của model: {chars} ký tự]'
 IMAGE_NOTE = '[Ảnh trang đã gửi ở bước trước, bỏ bớt để vừa ngữ cảnh của model]'
 STUB_CHARS = 300
+SET_ASIDE_NOTE = (
+    '[Kết quả của {name}({args}) ({chars} ký tự) đã được đọc ở bước trước nhưng không còn chỗ trong ngữ cảnh; những gì '
+    'cần đã dùng ở các bước sau. Cần lại nội dung thì gọi lại tool, đọc đúng phần cần.]'
+)
 
 
 def limits(settings: dict) -> dict:
@@ -80,7 +86,14 @@ def fit(messages: list[dict], budget: int, chars_per_token: int, image_tokens: i
             messages[i] = {**message, 'content': IMAGE_NOTE}
             total -= old - message_tokens(messages[i], chars_per_token, image_tokens)
 
-    # 2. Older tool results become short stubs, oldest first.
+    # 2. Older tool results of this answer leave the context, oldest first, each for a line saying what was read
+    #    and how to read it again: a cut-off head would keep its first lines and lose a condition or a required
+    #    command further down, read but no longer there.
+    calls = {}
+    for message in messages:
+        for call in message.get('tool_calls') or []:
+            function = call.get('function') or {}
+            calls[call.get('id')] = (function.get('name') or 'tool', str(function.get('arguments') or ''))
     for i in tool_results:
         if total <= budget:
             break
@@ -89,8 +102,10 @@ def fit(messages: list[dict], budget: int, chars_per_token: int, image_tokens: i
         text = _text_of(messages[i].get('content'))
         if len(text) <= STUB_CHARS * 2:
             continue
+        name, args = calls.get(messages[i].get('tool_call_id'), ('tool', ''))
+        note = SET_ASIDE_NOTE.format(name=name, args=args if len(args) <= 200 else args[:200] + '…', chars=len(text))
         old = message_tokens(messages[i], chars_per_token, image_tokens)
-        messages[i] = {**messages[i], 'content': text[:STUB_CHARS] + '\n' + TRIMMED_NOTE.format(chars=len(text) - STUB_CHARS)}
+        messages[i] = {**messages[i], 'content': note}
         total -= old - message_tokens(messages[i], chars_per_token, image_tokens)
 
     # 3. The newest tool result is shortened to what still fits.
@@ -145,6 +160,48 @@ def clear_earlier_tool_outputs(messages: list[dict]) -> int:
             kept.append(item)
         messages[i] = {**message, 'output': kept}
     return removed
+
+
+def fit_request(
+    messages: list[dict], budget: int, chars_per_token: int, image_tokens: int, tools: Any = None
+) -> tuple[list[dict], int]:
+    """The whole request inside the budget before the first call too: tool results and images as in fit(), then
+    the oldest whole turns (a user message and what followed it) until it fits. The system messages and the last
+    question are kept. Returns the messages and how many turns were left out."""
+    messages, _ = fit(messages, budget, chars_per_token, image_tokens, tools)
+    dropped = 0
+    while estimate(messages, chars_per_token, image_tokens, tools) > budget:
+        last_user = max((i for i, m in enumerate(messages) if m.get('role') == 'user'), default=-1)
+        first = next((i for i, m in enumerate(messages) if m.get('role') != 'system'), None)
+        if first is None or first >= last_user:
+            break
+        end = next((i for i in range(first + 1, last_user + 1) if messages[i].get('role') == 'user'), last_user)
+        messages = [*messages[:first], *messages[end:]]
+        dropped += 1
+    if dropped:
+        log.info('Context fit: %s oldest turns left out to fit the budget (%s tokens)', dropped, budget)
+    return messages, dropped
+
+
+# Size of the tool definitions sent with each model's requests, measured on the last request: the file text given
+# inline is chosen before the tools are put together, and must leave room for them.
+_TOOLS_TOKENS: dict[str, int] = {}
+
+
+def remember_tools(model_id: str, tools: Any, chars_per_token: int) -> None:
+    if model_id:
+        _TOOLS_TOKENS[model_id] = len(str(tools or '')) // max(chars_per_token, 1)
+
+
+def tools_tokens(model_id: str, budget: int) -> int:
+    """The tool definitions of this model's last request (a fifth of the budget until one was measured)."""
+    return _TOOLS_TOKENS.get(model_id, budget // 5)
+
+
+def room_chars(messages: list[dict], budget: int, chars_per_token: int, image_tokens: int, tools_size: int = 0) -> int:
+    """Characters still free in the request (the answer's reserve is outside the budget already)."""
+    used = estimate(messages, chars_per_token, image_tokens) + tools_size
+    return max(budget - used, 0) * chars_per_token
 
 
 def is_context_error(detail: Any) -> bool:
