@@ -25,6 +25,7 @@ from langchain_core.documents import Document
 
 from open_webui.file_pipeline.models import FileJobs, FilePages
 from open_webui.file_pipeline.settings import file_settings
+from open_webui.utils.answer_load import give_way
 from open_webui.utils.file_structure import (
     build_file_structure,
     document_profile,
@@ -161,6 +162,7 @@ async def _repair_pages(
     only_pages: Optional[list],
     force: bool = False,
     engine: Optional[str] = None,
+    app=None,
 ) -> int:
     """Transcribe low pages from their images; returns how many pages now use the vision text."""
     from open_webui.storage.provider import Storage
@@ -207,6 +209,8 @@ async def _repair_pages(
                 attempts += 1
                 queued = time.perf_counter()
                 async with semaphore:
+                    # Answers people are waiting for go first (background work, see utils/answer_load.py).
+                    await give_way(app, file.id, lambda label: job.progress(done, len(targets), label))
                     wait_ms += _ms(queued)
                     called = time.perf_counter()
                     text = await generate_text(
@@ -336,7 +340,7 @@ async def _index(app, file, content: str, structure: dict, settings: dict) -> in
 
 
 async def _summarize(
-    job: Job, file, structure: dict, settings: dict, ready=None, parts_only: bool = False
+    job: Job, file, structure: dict, settings: dict, ready=None, parts_only: bool = False, app=None
 ) -> bool:
     """Whole-file summary (or, with parts_only, the parts whose pages are ready), reusing parts made before."""
     from open_webui.file_pipeline.summary import (
@@ -356,6 +360,8 @@ async def _summarize(
     model = settings['files.summary.model'] or None
 
     async def complete(message) -> str:
+        # Answers people are waiting for go first; a user waiting for this summary marks it wanted (no wait).
+        await give_way(app, file.id, lambda label: job.progress(0, 0, label))
         return await generate_text(
             [{'role': 'user', 'content': message}],
             # A ceiling, not a length: a part's overview asks for about a tenth of the part. Without one a model
@@ -423,7 +429,7 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
             """5. summary: optional, the chat tool can still summarize on demand, so a failure does not fail the job."""
             started = time.perf_counter()
             try:
-                if await _summarize(job, current_file, current_structure, settings):
+                if await _summarize(job, current_file, current_structure, settings, app=app):
                     job.stats['summary_ms'] = _ms(started)
             except Exception as error:
                 log.warning('File %s: summary not precomputed (%s)', file_id, error)
@@ -469,7 +475,7 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
                     started_early = time.perf_counter()
                     try:
                         await _summarize(
-                            job, file, structure, settings, ready=lambda pages: not targets & set(pages), parts_only=True
+                            job, file, structure, settings, ready=lambda pages: not targets & set(pages), parts_only=True, app=app
                         )
                     except Exception as error:
                         log.warning('File %s: early summary parts failed (%s)', file_id, error)
@@ -478,7 +484,7 @@ async def run_job(app, file_id: str, lease_id: str, options: dict) -> None:
                 early = asyncio.create_task(early_parts())
             try:
                 changed = await _repair_pages(
-                    job, file, rows, settings, options.get('pages'), bool(options.get('force')), engine
+                    job, file, rows, settings, options.get('pages'), bool(options.get('force')), engine, app=app
                 )
             finally:
                 if early:

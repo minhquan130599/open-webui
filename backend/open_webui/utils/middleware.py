@@ -6586,6 +6586,16 @@ async def streaming_chat_response_handler(response, ctx):
                                         current_usage = await stream_body_handler(res, retry_form_data)
                                     finally:
                                         log_model_usage(request, user, form_data['model'], current_usage)
+                                if not tool_calls and not get_output_text(output).strip():
+                                    log.warning(
+                                        'Tool loop: still no answer after asking again (items: %s, usage: %s)',
+                                        [item.get('type') for item in output],
+                                        current_usage,
+                                    )
+                                    await emit_message_error(
+                                        'AI đã đọc xong tài liệu nhưng không viết được câu trả lời. '
+                                        'Bấm Tạo lại, hoặc hỏi cụ thể hơn (ví dụ nêu tên mục cần lọc).'
+                                    )
                         elif getattr(res, 'status_code', 200) >= 400:
                             await emit_message_error(get_message_error_content(get_response_error_detail(res)))
                             break

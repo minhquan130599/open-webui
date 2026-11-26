@@ -451,6 +451,17 @@ async def _generate_summary(
         )
         == 1
     )
+    # A reply far shorter than what it replaces ("Summarized. I'll pick up from here.") is not a summary: taking it
+    # would drop everything read so far (files, tool results) for one sentence.
+    compacted_chars = sum(len(get_content_from_message(message) or '') for message in compacted_messages)
+    least = min(300, compacted_chars // 20)
+
+    def usable(summary: str) -> bool:
+        if len(summary) >= least:
+            return True
+        log.warning('Context compaction: summary too short (%d chars for %d compacted); not used', len(summary), compacted_chars)
+        return False
+
     # The text-only prompt formatter otherwise omits tool names and arguments.
     compacted_messages, recent_messages = list(compacted_messages), list(recent_messages)
     for messages in (compacted_messages, recent_messages):
@@ -520,7 +531,7 @@ async def _generate_summary(
         except Exception:
             response = None
         summary = _response_text(response).strip()
-        if summary:
+        if summary and usable(summary):
             return summary
 
     prompt = await render_prompt(summary_prompt_template)
@@ -534,15 +545,16 @@ async def _generate_summary(
     payload = apply_params_to_form_data(payload, models[task_model_id], task_model_params)
     response = await generate_chat_completion(request, form_data=payload, user=user)
     summary = _response_text(response).strip()
-    if summary:
+    if summary and usable(summary):
         return summary
 
+    # No usable summary: the start of every compacted message (tool results included), within a bound.
     parts = [previous_summary] if previous_summary else []
     for message in compacted_messages:
         content = get_content_from_message(message)
         if content:
-            parts.append(f'- {message.get("role", "unknown")}: {content[:500]}')
-    return '\n'.join(parts)[:4000]
+            parts.append(f'- {message.get("role", "unknown")}: {content[:1500]}')
+    return '\n'.join(parts)[:12000]
 
 
 def _message_prefix(message: dict) -> str:

@@ -24,6 +24,10 @@ _TOKEN_RE = re.compile(rb'"(?:content|reasoning_content|reasoning|arguments)"\s*
 # Provider calls running right now in this worker (token -> start time), and the highest count since the
 # last load sample. A call whose stream was never consumed is dropped after STALE_SECONDS.
 _active: dict[int, float] = {}
+# The same calls that are someone's answer (chat, channel, API; not background tasks): background model work
+# (file summaries, OCR repair) gives way to them, see utils/answer_load.py.
+_answering: set[int] = set()
+ANSWER_SOURCES = ('chat', 'channel', 'api')
 _next_token = 0
 _in_flight_peak = 0
 STALE_SECONDS = 900
@@ -35,9 +39,16 @@ def in_flight_sample() -> tuple[int, int]:
     cutoff = time.monotonic() - STALE_SECONDS
     for token in [t for t, started in _active.items() if started < cutoff]:
         _active.pop(token, None)
+        _answering.discard(token)
     current = len(_active)
     peak, _in_flight_peak = _in_flight_peak, current
     return current, max(peak, current)
+
+
+def answering_now() -> int:
+    """Answers being written right now in this worker (calls to the model for a chat, channel or API reply)."""
+    cutoff = time.monotonic() - STALE_SECONDS
+    return sum(1 for token in _answering if _active.get(token, 0) >= cutoff)
 
 
 def _begin(ctx: dict) -> None:
@@ -45,6 +56,8 @@ def _begin(ctx: dict) -> None:
     _next_token += 1
     ctx['_token'] = _next_token
     _active[_next_token] = time.monotonic()
+    if ctx.get('source') in ANSWER_SOURCES:
+        _answering.add(_next_token)
     _in_flight_peak = max(_in_flight_peak, len(_active))
 
 
@@ -52,6 +65,7 @@ def _end(ctx: dict) -> None:
     token = ctx.pop('_token', None)
     if token is not None:
         _active.pop(token, None)
+        _answering.discard(token)
 
 
 def context(metadata: Optional[dict], user, model_id: str, url: str, track: bool = True) -> dict:

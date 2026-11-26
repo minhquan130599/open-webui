@@ -559,3 +559,28 @@ Chờ trích xuất chữ 161 giây; đọc file tới giới hạn đọc; summ
   - Tin đang trả lời dở khi restart: không còn tác vụ nào nhưng vẫn `done=false`, giao diện quay mãi. Khi mở chat và
     không còn tác vụ chạy, tin dở cũ hơn 1 phút (trừ tin chờ duyệt tool) được chốt với lỗi "Câu trả lời bị gián đoạn
     (hệ thống vừa khởi động lại). Hãy gửi lại câu hỏi." (`main.py`, `_close_interrupted_answers`).
+  - "Lọc phần cấu hình IPsec" (26/11, W, file 296 trang vừa tải): model gọi `ask_user` 3 lần, rồi lấy bản tổng
+    quan (chờ job nền hơn 5 phút); thu gọn ngữ cảnh giữa lượt trả về "Summarized. I'll pick up from here." (35 ký tự)
+    và vẫn được dùng, nên mất hết phần đã đọc; lượt cuối và lần hỏi lại đều không có chữ. Sửa:
+    - thu gọn ngữ cảnh bỏ bản tóm tắt ngắn hơn min(300, 5% phần bị bỏ), thử cách khác, cuối cùng giữ đầu mỗi tin
+      (tới 1.500 ký tự mỗi tin, 12.000 tổng);
+    - hỏi lại vẫn rỗng thì báo lỗi cho người dùng và ghi log loại mục / usage để chẩn đoán;
+    - hỏi theo chủ đề chỉ chờ bản tổng quan tối đa 120 giây (`TOPIC_OVERVIEW_WAIT`), sau đó đọc dải trang tìm được;
+      tóm tắt cả file vẫn chờ đủ;
+    - skill chon-nguon: "lọc / trích một chủ đề" gọi thẳng `summarize_chat_file(section)`; không `ask_user` khi câu
+      hỏi đã rõ.
+
+## Câu hỏi không chờ tóm tắt; tóm tắt nền nhường câu trả lời (26/11)
+
+- Hỏi thông tin / một chủ đề (`summarize_chat_file` có `section`): không chờ bản tổng quan nữa. Tìm vector ngay; bản
+  tổng quan hoặc các phần đã làm (nếu có) chỉ dùng để biết mục bắt đầu / kết thúc ở đâu, chưa có thì đọc các dải
+  trang tìm được. Chỉ yêu cầu tóm tắt cả file mới chờ job nền.
+- Tóm tắt và sửa OCR chạy nền nhường câu trả lời (`utils/answer_load.py`):
+  - mỗi worker đếm lần gọi model đang chạy cho chat / kênh / API (`monitoring/llm.py`, không tính tác vụ nền),
+    ghi vào Redis `ncs:answering:<worker>` mỗi 2 giây (TTL 10 giây);
+  - trước mỗi lần gọi model của job (mỗi phần tóm tắt, mỗi trang sửa OCR) chờ khi còn câu trả lời đang chạy, tối
+    đa 10 phút một lần gọi; job ghi "Tạm dừng để ưu tiên N câu trả lời đang chạy";
+  - người dùng đang chờ đúng bản tóm tắt của file đó thì file được đánh dấu `ncs:file_wanted:<id>` (30 giây, làm
+    mới khi còn chờ) và job chạy luôn, không nhường.
+- Test (giả lập tải): rảnh 0 s; có câu trả lời 0,5 s thì chờ 0,55 s; chỉ có tác vụ nền 0 s; file đang được chờ 0 s;
+  giới hạn chờ đúng.

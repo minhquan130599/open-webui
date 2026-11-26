@@ -3509,10 +3509,14 @@ async def _summarize_chat_file(
 
         async def wait_for_overview() -> tuple[Optional[dict], bool]:
             """(the finished overview, False) once the background job has made it; else (None, stuck), stuck when
-            the job stopped moving while still running."""
+            the job stopped moving while still running. The user waits for it: the job no longer gives way to
+            other answers."""
+            from open_webui.utils.answer_load import mark_wanted
+
             job = await FileJobs.get(file.id)
             seen, moved_at, shown = None, time.monotonic(), ''
             while job and job.status in ('queued', 'running'):
+                await mark_wanted(__request__.app, file.id)
                 current = await Files.get_file_by_id(file.id) or file
                 found = cached_summary(current)
                 if found:
@@ -3545,12 +3549,9 @@ async def _summarize_chat_file(
             # Read at most this much source for one topic (the notes step reads it in segment_chars pieces).
             max_read = page_chars * 8
             if not wanted_pages:
-                overview = cached_summary(file) or await reuse_summary(file)
-                if not overview and total_pages and background:
-                    # Without the overview a PDF's sections have no known bounds (its headings are plain lines).
-                    overview, _ = await wait_for_overview()
-                if not overview:
-                    overview = await overview_so_far()
+                # A question is answered from a search now, never after the background summary: the overview (or
+                # the parts of it made so far) only helps find where each section starts and ends.
+                overview = await overview_so_far()
                 await emit(f'Đang tìm các phần về "{section}" trong {file.filename}')
                 outline = await asyncio.to_thread(build_outline, content, structure, 400)
                 query = section if question_text == section else f'{section}\n{question_text}'
