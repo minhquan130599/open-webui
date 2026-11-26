@@ -549,3 +549,7 @@ Chờ trích xuất chữ 161 giây; đọc file tới giới hạn đọc; summ
     chạy nền như khi tóm tắt (cùng hàm chờ, cùng ngưỡng "không tiến triển"); chỉ khi job bị treo mới dùng dự phòng:
     các dải trang liền quanh trang tìm thấy (gộp trang cách nhau ≤ 3, thêm 1 trang mỗi bên).
   - Trạng thái "Đang tìm…" không còn quay mãi: mọi đường ra của `summarize_chat_file` đều đóng trạng thái.
+  - `file_outline` của PDF đoán tiêu đề từ chữ nên thiếu / sai (OSINT3: "Quản lý phòng", "Điều tra"…, không có
+    "hội nhóm"); model thấy không khớp đã đi tìm file trong terminal (search_files, write_file, run_command). Nay khi
+    file có bản tổng quan, `file_outline` trả mọi tiêu đề của bản tổng quan kèm trang, và chỉ sang
+    `summarize_chat_file(section)`; chưa có thì ghi rõ tiêu đề là đoán, hỏi chủ đề thì gọi `summarize_chat_file`.

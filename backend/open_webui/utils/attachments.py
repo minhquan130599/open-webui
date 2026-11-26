@@ -161,7 +161,8 @@ def format_attachment_block(
         guide.append(
             'For the other files use their id: file_outline for the structure, view_file (page, sheet or offset) '
             'to read a part, query_chat_files to find specific passages, summarize_chat_file for a complete '
-            'summary of a long file.'
+            'summary of a long file, and summarize_chat_file with section for what a section or topic of it '
+            'contains.'
         )
     if any(info.get('processing') and not info['chars'] for info in infos):
         guide.append(

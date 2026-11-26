@@ -3218,8 +3218,30 @@ async def file_outline(
         file = await _readable_file(file_id, __user__)
         if not file:
             return JSONCodec.dumps({'error': 'File not found'})
+        from open_webui.file_pipeline.summary import cached_summary, reuse_summary
+
         content = (file.data or {}).get('content') or ''
-        outline = await asyncio.to_thread(build_outline, content, get_structure(file))
+        structure = get_structure(file)
+        outline = await asyncio.to_thread(build_outline, content, structure)
+        # A PDF's headings are plain lines of text, found here only in part; the overview, once made, has every
+        # heading of the file with its pages.
+        overview = cached_summary(file) or await reuse_summary(file)
+        sections = [s for s in (overview or {}).get('sections') or [] if s.get('first')]
+        if sections:
+            outline.pop('headings_omitted', None)
+            outline['headings'] = [
+                {'title': s['title'], 'level': s.get('level') or 2, 'pages': f'{s["first"]}-{s["last"]}'}
+                for s in sections
+            ]
+            outline['note'] = (
+                'Every heading of the file, with its pages. For what a section or topic contains, call '
+                'summarize_chat_file with section (the user\'s words) or with these pages.'
+            )
+        elif structure.get('pages'):
+            outline['note'] = (
+                'These headings are guessed from the text and may be incomplete. For what a section or topic '
+                'contains, call summarize_chat_file with section (the user\'s words); do not look elsewhere.'
+            )
         return JSONCodec.dumps({'id': file.id, 'filename': file.filename, **outline}, ensure_ascii=False)
     except Exception as e:
         log.exception(f'file_outline error: {e}')
