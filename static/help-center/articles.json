@@ -449,6 +449,117 @@
 			]
 		},
 		{
+			"id": "telegram_link",
+			"category": "Telegram",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Liên kết Telegram với tài khoản",
+			"desc": "Liên kết một lần để hỏi AI và nhận báo cáo định kỳ ngay trong Telegram",
+			"minutes": 3,
+			"icon": "✈️",
+			"steps": [
+				{
+					"title": "Mở Cài đặt",
+					"text": "Bấm ảnh đại diện ở góc dưới bên trái rồi chọn Cài đặt (hoặc nhấn Ctrl + .).",
+					"image": "/help-center/images/tgc-w1-cai-dat.png",
+					"caption": "Menu tài khoản → Cài đặt"
+				},
+				{
+					"title": "Bấm Liên kết Telegram",
+					"text": "Chọn mục Tài khoản, kéo xuống ô Telegram rồi bấm Liên kết Telegram. Không thấy ô Telegram: quản trị viên chưa bật bot Telegram, hoặc chưa cho tài khoản của bạn dùng Telegram.",
+					"image": "/help-center/images/tgc-w2-lien-ket.png",
+					"caption": "Ô Telegram trong Cài đặt → Tài khoản khi chưa liên kết"
+				},
+				{
+					"title": "Bấm Mở Telegram",
+					"text": "Hiện hướng dẫn và nút Mở Telegram. Link chỉ dùng một lần, trong 10 phút. Giữ nguyên cửa sổ NCS AI (đang hiện \"Đang chờ liên kết…\") cho tới khi liên kết xong.",
+					"image": "/help-center/images/tgc-w3-mo-telegram.png",
+					"caption": "Bấm Mở Telegram, cửa sổ chờ liên kết"
+				},
+				{
+					"title": "Cho trình duyệt mở Telegram",
+					"text": "Trình duyệt mở trang t.me của bot và hỏi có mở Telegram Desktop không: bấm Open (Mở). Máy chưa cài Telegram Desktop hoặc không thấy hộp hỏi: bấm START BOT trên trang để mở Telegram trên web hoặc điện thoại. Có thể tích \"Always allow…\" để lần sau không phải hỏi lại.",
+					"image": "/help-center/images/tg-b2b-mo-ung-dung.png",
+					"caption": "Bấm Open; không có Telegram Desktop thì bấm START BOT"
+				},
+				{
+					"title": "Bấm Start trong chat với bot",
+					"text": "Telegram mở cuộc chat với bot NCS AI. Bấm START (BẮT ĐẦU) ở cuối khung chat. Không thấy nút này hoặc bấm không có phản hồi: quay lại NCS AI, bấm Liên kết Telegram lần nữa để lấy link mới.",
+					"image": "/help-center/images/tgc-t1-start.png",
+					"caption": "Bấm START ở cuối khung chat với bot"
+				},
+				{
+					"title": "Kiểm tra đã liên kết",
+					"text": "Bot trả lời \"✅ Đã liên kết với <tên của bạn> (<email>)\" và hiện bàn phím dưới ô nhập: Hỏi trực tiếp, Hỏi trong kênh, Cuộc trò chuyện mới, Cài đặt. Trên NCS AI hiện thông báo \"Đã liên kết Telegram\".",
+					"image": "/help-center/images/tgc-t2-da-lien-ket.png",
+					"caption": "Bot xác nhận đã liên kết và hiện bàn phím"
+				},
+				{
+					"title": "Xem hoặc bỏ liên kết",
+					"text": "Ô Telegram trong Cài đặt → Tài khoản ghi Đã liên kết cùng tên Telegram của bạn và tên bot. Mở Telegram để mở lại chat với bot. Bỏ liên kết khi không dùng Telegram đó nữa: bạn sẽ không hỏi AI và không nhận báo cáo qua Telegram. Liên kết một Telegram khác sẽ thay liên kết cũ.",
+					"image": "/help-center/images/tgc-w4-da-lien-ket.png",
+					"caption": "Tài khoản đã liên kết Telegram"
+				}
+			],
+			"tip": "Mỗi tài khoản NCS AI gắn với một Telegram. Bot báo \"Mã liên kết không đúng hoặc đã hết hạn (10 phút)\": bấm Liên kết Telegram trên web để lấy link mới. Bot báo \"Tài khoản của bạn chưa được dùng hỏi đáp AI qua Telegram\": bạn vẫn nhận được báo cáo định kỳ; muốn hỏi AI thì nhờ quản trị viên cấp quyền Telegram."
+		},
+		{
+			"id": "telegram_chat",
+			"category": "Telegram",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Chat với AI qua Telegram",
+			"desc": "Hỏi AI trực tiếp hoặc trong kênh, gửi file và nhận PDF / Word ngay trên Telegram",
+			"minutes": 6,
+			"icon": "💬",
+			"steps": [
+				{
+					"title": "Hỏi trực tiếp",
+					"text": "Liên kết xong (xem bài \"Liên kết Telegram với tài khoản\"), gõ câu hỏi bất kỳ vào chat với bot, như chat riêng với AI trên web. Bot gửi ngay tin \"💬 Trực tiếp · <model> ⏳ Đang trả lời…\" rồi sửa dần thành câu trả lời. Bấm ⏹ Dừng để hủy. Mỗi lần bot trả lời một câu: gửi câu mới khi câu trước chưa xong, bot nhắc bạn đợi.",
+					"image": "/help-center/images/tgc-t3-dang-tra-loi.png",
+					"caption": "Bot đang trả lời, có nút Dừng"
+				},
+				{
+					"title": "Dùng các nút dưới câu trả lời",
+					"text": "📄 PDF / 📝 Word: nhận chính câu trả lời này thành file, không hỏi AI lại. 🔁 Trả lời lại: AI trả lời lại câu vừa hỏi. 🌐 Mở trên web (khi có): mở đúng cuộc trò chuyện trên {{name}}, tên là \"Telegram · <câu hỏi đầu>\". Câu trả lời quá dài thì cuối tin ghi \"câu trả lời còn dài, xem tiếp trên web\".",
+					"image": "/help-center/images/tgc-t4-cau-tra-loi.png",
+					"caption": "Cuối câu trả lời có nút PDF, Word, Trả lời lại"
+				},
+				{
+					"title": "Hỏi tiếp hoặc bắt đầu cuộc mới",
+					"text": "Gõ tiếp là hỏi tiếp trong cùng cuộc trò chuyện, AI nhớ các câu trước. Bấm 🆕 Cuộc trò chuyện mới (hoặc gõ /moi) để bắt đầu lại. Sau 4 giờ không hỏi, câu tiếp theo tự sang cuộc trò chuyện mới."
+				},
+				{
+					"title": "Chọn kênh để hỏi",
+					"text": "Bấm 📁 Hỏi trong kênh (hoặc gõ /kenh). Bot hiện các kênh bạn được hỏi trên web: kênh dùng gần đây có ⭐ ở đầu, mỗi trang 6 kênh. Gõ /kenh <tên> để tìm, ví dụ /kenh bd2. Không thấy kênh: bạn không có quyền trong kênh đó, hoặc quản trị viên không cho hỏi kênh đó qua Telegram.",
+					"image": "/help-center/images/tgc-t5-chon-kenh.png",
+					"caption": "Danh sách kênh để chọn"
+				},
+				{
+					"title": "Hỏi trong kênh",
+					"text": "Bot báo \"📁 Đang hỏi trong #<kênh>\". Câu hỏi được đăng vào kênh dưới tên bạn và AI trả lời theo dữ liệu của kênh, giống gọi AI trong kênh trên web: thành viên kênh đều thấy. Bàn phím đổi theo kênh: 📊 Tiến độ tổng quan, ⏰ Việc quá hạn, 👤 Việc của tôi gửi câu hỏi soạn sẵn; 📄 Xuất báo cáo cho chọn PDF, Word hoặc Excel. Trả lời (reply) vào tin của bot để hỏi tiếp trong cùng luồng. 🔄 Đổi kênh để chọn kênh khác; ↩️ Về hỏi trực tiếp (hoặc /truc_tiep) để quay lại chat riêng.",
+					"image": "/help-center/images/tgc-t6-hoi-trong-kenh.png",
+					"caption": "Đang hỏi trong kênh, bàn phím theo kênh"
+				},
+				{
+					"title": "Gửi file hoặc ảnh cho AI đọc",
+					"text": "Gửi file PDF, Word, Excel hoặc ảnh, gõ câu hỏi vào phần chú thích để hỏi luôn. Không có chú thích thì bot hỏi: 📝 Tóm tắt, 🔍 Rà soát, hoặc ❓ Tôi sẽ hỏi rồi gõ câu hỏi về file. Đang hỏi trong kênh thì file được đăng vào kênh như tải lên trên web. Telegram chỉ cho bot nhận file tới 20 MB; file lớn hơn hãy tải lên trên web. File dài cần vài phút để đọc lần đầu."
+				},
+				{
+					"title": "Cài đặt, đổi model, hủy liên kết",
+					"text": "Bấm ⚙️ Cài đặt (hoặc /caidat) để xem tài khoản đang liên kết, model đang dùng và số lịch báo cáo gửi vào đây. 🤖 Đổi model (hoặc /model): chọn trong các model bạn được dùng trên web. 📬 Báo cáo nhận tại đây: các lịch báo cáo đang gửi vào Telegram này. ❓ Hướng dẫn: cách dùng tóm tắt. 🔓 Hủy liên kết: ngắt Telegram khỏi tài khoản, bot hỏi xác nhận trước.",
+					"image": "/help-center/images/tgc-t8-cai-dat.png",
+					"caption": "Menu Cài đặt của bot"
+				}
+			],
+			"example": "Tóm tắt tiến độ kênh này: việc đã xong, việc đang làm, việc trễ hạn và các vướng mắc cần xử lý.",
+			"tip": "Bot chỉ làm những gì tài khoản {{name}} của bạn được phép, và chỉ trả lời trong chat riêng, không trả lời trong nhóm. Nút Menu cạnh ô nhập có đủ các lệnh. Mỗi người gửi tối đa 10 tin mỗi phút; khi hệ thống bận, câu hỏi xếp hàng và bot báo số câu đang chờ trước bạn. Bot tạm dừng để cập nhật thì tin gửi lúc đó bị bỏ qua và bot báo lại: gửi lại nếu vẫn cần. Câu hỏi, câu trả lời và file đi qua máy chủ Telegram, nên chỉ gửi nội dung công ty cho phép."
+		},
+		{
 			"id": "reports",
 			"category": "Báo cáo định kỳ",
 			"roles": [
@@ -498,9 +609,9 @@
 				},
 				{
 					"title": "Chọn nơi nhận",
-					"text": "Ở mục 4. Gửi qua. Email: bật công tắc, tích Gửi cho tôi; thêm người nhận khác bằng cách gõ email rồi nhấn Enter (nếu quản trị viên giới hạn, chỉ thêm được thành viên các kênh trong báo cáo). Telegram: bật công tắc rồi bấm Liên kết Telegram, xem bài \"Nhận báo cáo qua Telegram\". Đã bật Telegram thì phải chọn ít nhất một chat đã liên kết, nếu không Xem trước và Lưu lịch sẽ báo lỗi \"Telegram: chọn ít nhất một chat đã liên kết\".",
-					"image": "/help-center/images/bc-b7-gui-qua.png",
-					"caption": "Gửi qua email cho chính mình; Telegram đã bật nhưng chưa liên kết chat"
+					"text": "Ở mục 4. Gửi qua. Email: bật công tắc, tích Gửi cho tôi; thêm người nhận khác bằng cách gõ email rồi nhấn Enter (nếu quản trị viên giới hạn, chỉ thêm được thành viên các kênh trong báo cáo). Telegram: bật công tắc; Telegram của tôi được tích sẵn nếu bạn đã liên kết Telegram, xem bài \"Nhận báo cáo qua Telegram\". Đã bật Telegram thì phải tích ít nhất một Telegram, nếu không Xem trước và Lưu lịch sẽ báo lỗi \"Telegram: chọn ít nhất một chat đã liên kết\".",
+					"image": "/help-center/images/tgr-b1-telegram-cua-toi.png",
+					"caption": "Gửi qua email cho chính mình và vào Telegram của tôi"
 				},
 				{
 					"title": "Xem trước báo cáo",
@@ -532,54 +643,32 @@
 				"admin"
 			],
 			"title": "Nhận báo cáo qua Telegram",
-			"desc": "Liên kết chat Telegram riêng của bạn với lịch báo cáo",
+			"desc": "Nhận báo cáo định kỳ vào Telegram đã liên kết với tài khoản của bạn",
 			"minutes": 3,
 			"icon": "✈️",
 			"steps": [
 				{
 					"title": "Bật gửi qua Telegram",
-					"text": "Mở lịch báo cáo cần nhận qua Telegram (tạo mới hoặc bấm vào lịch có sẵn). Ở mục 4. Gửi qua, bật công tắc Telegram. Chưa có chat nào thì hiện dòng \"Chưa liên kết chat Telegram nào.\" Bấm Liên kết Telegram. Không thấy ô Telegram: quản trị viên chưa bật Telegram.",
-					"image": "/help-center/images/tg-b1-bat.png",
-					"caption": "Bật công tắc Telegram rồi bấm Liên kết Telegram"
+					"text": "Mở lịch báo cáo (tạo mới hoặc bấm vào lịch có sẵn). Ở mục 4. Gửi qua, bật công tắc Telegram. Đã liên kết Telegram với tài khoản thì dòng \"Telegram của tôi: @<tên>\" đứng đầu và được tích sẵn. Không thấy ô Telegram: quản trị viên chưa bật gửi báo cáo qua Telegram.",
+					"image": "/help-center/images/tgr-b1-telegram-cua-toi.png",
+					"caption": "Telegram của tôi được tích sẵn khi bật Telegram"
 				},
 				{
-					"title": "Bấm Mở Telegram",
-					"text": "Hộp thoại Liên kết Telegram hiện ra. Để nhận báo cáo trong chat riêng của bạn, bấm Mở Telegram. Giữ nguyên hộp thoại trên NCS AI (đang hiện \"Đang chờ liên kết…\") cho tới khi liên kết xong.",
-					"image": "/help-center/images/tg-b2-chat-rieng.png",
-					"caption": "Bấm Mở Telegram, giữ hộp thoại này mở"
-				},
-				{
-					"title": "Cho trình duyệt mở ứng dụng Telegram",
-					"text": "Trình duyệt mở trang t.me của bot và hỏi có mở Telegram Desktop không: bấm Open (Mở). Máy chưa cài Telegram Desktop hoặc hộp hỏi không hiện: bấm START BOT trên trang để mở Telegram trên web hoặc điện thoại. Có thể tích \"Always allow…\" để lần sau không phải hỏi lại.",
-					"image": "/help-center/images/tg-b2b-mo-ung-dung.png",
-					"caption": "Bấm Open; không có Telegram Desktop thì bấm START BOT"
-				},
-				{
-					"title": "Bấm Start trong Telegram",
-					"text": "Telegram mở cuộc chat với bot. Bấm nút BẮT ĐẦU (START) ở cuối khung chat. Không thấy nút này hoặc bấm không có phản hồi: quay lại NCS AI, đóng hộp thoại, bấm Liên kết Telegram rồi Mở Telegram lần nữa để lấy mã mới.",
-					"image": "/help-center/images/tg-b2c-bam-start.png",
-					"caption": "Bấm START ở cuối khung chat với bot"
-				},
-				{
-					"title": "Kiểm tra liên kết thành công",
-					"text": "Bot trả lời \"Đã liên kết chat này với NCS AI. Báo cáo định kỳ chọn chat này sẽ được gửi tới đây.\" Đồng thời trên NCS AI hiện thông báo \"Đã liên kết Telegram: <tên>\", hộp thoại tự đóng và chat được tích sẵn trong ô Telegram. Bot báo \"Mã liên kết không đúng hoặc đã hết hạn\": bấm Liên kết Telegram để tạo mã mới rồi làm lại.",
-					"image": "/help-center/images/tg-b2d-thanh-cong.png",
-					"caption": "Bot xác nhận đã liên kết chat"
-				},
-				{
-					"title": "Chọn chat nhận báo cáo",
-					"text": "Chat đã liên kết hiện trong ô Telegram với dòng Chat riêng kèm tên của bạn. Tích chat đó để nhận báo cáo này. Chat đã liên kết dùng lại được cho các lịch khác. Bỏ liên kết khi không dùng chat đó nữa: chat bị gỡ khỏi mọi lịch.",
-					"image": "/help-center/images/tg-b4-chon-chat.png",
-					"caption": "Tích chat Telegram muốn nhận báo cáo"
+					"title": "Chưa liên kết: bấm Liên kết Telegram",
+					"text": "Ô Telegram ghi \"Chưa liên kết chat Telegram nào.\": bấm Liên kết Telegram, rồi Mở Telegram và bấm Start trong chat với bot, như bài \"Liên kết Telegram với tài khoản\". Liên kết xong, Telegram của tôi tự hiện và được tích, không cần tải lại trang.",
+					"image": "/help-center/images/tgr-b2-chua-lien-ket.png",
+					"caption": "Chưa liên kết Telegram: bấm Liên kết Telegram"
 				},
 				{
 					"title": "Lưu lịch",
-					"text": "Bấm Lưu lịch. Đã bật Telegram mà chưa tích chat nào thì sẽ báo \"Telegram: chọn ít nhất một chat đã liên kết\". Đến giờ gửi, báo cáo đến Telegram kèm nút Mở bảng tiến độ để xem chi tiết.",
-					"image": "/help-center/images/tg-b4-luu.png",
-					"caption": "Bấm Lưu lịch để lưu lựa chọn"
+					"text": "Bấm Lưu lịch. Đã bật Telegram mà chưa tích Telegram nào thì báo lỗi \"Telegram: chọn ít nhất một chat đã liên kết\". Gửi thử cho tôi cũng gửi vào các Telegram đã tích, tin có chữ [Gửi thử]."
+				},
+				{
+					"title": "Nhận báo cáo trên Telegram",
+					"text": "Đến giờ gửi, báo cáo đến chat với bot, kèm nút Mở bảng tiến độ để xem chi tiết trên web. Trong bot, ⚙️ Cài đặt → 📬 Báo cáo nhận tại đây liệt kê các lịch đang gửi vào Telegram này."
 				}
 			],
-			"tip": "Nếu bạn chặn hoặc xóa cuộc chat với bot, liên kết tự gỡ và lịch báo lỗi ở lần gửi sau: liên kết lại là xong."
+			"tip": "\"Telegram của tôi\" luôn gửi tới Telegram đang liên kết với tài khoản của bạn: liên kết Telegram khác thì báo cáo tự sang Telegram mới; bỏ liên kết thì lịch ngừng gửi Telegram và ghi lỗi \"tài khoản Telegram đã hủy liên kết\" ở lần gửi sau, email vẫn gửi bình thường. Hiện chưa gửi được báo cáo vào nhóm Telegram."
 		},
 		{
 			"id": "reports_receiving",
@@ -882,7 +971,7 @@
 			"steps": [
 				{
 					"title": "Bật tính năng",
-					"text": "Trang Quản trị → Cài đặt → Báo cáo định kỳ, bật Báo cáo định kỳ rồi bấm Lưu. Tính năng đọc bảng Tiến độ công việc nên chỉ hiện trên thanh bên khi tracker tiến độ đang chạy (máy chạy ở chế độ thử thì không có)."
+					"text": "Trang Quản trị → Cài đặt → Báo cáo định kỳ, bật Báo cáo định kỳ rồi bấm Lưu. Tính năng đọc bảng Tiến độ công việc nên chỉ hiện trên thanh bên khi tracker tiến độ đang chạy (máy chạy ở chế độ thử thì không có). Gửi báo cáo qua Telegram dùng bot cấu hình ở Cài đặt → Telegram, xem bài \"Cấu hình bot Telegram\"."
 				},
 				{
 					"title": "Phân quyền",
@@ -916,6 +1005,52 @@
 					"caption": "Giới hạn, mẫu báo cáo mặc định, viết sẵn trước giờ gửi và danh sách mọi lịch"
 				}
 			]
+		},
+		{
+			"id": "admin_telegram",
+			"category": "Quản trị hệ thống",
+			"roles": [
+				"admin"
+			],
+			"title": "Cấu hình bot Telegram",
+			"desc": "Kết nối bot, bật hỏi đáp AI và báo cáo qua Telegram, cấp quyền và đặt giới hạn",
+			"minutes": 5,
+			"icon": "🤖",
+			"steps": [
+				{
+					"title": "Tạo bot và lấy token",
+					"text": "Trong Telegram, chat với @BotFather, gửi /newbot, đặt tên hiển thị và username (kết thúc bằng \"bot\"). BotFather trả về token dạng 123456789:ABC…. Mỗi môi trường (server thật, máy thử, máy dev) dùng một bot riêng: hai hệ thống cùng đọc một bot sẽ giành tin của nhau."
+				},
+				{
+					"title": "Nhập token và kiểm tra",
+					"text": "Mở Cài đặt (ảnh đại diện → Cài đặt), ở phần Quản trị chọn Telegram. Dán token vào ô Bot token, bấm Kiểm tra: hiện \"Bot: @<tên bot>\" là đúng, rồi bấm Lưu. Dòng trạng thái cho biết bot có đang đọc tin không và lần cuối đọc được. Báo có ứng dụng khác đang đọc bot (409 Conflict): một môi trường khác đang dùng chung token, hãy đổi sang bot riêng.",
+					"image": "/help-center/images/tga-1-bot.png",
+					"caption": "Bot token, nút Kiểm tra, trạng thái và các tính năng"
+				},
+				{
+					"title": "Bật tính năng",
+					"text": "Gửi báo cáo định kỳ qua Telegram: cho chọn Telegram ở lịch báo cáo. Hỏi đáp AI qua Telegram: cho hỏi AI từ bot. Cho hỏi trong kênh: câu hỏi được đăng vào kênh dưới tên người hỏi. Gửi file qua Telegram: tắt nếu không muốn file PDF, Word, Excel và file đính kèm đi qua Telegram. Liên kết nhóm Telegram đang tạm tắt."
+				},
+				{
+					"title": "Cấp quyền hỏi AI qua Telegram",
+					"text": "Trang Quản trị → Người dùng → Nhóm, bấm Chỉnh sửa ở Quyền mặc định (mọi người dùng) hoặc ở một nhóm, bật Telegram trong phần Tính năng rồi lưu. Quản trị viên luôn có quyền. Người không có quyền vẫn liên kết được để nhận báo cáo, nhưng không hỏi AI qua bot.",
+					"image": "/help-center/images/tga-4-quyen.png",
+					"caption": "Quyền Telegram trong phần Tính năng của nhóm"
+				},
+				{
+					"title": "Đặt giới hạn và model",
+					"text": "Số tin mỗi người mỗi phút (mặc định 10). Số câu hỏi trả lời cùng lúc của cả hệ thống (mặc định 5): câu vượt quá phải xếp hàng. Tự sang cuộc trò chuyện mới sau bao nhiêu giờ không hỏi (mặc định 4). Thời gian chờ câu trả lời tối đa (mặc định 30 phút): tóm tắt file lớn có thể mất vài phút, nên đừng đặt quá thấp. Model mặc định cho Telegram: để trống thì dùng model mặc định của người dùng.",
+					"image": "/help-center/images/tga-2-gioi-han.png",
+					"caption": "Giới hạn và model mặc định cho Telegram"
+				},
+				{
+					"title": "Chặn kênh và quản lý liên kết",
+					"text": "Kênh không cho hỏi qua Telegram: tìm và tích các kênh không được hỏi từ bot. Bảng Tài khoản Telegram đã liên kết cho biết ai đã liên kết, khi nào và lần dùng cuối; bấm Bỏ liên kết để gỡ, ví dụ khi người đó nghỉ việc. Tài khoản bị khóa sẽ bị bot từ chối ngay ở tin kế tiếp.",
+					"image": "/help-center/images/tga-3-da-lien-ket.png",
+					"caption": "Danh sách tài khoản đã liên kết (dữ liệu minh họa)"
+				}
+			],
+			"tip": "Câu hỏi, câu trả lời và file gửi qua bot đều đi qua máy chủ Telegram: cân nhắc tắt Gửi file qua Telegram hoặc chặn các kênh nhạy cảm. Bot báo cáo và bot hỏi đáp là một bot, chỉ cấu hình ở trang này."
 		},
 		{
 			"id": "admin_knowledge",
