@@ -635,3 +635,23 @@ thì bị dặn "báo file không có" rồi dừng). Nay:
   liệu, so sánh nhiều mục, ví dụ DHCP + câu hỏi tiếp, hai câu ngoài tài liệu). `run.py` hỏi như người dùng (chat mới,
   đính kèm file, hỏi nối tiếp), rồi model chấm (không dùng luật) theo 5 tiêu chí 1–10 dựa trên ý tham chiếu và nguyên
   văn các trang; báo cáo `reports/<label>.md|json`, `--compare` với lần trước, `--regrade` chấm lại không hỏi lại.
+
+## Thu gọn ngữ cảnh bằng cách bỏ kết quả tool cũ (26/11)
+
+Test trên W sau khi gỡ hướng dẫn: thu gọn ngữ cảnh chạy 9 lần trong 1 giờ và hỏng cả hai cách (Knight trả rỗng →
+dự phòng chép 12.000 ký tự JSON gọi tool, hoặc làm tiếp việc dở thay vì tóm tắt), sau đó model mất mạch (câu ví dụ
+tunnel đi tìm OpenVPN rồi ra 81 token không chữ). Nay không nhờ model tóm tắt nữa:
+- `context_fit.clear_earlier_tool_outputs` (gọi ở đầu `process_chat_payload`): kết quả tool của các lượt trước (trước
+  câu hỏi cuối) dài hơn 600 ký tự được thay bằng một dòng "[Kết quả của <tool>(<tham số>) ở lượt trước (N ký tự)
+  không còn trong ngữ cảnh…; cần lại thì gọi lại tool]". Câu hỏi, câu trả lời, tên tool và tham số giữ nguyên;
+  tin trong database không đổi. Log: "Context: N chars of earlier tool results left out".
+- Giữa vòng tool: bỏ hẳn bước Knight tóm tắt; kết quả tool của chính lượt đó vẫn do `context_fit.fit` cắt ngắn khi
+  vượt ngân sách (đã có sẵn, không gọi model).
+- Thu gọn bằng model ở đầu câu hỏi (`compact_messages_for_request`) vẫn còn nhưng nay đo trên lịch sử đã bỏ kết quả
+  tool nên hiếm khi chạm ngưỡng 40k.
+- Nguyên tắc trả lời lên system prompt (`utils/answer_principles.py`): khi model dùng tool có sẵn, đầu system message
+  luôn có 3 nguyên tắc chung (phân biệt nguồn, ngoài tài liệu thì nói rõ rồi vẫn trả lời bằng hiểu biết chung; làm
+  đúng điều được hỏi, không tự lưu ghi chú / tạo file / chạy terminal / sửa việc, câu rõ thì làm luôn; viết bằng
+  ngôn ngữ người dùng, không đưa suy nghĩ vào câu trả lời). Trước đây chúng chỉ nằm trong skill, model đọc qua
+  `view_skill` nên bị đẩy ra xa khi ngữ cảnh dài. Skill chon-nguon bỏ hai nguyên tắc trùng, còn bảng chọn nguồn và
+  các quy tắc terminal / hạ tầng.

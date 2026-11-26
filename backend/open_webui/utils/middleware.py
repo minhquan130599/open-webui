@@ -2288,6 +2288,13 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     if regeneration_prompt:
         form_data['messages'].append({'role': 'user', 'content': regeneration_prompt})
 
+    # Earlier turns keep their questions and answers, not the pages their tools read (see context_fit).
+    from open_webui.utils.context_fit import clear_earlier_tool_outputs
+
+    cleared = clear_earlier_tool_outputs(form_data.get('messages', []))
+    if cleared:
+        log.info('Context: %d chars of earlier tool results left out [%s]', cleared, metadata.get('chat_id'))
+
     filter_functions = (
         await get_filter_functions(request, model, metadata.get('filter_ids', [])) if ENABLE_FUNCTIONS else []
     )
@@ -2780,6 +2787,12 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 form_data['messages'],
                 append=True,
             )
+
+    if use_builtin_tools:
+        # General answering principles first in the system message (utils/answer_principles.py).
+        from open_webui.utils.answer_principles import ANSWER_PRINCIPLES
+
+        form_data['messages'] = add_or_update_system_message(ANSWER_PRINCIPLES, form_data['messages'], append=False)
 
     # Strip only resolved skill mentions; ordinary text such as Perl's <$fh> stays intact.
     resolved_skill_ids = {s.id for s in available_skills} | {s['id'] for s in terminal_skills}
@@ -6361,7 +6374,6 @@ async def streaming_chat_response_handler(response, ctx):
                             if current_usage and tool_messages:
                                 tool_messages[0]['usage'] = current_usage
 
-                            user_prompt = get_last_user_message_item(form_data['messages'])
                             messages = [*messages, *tool_messages]
 
                             if image_urls:
@@ -6396,73 +6408,11 @@ async def streaming_chat_response_handler(response, ctx):
                                     )
                                 return request_messages
 
+                            # No summary by the model in the middle of an answer: it lost what had just been read
+                            # ("Summarized. I'll pick up from here.", or nothing at all) and the answer went astray.
+                            # Earlier turns no longer carry their tool results (context_fit.clear_earlier_tool_outputs),
+                            # and the results of this turn are shortened by context_fit.fit below when they do not fit.
                             new_form_data['messages'] = get_request_messages(messages)
-                            try:
-                                user_messages = [
-                                    (message, message.get('content'))
-                                    for message in messages
-                                    if user_prompt
-                                    and message.get('role') == 'user'
-                                    and message.get('content') == user_prompt.get('content')
-                                ]
-                                summary_form_data = None
-                                if not filter_functions:
-                                    summary_form_data = normalize_messages_for_model(
-                                        await convert_url_images_to_base64({**new_form_data}, user=user)
-                                    )
-                                try:
-                                    # Summarize the user's text, then restore source context for the model.
-                                    for message, _ in user_messages:
-                                        message['content'] = copy.deepcopy(message.get('content'))
-                                        set_last_user_message_content(
-                                            metadata.get('base_user_prompt') or user_message, [message]
-                                        )
-                                    if metadata.get('tool_loop_compacted'):
-                                        # One compaction per answer. Compacting again drops the file text the
-                                        # model just re-read, so it reads it again and the answer never ends.
-                                        compacted = []
-                                    else:
-                                        messages, context_summary, compacted = await compact_messages_for_request(
-                                            request,
-                                            summary_form_data,
-                                            user,
-                                            messages,
-                                            metadata,
-                                            form_data['model'],
-                                            request.app.state.MODELS,
-                                            bypass_system_prompt=True,
-                                        )
-                                        metadata['tool_loop_compacted'] = bool(compacted)
-                                finally:
-                                    for message, content in user_messages:
-                                        message['content'] = content
-                                if compacted:
-                                    if user_prompt is not None:
-                                        messages = [message for message in messages if message != user_prompt]
-                                        messages.insert(
-                                            1 if messages and messages[0].get('role') == 'system' else 0,
-                                            dict(user_prompt),
-                                        )
-                                    checkpoint = next(
-                                        idx for idx, message in enumerate(messages) if message.get('role') != 'system'
-                                    )
-                                    messages[checkpoint] = {**messages[checkpoint], 'contextSummary': context_summary}
-                                    new_form_data['messages'] = get_request_messages(messages)
-                                    output.append(
-                                        {
-                                            'type': 'open_webui:context_compaction',
-                                            'id': output_id('cc'),
-                                            'call_id': next(
-                                                message['tool_calls'][0]['id']
-                                                for message in messages
-                                                if message.get('tool_calls')
-                                            ),
-                                            'summary': context_summary,
-                                        }
-                                    )
-                                    await emit_output()
-                            except Exception:
-                                log.exception('Tool loop context compaction failed; keeping the current context')
 
                         new_form_data = await convert_url_images_to_base64(new_form_data, user=user)
 

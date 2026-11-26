@@ -106,6 +106,47 @@ def fit(messages: list[dict], budget: int, chars_per_token: int, image_tokens: i
     return messages, before - total
 
 
+EARLIER_RESULT_NOTE = (
+    '[Kết quả của {name}({args}) ở lượt trước ({chars} ký tự) không còn trong ngữ cảnh; những gì cần đã được dùng '
+    'trong câu trả lời của lượt đó. Cần lại nội dung thì gọi lại tool.]'
+)
+
+
+def clear_earlier_tool_outputs(messages: list[dict]) -> int:
+    """Tool results of earlier turns (before the last user message) replaced by a one-line note; chars removed.
+
+    What the model took from them is in its answers, which stay; the question, the answers and which tool was called
+    with what stay too. A follow-up that needs the text again reads it again (a tool call, not generation), so the
+    context holds the current turn instead of every page read since the chat began. Messages are replaced, never
+    changed in place (they come from the stored chat).
+    """
+    last_user = max((i for i, m in enumerate(messages) if m.get('role') == 'user'), default=-1)
+    removed = 0
+    for i in range(max(last_user, 0)):
+        message = messages[i]
+        output = message.get('output')
+        if message.get('role') != 'assistant' or not isinstance(output, list):
+            continue
+        calls = {item.get('call_id'): item for item in output if isinstance(item, dict) and item.get('type') == 'function_call'}
+        kept = []
+        for item in output:
+            if isinstance(item, dict) and item.get('type') == 'function_call_output':
+                text = _text_of(item.get('output'))
+                if len(text) > STUB_CHARS * 2:
+                    call = calls.get(item.get('call_id')) or {}
+                    args = str(call.get('arguments') or '')
+                    note = EARLIER_RESULT_NOTE.format(
+                        name=call.get('name') or 'tool',
+                        args=args if len(args) <= 200 else args[:200] + '…',
+                        chars=len(text),
+                    )
+                    item = {**item, 'output': [{'type': 'input_text', 'text': note}]}
+                    removed += len(text)
+            kept.append(item)
+        messages[i] = {**message, 'output': kept}
+    return removed
+
+
 def is_context_error(detail: Any) -> bool:
     """The provider refused the request because it is longer than the model's context."""
     text = str(detail or '').lower()
