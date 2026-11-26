@@ -1467,9 +1467,6 @@ async def write_note(
     """
     Create a new note with the given title and content in the user's Notes.
 
-    Only when the user asks to save or write a note. Never to keep an answer, a summary or a search result: those
-    are written in the reply.
-
     :param title: The title of the new note
     :param content: The markdown content for the note
     :return: JSON with success status and new note id
@@ -3236,15 +3233,9 @@ async def file_outline(
                 {'title': s['title'], 'level': s.get('level') or 2, 'pages': f'{s["first"]}-{s["last"]}'}
                 for s in sections
             ]
-            outline['note'] = (
-                'Every heading of the file, with its pages. For what a section or topic contains, call '
-                'summarize_chat_file with section (the user\'s words) or with these pages.'
-            )
+            outline['note'] = 'Every heading of the file, with its pages (from the overview of the file).'
         elif structure.get('pages'):
-            outline['note'] = (
-                'These headings are guessed from the text and may be incomplete. For what a section or topic '
-                'contains, call summarize_chat_file with section (the user\'s words); do not look elsewhere.'
-            )
+            outline['note'] = 'Headings guessed from the text; the file may have others not listed.'
         return JSONCodec.dumps({'id': file.id, 'filename': file.filename, **outline}, ensure_ascii=False)
     except Exception as e:
         log.exception(f'file_outline error: {e}')
@@ -3367,16 +3358,14 @@ async def summarize_chat_file(
     """
     Summarize a long attached file, or answer what one of its topics contains, from the whole file.
 
-    Without section/pages: the overview of the whole file. It lists every heading of the file in order, each with
-    its pages [tr.a-b] and its main points; present it as the summary, keeping every heading. A large file just
-    uploaded takes minutes: the call waits until the overview is done (the user sees the progress), so call it
-    once and wait.
+    Without section/pages: the overview of the whole file, every heading in order with its pages [tr.a-b] and its
+    main points. A large file just uploaded takes minutes: the call waits until the overview is done (the user
+    sees the progress).
 
     With section: what the file says about that topic ("phần X có những tính năng gì", "chi tiết mục Y", "điều kiện
     về Z"), in the user's own words (other wordings and synonyms are fine). The server finds every section of the
-    file about it by meaning, reads all of them in full and gives you their text, or, when that is too long for one
-    read, notes from all of it that bear on the question. Answer from that; it covers the whole file, so do not
-    search again. Call it once per topic.
+    whole file about it by meaning and returns their original text, or, when that is too long for one read, notes
+    taken from all of it for the question. When the file has nothing on the topic, the result says so.
 
     :param file_id: The ID of the file
     :param section: The topic or section the user asks about, in their words ("quản lý hội nhóm")
@@ -3384,7 +3373,7 @@ async def summarize_chat_file(
     :param pages: Optional exact pages to read instead, like "20-26" or "3, 12-18"
     :param part: Part of a long overview (1 first; 2, 3... when the user types "tiếp" for the rest of the summary)
     :param focus: Optional topic the user asked about, for the overview (it still covers the whole file)
-    :return: JSON with the overview (this part), or the text / notes of the topic, and a note on how to answer
+    :return: JSON with the overview (this part), or the text / notes of the topic, and a note on what it covers
     """
     if __request__ is None or not __user__:
         return JSONCodec.dumps({'error': 'Request and user context required'})
@@ -3452,8 +3441,8 @@ async def _summarize_chat_file(
         if turn_key in given:
             return JSONCodec.dumps(
                 {
-                    'note': f'Part {given[turn_key]} of this is already in this answer: answer from it now. Do not '
-                    'call summarize_chat_file again for it in this answer; the user types "tiếp" for the next part.'
+                    'note': f'Part {given[turn_key]} of this is already in this answer (earlier result). The next '
+                    'part is given in a later message, when the user asks for more.'
                 },
                 ensure_ascii=False,
             )
@@ -3473,9 +3462,8 @@ async def _summarize_chat_file(
             if index >= total:
                 return ''
             return (
-                f' This is part {index}/{total} of {what}. Stop here: answer from this part and invite the user to '
-                f'type "tiếp". Only when they do, in a later message, call summarize_chat_file with part={index + 1} '
-                'and the same section/pages.'
+                f' This is part {index}/{total} of {what}; part {index + 1} is given in a later message (part='
+                f'{index + 1}, same section/pages) when the user asks for more ("tiếp").'
             )
 
         async def overview_so_far() -> Optional[dict]:
@@ -3626,10 +3614,9 @@ async def _summarize_chat_file(
                         {
                             'id': file.id,
                             'filename': file.filename,
-                            'error': f'Nothing in the file is about "{section}".',
+                            'found': False,
+                            'note': f'The file has no section about "{section}". Its headings are listed below.',
                             'headings': titles[:200],
-                            'note': 'Tell the user the file does not cover this, or, if one of these headings is '
-                            'what they mean, call again with its pages.',
                         },
                         ensure_ascii=False,
                     )
@@ -3652,11 +3639,8 @@ async def _summarize_chat_file(
                         'filename': file.filename,
                         'source': label,
                         'text': text,
-                        'note': 'This is the ORIGINAL text of every part of the file about this topic (page starts '
-                        'are marked [trang N]). Answer the user from it now, completely, with page references '
-                        '[tr.N]; do not search the file again, and do not invent anything it does not say. This is '
-                        'everything the file says about it: write the answer in this reply; do not open the terminal, '
-                        'download the file or save a note for it unless the user asked for that.',
+                        'note': 'The original text of every part of the file found about this topic, in full (page '
+                        'starts are marked [trang N]).',
                     },
                     ensure_ascii=False,
                 )
@@ -3694,11 +3678,9 @@ async def _summarize_chat_file(
                     'filename': file.filename,
                     'source': label,
                     'notes': notes or '(Không có nội dung liên quan.)',
-                    'note': f'These notes were taken from the whole original text of every part of the file about '
-                    f'this topic ({len(text)} characters, read in full) for the question: {question_text}. Answer the '
-                    'user from them now, completely, with page references [tr.N]; do not search the file again, and '
-                    'do not invent anything they do not say. Write the answer in this reply; do not open the terminal, '
-                    'download the file or save a note for it unless the user asked for that.',
+                    'note': f'Notes taken from the whole original text of every part of the file found about this '
+                    f'topic ({len(text)} characters, read in full) for the question: {question_text}. Pages are '
+                    'given as [tr.N].',
                 },
                 ensure_ascii=False,
             )
@@ -3712,9 +3694,8 @@ async def _summarize_chat_file(
                         'id': file.id,
                         'filename': file.filename,
                         **({'pages': result['pages']} if result.get('pages') else {}),
-                        'note': 'The overview of this file could not be made yet. Do not write a summary from the '
-                        'title page, the headings or the first pages, and do not save a note. Tell the user in one '
-                        'or two sentences that the file is still being processed and to ask again shortly.',
+                        'ready': False,
+                        'note': 'The overview of this file is not made yet: the file is still being processed.',
                     },
                     ensure_ascii=False,
                 )
@@ -3723,18 +3704,16 @@ async def _summarize_chat_file(
             if result.get('complete', True):
                 note = (
                     'This overview covers every heading of the file, in order, each with its pages [tr.a-b] and its '
-                    'main points. Present it as the summary of the file: keep every heading and its pages, shorten '
-                    'nothing away. For the details of a heading, call summarize_chat_file with its pages.'
+                    'main points.'
                 )
             else:
                 missing = ', '.join(result.get('pending_pages') or [])
                 note = (
-                    f'This overview is NOT complete: {result.get("parts_read")} of {result.get("parts_total")} parts '
-                    f'are done; not covered yet: {missing}. Present what is here, keeping every heading, and say '
-                    'plainly which pages are not covered.'
+                    f'This overview is not complete: {result.get("parts_read")} of {result.get("parts_total")} parts '
+                    f'are done; pages not covered yet: {missing}.'
                 )
             if emphasis:
-                note += f' The user asked about: {emphasis}. Bring that forward; for its details read its pages.'
+                note += f' Topic the user asked about: {emphasis}.'
             return JSONCodec.dumps(
                 {
                     'id': file.id,

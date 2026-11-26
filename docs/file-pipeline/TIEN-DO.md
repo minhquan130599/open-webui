@@ -589,3 +589,49 @@ Chờ trích xuất chữ 161 giây; đọc file tới giới hạn đọc; summ
   `find /`), rồi tự `write_note`. Sửa: kết quả hỏi chủ đề dặn viết câu trả lời ngay, không mở terminal / tải file /
   lưu ghi chú nếu người dùng không yêu cầu; mô tả `write_note` chỉ dùng khi người dùng muốn lưu ghi chú; skill
   chon-nguon: "lọc / trích / liệt kê" là trả lời trong chat, không tải file qua URL trong terminal.
+
+## Bám ví dụ trong tài liệu kỹ thuật (26/11, chat 6bd44a54 trên W, TL Vận hành NGFW)
+
+Đối chiếu 5 câu (IPsec, IKE phase 1/2, ví dụ tunnel động, client VPN, ví dụ OpenVPN server) với tr.136–163:
+- Tìm tài liệu đúng (câu 2 và 4 nhận nguyên văn có đủ ví dụ); lỗi ở bước viết:
+  - câu 2: ví dụ tunnel theo tuyến bỏ mất `punt local/port` (tài liệu: thiếu punt thì tunnel không bao giờ lên) và
+    `activate` (tunnel và tuyến chờ activate, tr.148); câu 3 cũng thiếu `activate`;
+  - câu 3: tự thêm `ike-proposal aes128-sha256-modp2048` / `esp-proposal aes128-sha256` (tài liệu không có giá trị);
+    còn để comment dù người dùng bảo bỏ;
+  - câu 4 và 5: bảo phát `export-ca` (`corp-ca.enc`) cho client — tài liệu (tr.156) nói đó là bản sao lưu khóa ký CA:
+    lỗi bảo mật nghiêm trọng; câu 5 không đọc lại tài liệu, tự thêm `keepalive`, `redirect-gateway`, user `bob` mà vẫn
+    ghi "lấy từ ví dụ trong tài liệu";
+  - câu 1 rò câu tiếng Anh của model ("The skill suggests…"), câu 2 rò chữ Trung ("对照").
+- Sửa:
+  - (đã bỏ) kiểm tra dòng lệnh bằng regex trong `verify.py`: không dùng regex / luật cứng để sửa hay kiểm tra câu
+    trả lời, vì làm mất độ linh hoạt;
+  - kết quả hỏi chủ đề (`DOC_EXAMPLES_RULE`), lời nhắc trích ghi chú và gộp ghi chú, skill chon-nguon: chép nguyên ví
+    dụ đủ mọi dòng, không thêm giá trị, nói đúng công dụng lệnh, đọc lại tài liệu cho mỗi câu hỏi cấu hình.
+
+## Bỏ các câu "vá lỗi" trong tool và skill (26/11)
+
+Sửa theo từng lỗi bằng cách thêm câu dặn vào kết quả tool làm model cứng nhắc dần (ví dụ: hỏi điều tài liệu không có
+thì bị dặn "báo file không có" rồi dừng). Nay:
+- Kết quả tool chỉ nêu sự thật về kết quả, không ra lệnh: `summarize_chat_file` (nguyên văn / ghi chú đã đọc những
+  gì, đủ cả file; "file không có mục nào về X" kèm danh sách tiêu đề; bản tổng quan đủ / chưa đủ; phần tiếp theo có
+  khi người dùng hỏi thêm), `file_outline` (tiêu đề từ bản tổng quan hay đoán từ chữ). Bỏ `DOC_EXAMPLES_RULE`, các câu
+  "đừng mở terminal / tải file / lưu ghi chú", "Tell the user…", "Present it as…". Mô tả tool và `write_note` chỉ còn
+  mô tả việc tool làm.
+- Skill chon-nguon: bảng chọn nguồn giữ nguyên (bỏ dòng ví dụ IPsec); các quy tắc vá lỗi thay bằng hai nguyên tắc
+  chung: phân biệt nguồn (điều từ tài liệu thì đúng nguyên văn và ghi trang; tài liệu không có thì nói rõ rồi vẫn trả
+  lời bằng hiểu biết chung, ghi là ngoài tài liệu) và làm đúng điều được hỏi (không tự lưu ghi chú, tạo file, chạy
+  terminal; câu hỏi rõ thì làm luôn). Quy tắc terminal / hạ tầng giữ nguyên.
+- Lời nhắc trích ghi chú giữ một câu chung: chép lệnh, cấu hình, ví dụ đúng nguyên văn, đầy đủ.
+- Hướng tiếp theo: đánh giá bằng bộ câu hỏi cố định (trong tài liệu, ghép nhiều mục, ngoài tài liệu, hỏi tiếp, xin ví
+  dụ cấu hình) trước / sau mỗi thay đổi, thay vì vá theo từng lỗi.
+
+## Gỡ luật cứng còn lại; bộ đánh giá trả lời tài liệu (26/11)
+
+- Thu gọn ngữ cảnh: bỏ cách "gửi lại cả cuộc chat kèm tool rồi hỏi tóm tắt" (lý do model đáp "Summarized. I'll pick up
+  from here.") và bỏ ngưỡng độ dài tóm tắt; tóm tắt luôn là một yêu cầu riêng có nội dung cần tóm tắt trong prompt.
+- `verify.py`: bỏ kiểm tra số / ngày bằng regex; chỉ còn gắn link ảnh trang gốc cho các trang [tr.N] câu trả lời
+  trích (cài đặt "Gắn link trang gốc dưới câu trả lời về tài liệu").
+- `scripts/doc-eval/`: bộ câu hỏi cố định về TL Vận hành NGFW (`cases.json`: chuỗi 5 câu IPsec / OpenVPN, câu trong tài
+  liệu, so sánh nhiều mục, ví dụ DHCP + câu hỏi tiếp, hai câu ngoài tài liệu). `run.py` hỏi như người dùng (chat mới,
+  đính kèm file, hỏi nối tiếp), rồi model chấm (không dùng luật) theo 5 tiêu chí 1–10 dựa trên ý tham chiếu và nguyên
+  văn các trang; báo cáo `reports/<label>.md|json`, `--compare` với lần trước, `--regrade` chấm lại không hỏi lại.

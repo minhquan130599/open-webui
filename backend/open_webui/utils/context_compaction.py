@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import logging
 import re
 from typing import Any
@@ -443,25 +442,6 @@ async def _generate_summary(
         raise ValueError('No available model for context compaction')
 
     summary_prompt_template = summary_prompt_template.strip() or DEFAULT_CONTEXT_COMPACTION_PROMPT
-    recent_message_prefix = _message_prefix(recent_messages[0])
-    has_unique_prefix = (
-        recent_message_prefix
-        and sum(
-            _message_prefix(message) == recent_message_prefix for message in [*compacted_messages, *recent_messages]
-        )
-        == 1
-    )
-    # A reply far shorter than what it replaces ("Summarized. I'll pick up from here.") is not a summary: taking it
-    # would drop everything read so far (files, tool results) for one sentence.
-    compacted_chars = sum(len(get_content_from_message(message) or '') for message in compacted_messages)
-    least = min(300, compacted_chars // 20)
-
-    def usable(summary: str) -> bool:
-        if len(summary) >= least:
-            return True
-        log.warning('Context compaction: summary too short (%d chars for %d compacted); not used', len(summary), compacted_chars)
-        return False
-
     # The text-only prompt formatter otherwise omits tool names and arguments.
     compacted_messages, recent_messages = list(compacted_messages), list(recent_messages)
     for messages in (compacted_messages, recent_messages):
@@ -491,49 +471,9 @@ async def _generate_summary(
         'task': 'context_compaction',
     }
 
-    # Replaying the chat request unchanged lets the provider read the history from its prompt cache.
-    # A repeated or transformed boundary cannot safely identify the history to discard.
-    if (
-        form_data
-        and task_model_id == model_id
-        and has_unique_prefix
-        and sum(_message_prefix(message) == recent_message_prefix for message in form_data['messages']) == 1
-    ):
-        prompt = await render_prompt(
-            prompt_variables_template(
-                summary_prompt_template,
-                {
-                    '{{COMPACTED_MESSAGES}}': (
-                        'Every non-system message above before (excluding) the message beginning with '
-                        f'"{recent_message_prefix}".'
-                    ),
-                    '{{RECENT_MESSAGES}}': (
-                        f'The message above beginning with "{recent_message_prefix}" and every message after it.'
-                    ),
-                },
-            )
-        )
-        payload = {
-            'model': task_model_id,
-            'messages': [*copy.deepcopy(form_data['messages']), {'role': 'user', 'content': prompt}],
-            'stream': False,
-            'metadata': metadata,
-        }
-        if form_data.get('tools'):
-            payload['tools'] = copy.deepcopy(form_data['tools'])
-        try:
-            response = await generate_chat_completion(
-                request,
-                form_data=apply_params_to_form_data(payload, models[task_model_id], task_model_params),
-                user=user,
-                bypass_system_prompt=bypass_system_prompt,
-            )
-        except Exception:
-            response = None
-        summary = _response_text(response).strip()
-        if summary and usable(summary):
-            return summary
-
+    # A summary is asked as a task of its own, the messages to keep given in the prompt. Replaying the chat with the
+    # request appended (for the provider's prompt cache) made the model answer the chat instead, mid-answer with
+    # tools: "Summarized. I'll pick up from here." in place of everything read so far.
     prompt = await render_prompt(summary_prompt_template)
     payload = {
         'model': task_model_id,
@@ -545,24 +485,15 @@ async def _generate_summary(
     payload = apply_params_to_form_data(payload, models[task_model_id], task_model_params)
     response = await generate_chat_completion(request, form_data=payload, user=user)
     summary = _response_text(response).strip()
-    if summary and usable(summary):
+    if summary:
         return summary
 
-    # No usable summary: the start of every compacted message (tool results included), within a bound.
     parts = [previous_summary] if previous_summary else []
     for message in compacted_messages:
         content = get_content_from_message(message)
         if content:
             parts.append(f'- {message.get("role", "unknown")}: {content[:1500]}')
     return '\n'.join(parts)[:12000]
-
-
-def _message_prefix(message: dict) -> str:
-    content = get_content_from_message(message) or ' '.join(
-        f'{tool_call["function"]["name"]}({tool_call["function"]["arguments"]})'
-        for tool_call in message.get('tool_calls') or []
-    )
-    return content.strip()[:200]
 
 
 def _response_text(response: Any) -> str:

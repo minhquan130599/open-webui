@@ -1,0 +1,151 @@
+{
+  "document": "TL Vận hành_NGFW_ v1.3.261123.19.pdf",
+  "note": "Mỗi hội thoại là một chat mới có đính kèm tài liệu; các câu trong cùng hội thoại hỏi nối tiếp. 'expect' là các ý tài liệu nói (đáp án tham chiếu cho người chấm), 'pages' là các trang nguyên văn đưa cho người chấm.",
+  "conversations": [
+    {
+      "id": "ipsec-chuoi",
+      "note": "Chuỗi 5 câu của chat 6bd44a54 (26/11): lọc IPsec, IKE phase 1/2, ví dụ tunnel động, client VPN, ví dụ OpenVPN server.",
+      "turns": [
+        {
+          "id": "ipsec-loc",
+          "question": "Giúp tôi lọc phần cấu hình IP Sec",
+          "pages": "138-150",
+          "expect": [
+            "Mục 6.13 IPSec / ESP VPN (khoảng tr.138-150) gồm ba phần: set security ipsec (SA khóa thủ công, thuộc cgate, có hiệu lực khi activate), set security ike (peer tự thương lượng khóa qua strongSwan và punt, có hiệu lực khi commit), set security ipsec-tunnel (tunnel theo tuyến, cgate, activate).",
+            "Có ghi trang cho từng phần."
+          ]
+        },
+        {
+          "id": "ike-phase",
+          "question": "Lọc cho tôi phần cấu hình IKE/IPsec cho tunnel động (phase 1 và 2).",
+          "pages": "141-150",
+          "expect": [
+            "Tunnel động dùng set security ike: punt (local, port) là bắt buộc, thiếu punt thì tunnel không bao giờ lên.",
+            "Peer: address và pre-shared-key bắt buộc; ike-proposal là proposal pha 1, esp-proposal là proposal pha 2 (cú pháp strongSwan); local-network / remote-network; start-action.",
+            "IKE có hiệu lực khi commit; tunnel theo tuyến thì tunnel và tuyến chờ activate.",
+            "Ví dụ nguyên văn ở tr.144 hoặc tr.148."
+          ]
+        },
+        {
+          "id": "ike-vidu",
+          "question": "Cho tôi xem một ví dụ cấu hình hoàn chỉnh (bỏ qua comment) cho 1 tunnel động với Phase 1 và Phase 2 cụ thể.",
+          "pages": "142-148",
+          "expect": [
+            "Dùng nguyên ví dụ của tài liệu (tr.144: punt local/port, peer branch address, pre-shared-key, local-network, remote-network, start-action start, commit; hoặc tr.148: zones, interface eth0 unit 142, punt local + port 2, ipsec-tunnel vti-br local/remote/zone, peer br address/pre-shared-key/tunnel, route br-lan, commit, rồi activate cho tunnel và tuyến).",
+            "Không có comment trong khối lệnh vì người dùng yêu cầu bỏ comment.",
+            "Tài liệu không cho giá trị cụ thể của ike-proposal / esp-proposal: nếu nêu giá trị thì phải nói rõ là tự đặt, ngoài tài liệu."
+          ]
+        },
+        {
+          "id": "client-vpn",
+          "question": "Đối với client, truy cập vpn như thế nào",
+          "pages": "43, 150-162",
+          "expect": [
+            "Client (người dùng cuối) dùng OpenVPN (mục 6.14): thiết bị dựng instance (transport + khối host), CA, user, cấp quyền allow.",
+            "Client nhận file .ovpn do request openvpn client-profile <instance> <user> phát hành (tr.43, tr.161) rồi mở bằng ứng dụng OpenVPN.",
+            "request openvpn export-ca là để SAO LƯU khóa CA (tr.156), không phải thứ phát cho client."
+          ]
+        },
+        {
+          "id": "openvpn-vidu",
+          "question": "Cho tôi xem ví dụ cấu hình OpenVPN server hoàn chỉnh trên NGFW để tạo instance cho client kết nối.",
+          "pages": "43, 151-161",
+          "expect": [
+            "Các dòng lấy từ ví dụ của tài liệu: transport (tr.151/157: local, pool, interface, protocol, listen-port, route), khối host (tr.157: data-ciphers, auth-algorithm, tls-static-key crypt, push-route, dns-server, max-clients), CA và user (tr.161: openvpn ca corp, user alice, host ca corp, host allow alice), commit, activate.",
+            "Sau đó request openvpn create-ca corp và request openvpn client-profile ra alice file ... để phát profile cho client.",
+            "Không thêm tham số, giá trị hay người dùng mà tài liệu không có (nếu thêm thì nói rõ là ngoài tài liệu).",
+            "Không bảo phát file export-ca cho client: đó là bản sao lưu khóa CA."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "openvpn-ten",
+      "turns": [
+        {
+          "id": "openvpn-ten",
+          "question": "Tên instance OpenVPN được dài tối đa bao nhiêu ký tự, tại sao?",
+          "pages": "150, 152",
+          "expect": ["Tối đa 9 ký tự, vì trường ident của cgate chỉ có bấy nhiêu (tr.150, tr.152)."]
+        }
+      ]
+    },
+    {
+      "id": "tls-ca",
+      "turns": [
+        {
+          "id": "tls-ca-may-tram",
+          "question": "Muốn các máy trạm tin CA dùng để giải mã TLS thì tôi xuất gì cho họ?",
+          "pages": "41-42",
+          "expect": [
+            "Dùng request security tls-decrypt export-ca-certificate <path>: ghi chứng chỉ CA (không bao giờ kèm khóa) ra file để phát cho máy trạm (tr.42).",
+            "Không phát khóa riêng của CA."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "so-sanh-ipsec",
+      "turns": [
+        {
+          "id": "so-sanh-ipsec",
+          "question": "Khi nào dùng SA khóa thủ công, khi nào dùng peer IKE theo prefix, khi nào dùng tunnel theo tuyến? Mỗi loại có hiệu lực khi commit hay activate?",
+          "pages": "138-148",
+          "expect": [
+            "SA khóa thủ công (set security ipsec sa): tunnel tĩnh, khóa cố định; cgate, có hiệu lực khi activate.",
+            "Peer IKE (set security ike peer ...): peer tự thương lượng khóa, chỉ chở các prefix local-network / remote-network; confd, có hiệu lực khi commit.",
+            "Tunnel theo tuyến (set security ipsec-tunnel): chở bất cứ thứ gì được định tuyến vào, dùng khi mạng phía sau peer thay đổi hoặc học động (OSPF/BGP); tunnel thuộc cgate (activate), peer tạo khóa cho nó thuộc security ike (commit)."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dhcp",
+      "turns": [
+        {
+          "id": "dhcp-vidu",
+          "question": "Cho tôi ví dụ cấu hình DHCP cho một mạng khách không gắn VLAN.",
+          "pages": "163-164",
+          "expect": [
+            "Nguyên ví dụ guest ở tr.164: server-ip 192.168.50.1/24, interface eth3, pool-start 192.168.50.50, pool-end 192.168.50.199, lease-minutes 30, gateway 192.168.50.1, dns1 9.9.9.9, commit.",
+            "Không đặt vlan trên cổng access; domain thuộc cgate nên cần activate mới phục vụ."
+          ]
+        },
+        {
+          "id": "dhcp-32",
+          "question": "Nếu tôi đặt server-ip là /32 thì sao?",
+          "pages": "164",
+          "expect": ["Vẫn được nhận nhưng mặt nạ đưa cho client lấy từ prefix của server-ip, nên mọi client nhận một /32 vô dụng (tr.164)."]
+        }
+      ]
+    },
+    {
+      "id": "ngoai-wireguard",
+      "turns": [
+        {
+          "id": "ngoai-wireguard",
+          "question": "Cấu hình WireGuard VPN trên NGFW này như thế nào?",
+          "pages": "",
+          "expect": [
+            "Tài liệu không có WireGuard (VPN trong tài liệu là IPsec mục 6.13 và OpenVPN mục 6.14): phải nói rõ điều này.",
+            "Không bịa lệnh set cho WireGuard như thể là của thiết bị; hiểu biết chung (nếu có) phải ghi rõ là ngoài tài liệu; có thể gợi ý IPsec hoặc OpenVPN mà tài liệu hỗ trợ."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ngoai-ikev1v2",
+      "turns": [
+        {
+          "id": "ngoai-ikev1v2",
+          "question": "IKEv2 khác IKEv1 thế nào, trên thiết bị này nên dùng bản nào?",
+          "pages": "142-143",
+          "expect": [
+            "Từ tài liệu: peer có tham số version 1 / 2, mặc định 2 (tr.142); dpd-timeout chỉ dùng cho IKEv1, IKEv2 charon bỏ qua (tr.143).",
+            "Phần so sánh chung IKEv1 / IKEv2 không có trong tài liệu: được trả lời bằng hiểu biết chung nhưng phải ghi rõ là ngoài tài liệu."
+          ]
+        }
+      ]
+    }
+  ]
+}

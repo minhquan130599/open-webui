@@ -490,7 +490,8 @@ EXTRACT_PROMPT = """The user asked about the document "{name}": {question}
 Below is the original text of {where} (page starts are marked [trang N]). Write down everything in it that answers or
 bears on the question, in the language of the document: every relevant feature, screen, field, button, rule,
 condition, permission, number and exception, with its page like [tr.12], in document order. Keep the details; leave
-out only what has nothing to do with the question. If nothing here is relevant, write only: KHÔNG LIÊN QUAN
+out only what has nothing to do with the question. Copy commands, configuration and examples exactly as written, in
+full. If nothing here is relevant, write only: KHÔNG LIÊN QUAN
 
 <text>
 {text}
@@ -498,7 +499,7 @@ out only what has nothing to do with the question. If nothing here is relevant, 
 
 COMBINE_PROMPT = """Below are notes taken, in order, from parts of the document "{name}" for the question: {question}
 Combine them into one set of notes in document order: keep every relevant item with its page [tr.N]; remove only
-repetition.
+repetition. Keep commands, configuration lines and examples exactly as they are, every line.
 
 {text}"""
 
