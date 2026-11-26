@@ -1465,7 +1465,10 @@ async def write_note(
     __user__: dict = None,
 ) -> str:
     """
-    Create a new note with the given title and content.
+    Create a new note with the given title and content in the user's Notes.
+
+    Only when the user asks to save or write a note. Never to keep an answer, a summary or a search result: those
+    are written in the reply.
 
     :param title: The title of the new note
     :param content: The markdown content for the note
@@ -3651,7 +3654,9 @@ async def _summarize_chat_file(
                         'text': text,
                         'note': 'This is the ORIGINAL text of every part of the file about this topic (page starts '
                         'are marked [trang N]). Answer the user from it now, completely, with page references '
-                        '[tr.N]; do not search the file again, and do not invent anything it does not say.',
+                        '[tr.N]; do not search the file again, and do not invent anything it does not say. This is '
+                        'everything the file says about it: write the answer in this reply; do not open the terminal, '
+                        'download the file or save a note for it unless the user asked for that.',
                     },
                     ensure_ascii=False,
                 )
@@ -3692,7 +3697,8 @@ async def _summarize_chat_file(
                     'note': f'These notes were taken from the whole original text of every part of the file about '
                     f'this topic ({len(text)} characters, read in full) for the question: {question_text}. Answer the '
                     'user from them now, completely, with page references [tr.N]; do not search the file again, and '
-                    'do not invent anything they do not say.',
+                    'do not invent anything they do not say. Write the answer in this reply; do not open the terminal, '
+                    'download the file or save a note for it unless the user asked for that.',
                 },
                 ensure_ascii=False,
             )

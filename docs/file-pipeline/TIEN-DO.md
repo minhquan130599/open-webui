@@ -584,3 +584,8 @@ Chờ trích xuất chữ 161 giây; đọc file tới giới hạn đọc; summ
     mới khi còn chờ) và job chạy luôn, không nhường.
 - Test (giả lập tải): rảnh 0 s; có câu trả lời 0,5 s thì chờ 0,55 s; chỉ có tác vụ nền 0 s; file đang được chờ 0 s;
   giới hạn chờ đúng.
+- "Lọc phần cấu hình IPsec" (26/11, bản mới): `summarize_chat_file(section)` đọc đúng 6.13 và các mục liên quan,
+  câu trả lời đúng; nhưng sau đó model tải file qua URL bịa trong terminal, dò thư mục terminal (4 lần đọc lỗi,
+  `find /`), rồi tự `write_note`. Sửa: kết quả hỏi chủ đề dặn viết câu trả lời ngay, không mở terminal / tải file /
+  lưu ghi chú nếu người dùng không yêu cầu; mô tả `write_note` chỉ dùng khi người dùng muốn lưu ghi chú; skill
+  chon-nguon: "lọc / trích / liệt kê" là trả lời trong chat, không tải file qua URL trong terminal.
