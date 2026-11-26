@@ -6009,6 +6009,7 @@ async def streaming_chat_response_handler(response, ctx):
                     request.state, 'max_tool_call_iterations', CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS
                 )
                 final_answer_requested = form_data.get('tool_choice') == 'none'
+                empty_answer_retried = False
                 stop_reason = None
                 citation_source_ids = {}
                 get_source_context(
@@ -6563,6 +6564,28 @@ async def streaming_chat_response_handler(response, ctx):
                                 current_usage = await stream_body_handler(res, new_form_data)
                             finally:
                                 log_model_usage(request, user, form_data['model'], current_usage)
+                            if not tool_calls and not empty_answer_retried and not get_output_text(output).strip():
+                                # The model stopped after the tool results without writing anything (only its
+                                # thinking): ask once more for the answer, without tools.
+                                empty_answer_retried = True
+                                log.warning('Tool loop: the model ended without an answer; asking once more, without tools')
+                                retry_form_data = normalize_messages_for_model(
+                                    new_form_data if final_answer_requested else final_answer_payload(new_form_data)
+                                )
+                                res = await generate_chat_completion(
+                                    request,
+                                    retry_form_data,
+                                    user,
+                                    bypass_system_prompt=True,
+                                )
+                                if isinstance(res, StreamingResponse):
+                                    prior_output = list(full_output())
+                                    output = []
+                                    output_start = len(prior_output)
+                                    try:
+                                        current_usage = await stream_body_handler(res, retry_form_data)
+                                    finally:
+                                        log_model_usage(request, user, form_data['model'], current_usage)
                         elif getattr(res, 'status_code', 200) >= 400:
                             await emit_message_error(get_message_error_content(get_response_error_detail(res)))
                             break

@@ -2320,9 +2320,42 @@ async def list_tasks_by_chat_id_endpoint(request: Request, chat_id: str, user=De
 
     if not socket_id:
         task_ids = await Chats.filter_task_ids_by_user_id(chat, user.id, task_ids)
+        if not task_ids:
+            await _close_interrupted_answers(chat, user)
 
     log.debug('Task IDs for chat %s: %s', chat_id, task_ids)
     return {'task_ids': task_ids}
+
+
+INTERRUPTED_ANSWER = 'Câu trả lời bị gián đoạn (hệ thống vừa khởi động lại). Hãy gửi lại câu hỏi.'
+
+
+async def _close_interrupted_answers(chat, user) -> None:
+    """Answers left unfinished with no task running for the chat (the server restarted while writing them) are
+    closed with a note, instead of showing as still being written for ever. One waiting for a tool approval is
+    left as it is, and so is one touched in the last minute (its task may be starting)."""
+    messages_map = await Chats.get_messages_map_by_chat_id(chat.id) or {}
+    now = time.time()
+    for message_id, message in messages_map.items():
+        if message.get('role') != 'assistant' or message.get('done') is not False:
+            continue
+        if (message.get('user_id') or chat.user_id) != user.id:
+            continue
+        touched = message.get('updated_at') or message.get('timestamp') or 0
+        if touched > 1e11:  # milliseconds
+            touched /= 1000
+        if not touched or now - touched < 60:
+            continue
+        output = message.get('output')
+        if isinstance(output, list) and any(
+            item.get('type') == 'function_call' and item.get('status') in {'pending', 'queued', 'requires_approval'}
+            for item in output
+        ):
+            continue
+        await Chats.upsert_message_to_chat_by_id_and_message_id(
+            chat.id, message_id, {'done': True, 'error': {'content': INTERRUPTED_ANSWER}}, touch=False
+        )
+        log.info('Closed interrupted answer %s of chat %s', message_id, chat.id)
 
 
 @app.post('/api/tasks/chat/{chat_id:path}/resume')

@@ -553,3 +553,9 @@ Chờ trích xuất chữ 161 giây; đọc file tới giới hạn đọc; summ
     "hội nhóm"); model thấy không khớp đã đi tìm file trong terminal (search_files, write_file, run_command). Nay khi
     file có bản tổng quan, `file_outline` trả mọi tiêu đề của bản tổng quan kèm trang, và chỉ sang
     `summarize_chat_file(section)`; chưa có thì ghi rõ tiêu đề là đoán, hỏi chủ đề thì gọi `summarize_chat_file`.
+  - Câu trả lời rỗng (26/11, "tab điều tra"): sau kết quả tool, lượt cuối của Knight (32 nghìn token vào) ra 133 token
+    nhưng không có chữ nào (chỉ phần suy nghĩ) và kết thúc. Vòng tool nay hỏi lại đúng một lần, không kèm tool, khi
+    lượt sau kết quả tool không có chữ (`middleware.py`, `empty_answer_retried`).
+  - Tin đang trả lời dở khi restart: không còn tác vụ nào nhưng vẫn `done=false`, giao diện quay mãi. Khi mở chat và
+    không còn tác vụ chạy, tin dở cũ hơn 1 phút (trừ tin chờ duyệt tool) được chốt với lỗi "Câu trả lời bị gián đoạn
+    (hệ thống vừa khởi động lại). Hãy gửi lại câu hỏi." (`main.py`, `_close_interrupted_answers`).
