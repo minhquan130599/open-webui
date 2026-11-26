@@ -3363,6 +3363,24 @@ async def summarize_chat_file(
     """
     if __request__ is None or not __user__:
         return JSONCodec.dumps({'error': 'Request and user context required'})
+    # The last status shown while it is still running: closed on the way out, whatever the path.
+    status_open: list[Optional[str]] = [None]
+    try:
+        return await _summarize_chat_file(
+            file_id, section, question, pages, part, focus, __request__, __user__, __metadata__, __event_emitter__,
+            status_open,
+        )
+    finally:
+        if status_open[0] and __event_emitter__:
+            try:
+                await __event_emitter__({'type': 'status', 'data': {'description': status_open[0], 'done': True}})
+            except Exception:
+                pass
+
+
+async def _summarize_chat_file(
+    file_id, section, question, pages, part, focus, __request__, __user__, __metadata__, __event_emitter__, status_open
+) -> str:
     try:
         from open_webui.file_pipeline.models import FileJobs
         from open_webui.file_pipeline.settings import file_settings, read_budget_chars
@@ -3417,6 +3435,7 @@ async def summarize_chat_file(
 
         async def emit(description: str, finished: bool = False):
             if __event_emitter__:
+                status_open[0] = None if finished else description
                 await __event_emitter__({'type': 'status', 'data': {'description': description, 'done': finished}})
 
         def page_of(chunks: list[str]) -> tuple[int, str]:
@@ -3456,6 +3475,42 @@ async def summarize_chat_file(
                 model_calls=False,
             )
 
+        # The background pipeline makes the overview of a long file right after upload. Both the summary and a
+        # topic wait for it (people upload and ask at once): the overview is what tells where each section of the
+        # file starts and ends. Only a job that stops moving (no new part for files.summary.wait_seconds) is given up.
+        stall_seconds = settings['files.summary.wait_seconds']
+        background = (
+            settings['files.summary.precompute']
+            and len(content) >= settings['files.summary.precompute_min_chars']
+            and not is_spreadsheet(file.filename, (file.meta or {}).get('content_type'))
+        )
+
+        async def wait_for_overview() -> tuple[Optional[dict], bool]:
+            """(the finished overview, False) once the background job has made it; else (None, stuck), stuck when
+            the job stopped moving while still running."""
+            job = await FileJobs.get(file.id)
+            seen, moved_at, shown = None, time.monotonic(), ''
+            while job and job.status in ('queued', 'running'):
+                current = await Files.get_file_by_id(file.id) or file
+                found = cached_summary(current)
+                if found:
+                    return found, False
+                progress = (job.status, job.stage, JSONCodec.dumps(job.progress or {}), len(cached_parts(current)))
+                if progress != seen:
+                    seen, moved_at = progress, time.monotonic()
+                elif time.monotonic() - moved_at > stall_seconds:
+                    log.warning('summarize_chat_file: no progress on %s for %ss; answering from what is made', file.id, stall_seconds)
+                    return None, job.status == 'running'
+                label = (job.progress or {}).get('label') if job.status == 'running' else 'đang chờ đến lượt xử lý'
+                status_text = f'Đang tóm tắt {file.filename}: {label or "đang chuẩn bị"}'
+                if status_text != shown:
+                    shown = status_text
+                    await emit(status_text)
+                await asyncio.sleep(3)
+                job = await FileJobs.get(file.id)
+            current = await Files.get_file_by_id(file.id) or file
+            return cached_summary(current), False
+
         # ---- a topic of the file: every section about it, found by meaning, read in full
         if section or pages:
             question_text = question.strip() if isinstance(question, str) and question.strip().lower() not in ('', 'none', 'null') else ''
@@ -3468,8 +3523,13 @@ async def summarize_chat_file(
             # Read at most this much source for one topic (the notes step reads it in segment_chars pieces).
             max_read = page_chars * 8
             if not wanted_pages:
+                overview = cached_summary(file) or await reuse_summary(file)
+                if not overview and total_pages and background:
+                    # Without the overview a PDF's sections have no known bounds (its headings are plain lines).
+                    overview, _ = await wait_for_overview()
+                if not overview:
+                    overview = await overview_so_far()
                 await emit(f'Đang tìm các phần về "{section}" trong {file.filename}')
-                overview = await overview_so_far()
                 outline = await asyncio.to_thread(build_outline, content, structure, 400)
                 query = section if question_text == section else f'{section}\n{question_text}'
                 hits = await _search_file_positions(__request__, __user__, file, structure, query, k=40)
@@ -3483,8 +3543,17 @@ async def summarize_chat_file(
                     ]
                     all_regions = list(regions)
                     hit_pages = [hit['page'] for hit in hits if hit.get('page')]
-                    if not regions:  # the overview is not made yet: the pages the search found
-                        regions = [{'lo': page, 'hi': page, 'title': f'tr.{page}'} for page in dict.fromkeys(hit_pages)]
+                    if not regions:
+                        # No overview (its job is stuck): runs of the pages the search found, with the page on each
+                        # side, since a section rarely sits on one page.
+                        regions = []
+                        for page in sorted(set(hit_pages)):
+                            if regions and page - regions[-1]['hi'] <= 3:
+                                regions[-1]['hi'] = min(page + 1, total_pages)
+                            else:
+                                regions.append({'lo': max(page - 1, 1), 'hi': min(page + 1, total_pages)})
+                        for region in regions:
+                            region['title'] = f'tr.{region["lo"]}-{region["hi"]}'
                     ranked = rank_regions(regions, hit_pages)
                     top = ranked[0]['score'] if ranked else 1.0
                     ranked = [
@@ -3526,6 +3595,7 @@ async def summarize_chat_file(
                         f'{h["title"]} (tr.{h["page"]})' if h.get('page') else h['title']
                         for h in outline.get('headings') or []
                     ]
+                    await emit(f'Không thấy phần nào về "{section}" trong {file.filename}', True)
                     return JSONCodec.dumps(
                         {
                             'id': file.id,
@@ -3538,7 +3608,8 @@ async def summarize_chat_file(
                         ensure_ascii=False,
                     )
                 label = '; '.join(
-                    region['title'] + (f' (tr.{region["lo"]}-{region["hi"]})' if total_pages else '')
+                    region['title']
+                    + (f' (tr.{region["lo"]}-{region["hi"]})' if total_pages and not region['title'].startswith('tr.') else '')
                     for region in picked
                     if region.get('title')
                 )
@@ -3547,6 +3618,8 @@ async def summarize_chat_file(
             given[turn_key] = 1
             if len(text) <= page_chars:
                 _charge_read(__metadata__, text)
+                if label or section:
+                    await emit(f'Đã tìm thấy: {label or section}', True)
                 return JSONCodec.dumps(
                     {
                         'id': file.id,
@@ -3651,41 +3724,17 @@ async def summarize_chat_file(
         if found:
             return deliver(found)
 
-        # The background pipeline makes the overview of a long file right after upload: wait for it. The answer
-        # waits for the whole overview (people upload and ask at once); only one that stops moving (no new part
-        # for files.summary.wait_seconds) is given up, and answered from the parts made by then.
-        stall_seconds = settings['files.summary.wait_seconds']
-        background = (
-            settings['files.summary.precompute']
-            and len(content) >= settings['files.summary.precompute_min_chars']
-            and not is_spreadsheet(file.filename, (file.meta or {}).get('content_type'))
-        )
+        # Made in the background: wait for it; one that stopped moving is answered from the parts made by then.
         if background:
-            job = await FileJobs.get(file.id)
-            seen, moved_at, shown = None, time.monotonic(), ''
-            while job and job.status in ('queued', 'running'):
-                progress = (job.status, job.stage, JSONCodec.dumps(job.progress or {}), len(cached_parts(file)))
-                if progress != seen:
-                    seen, moved_at = progress, time.monotonic()
-                elif time.monotonic() - moved_at > stall_seconds:
-                    log.warning('summarize_chat_file: no progress on %s for %ss; answering from what is made', file.id, stall_seconds)
-                    break
-                label = (job.progress or {}).get('label') if job.status == 'running' else 'đang chờ đến lượt xử lý'
-                status_text = f'Đang tóm tắt {file.filename}: {label or "đang chuẩn bị"}'
-                if status_text != shown:
-                    shown = status_text
-                    await emit(status_text)
-                await asyncio.sleep(3)
-                file = await Files.get_file_by_id(file.id) or file
-                found = cached_summary(file)
-                if found:
-                    await emit(f'Đã có bản tóm tắt {file.filename}', True)
-                    return deliver(found)
-                job = await FileJobs.get(file.id)
-            if job and job.status == 'running':  # stuck: answer from the parts made
+            found, stuck = await wait_for_overview()
+            if found:
+                await emit(f'Đã có bản tóm tắt {file.filename}', True)
+                return deliver(found)
+            if stuck:
                 result = await overview_so_far()
                 await emit(f'Dùng {result.get("parts_read", 0)}/{result.get("parts_total", 0)} phần đã tóm tắt của {file.filename}', True)
                 return deliver(result)
+            file = await Files.get_file_by_id(file.id) or file
             found = cached_summary(file) or await reuse_summary(file)
             if found:
                 return deliver(found)

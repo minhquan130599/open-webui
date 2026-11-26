@@ -543,3 +543,9 @@ Chờ trích xuất chữ 161 giây; đọc file tới giới hạn đọc; summ
   - Test (số liệu giả theo các mục của OSINT3 trên W): hỏi bằng từ đồng nghĩa không có trong tiêu đề vẫn lấy được
     2.13 (kèm mục cha), 2.13.2, 2.13.3, "Danh sách thành viên trong hội - nhóm", "Nhật ký hoạt động của hội - nhóm";
     59 nghìn ký tự nguồn đọc bằng 4 lần gọi model, ghi chú phủ 26/26 trang liên quan.
+  - Hỏi chủ đề ngay sau khi tải file (26/11, trên W hỏi 23 giây sau khi tải): PDF không có tiêu đề đánh dấu (chỉ là
+    dòng "2.13 QUẢN LÝ HỘI - NHÓM"), nên trước khi có bản tổng quan không biết mục bắt đầu / kết thúc ở đâu; bản cũ
+    đọc mỗi trang tìm thấy một trang (12 trang lẻ, thiếu 2.13.1, 2.13.2). Nay hỏi chủ đề cũng chờ bản tổng quan
+    chạy nền như khi tóm tắt (cùng hàm chờ, cùng ngưỡng "không tiến triển"); chỉ khi job bị treo mới dùng dự phòng:
+    các dải trang liền quanh trang tìm thấy (gộp trang cách nhau ≤ 3, thêm 1 trang mỗi bên).
+  - Trạng thái "Đang tìm…" không còn quay mãi: mọi đường ra của `summarize_chat_file` đều đóng trạng thái.
