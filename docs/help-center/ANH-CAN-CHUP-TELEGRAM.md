@@ -15,6 +15,14 @@ Bài "Liên kết Telegram với tài khoản" đã đủ ảnh.
 | Gửi file hoặc ảnh | Gửi một file kèm chú thích và bot báo đã gửi | `tgc-t7-gui-file.png` |
 | Cài đặt, hủy liên kết | Menu ⚙️ Cài đặt của bot (tài khoản, kênh đang gửi, các nút) | `tgc-t8-cai-dat.png` |
 
+## Bài "Nhận nhắc việc đến hạn qua Telegram" (`telegram_reminders`)
+
+Ba ảnh web đã chụp trên W (`tgn-w1`, `tgn-w2`, `tgn-w3`). Còn thiếu ảnh trong Telegram:
+
+| Bước | Ảnh cần chụp | Tên file |
+|---|---|---|
+| Tin nhắc việc trong Telegram | Tin "🔔 Nhắc việc" của bot (Quá hạn / Đến hạn hôm nay / Đến hạn ngày mai) | `tgn-t1-tin-nhac-viec.png` |
+
 ## Bài "Cấu hình bot Telegram" (`admin_telegram`)
 
 | Bước | Ảnh cần chụp | Tên file |

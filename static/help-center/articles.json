@@ -575,7 +575,7 @@
 				},
 				{
 					"title": "Nhận nhắc việc qua Telegram",
-					"text": "Mở Cài đặt → Thông báo, bật Nhắc việc qua Telegram (mặc định tắt). Mỗi ngày bot gửi vào chat với bạn các công việc bạn phụ trách đến hạn hôm nay, ngày mai và việc quá hạn, giống email nhắc việc. Chưa liên kết Telegram mà bật: NCS AI hỏi có liên kết ngay không, bấm Liên kết Telegram để chuyển sang Cài đặt → Tài khoản và làm theo bài \"Liên kết Telegram với tài khoản\". Email nhắc việc vẫn gửi như cũ nếu bạn không tắt."
+					"text": "Bot cũng có thể nhắc các việc bạn phụ trách sắp đến hạn: bật Nhắc việc qua Telegram trong Cài đặt → Thông báo. Xem bài \"Nhận nhắc việc đến hạn qua Telegram\"."
 				},
 				{
 					"title": "Cài đặt, hủy liên kết",
@@ -583,6 +583,59 @@
 				}
 			],
 			"tip": "Bot chỉ làm những gì tài khoản {{name}} của bạn được phép, và chỉ nhận tin trong chat riêng, không nhận trong nhóm. Mỗi ngày bot tự xóa lịch sử chat với bạn (tin bot gửi và tin bạn gửi cho bot); tin đã đăng vào kênh trên web vẫn giữ nguyên. Mỗi người gửi tối đa 10 tin mỗi phút. Bot tạm dừng để cập nhật thì tin gửi lúc đó bị bỏ qua và bot báo lại: gửi lại nếu vẫn cần. Tin nhắn và file đi qua máy chủ Telegram, nên chỉ gửi nội dung công ty cho phép."
+		},
+		{
+			"id": "telegram_reminders",
+			"category": "Telegram",
+			"roles": [
+				"user",
+				"admin"
+			],
+			"title": "Nhận nhắc việc đến hạn qua Telegram",
+			"desc": "Bật để bot gửi vào Telegram các việc bạn phụ trách đến hạn hôm nay, ngày mai và việc quá hạn",
+			"minutes": 2,
+			"icon": "🔔",
+			"steps": [
+				{
+					"title": "Liên kết Telegram trước",
+					"text": "Nhắc việc qua Telegram gửi vào chat riêng giữa bạn và bot NCS AI, nên tài khoản phải liên kết Telegram trước: xem bài \"Liên kết Telegram với tài khoản\". Chưa liên kết cũng bật được công tắc, NCS AI sẽ hỏi có liên kết ngay không (bước 4)."
+				},
+				{
+					"title": "Mở Cài đặt → Thông báo",
+					"text": "Bấm ảnh đại diện ở góc dưới bên trái → Cài đặt (hoặc Ctrl + .) → Thông báo. Mục Nhắc việc qua Telegram nằm ngay dưới Email nhắc việc đến hạn. Không thấy mục này: quản trị viên chưa bật tính năng theo dõi công việc hoặc Telegram, hoặc tài khoản của bạn chưa có quyền Telegram."
+				},
+				{
+					"title": "Bật Nhắc việc qua Telegram",
+					"text": "Gạt công tắc sang phải. Công tắc mặc định tắt và được lưu ngay khi gạt, không cần bấm Lưu. Email nhắc việc là công tắc riêng: bật cả hai thì nhận cả email lẫn Telegram, chỉ muốn Telegram thì tắt Email nhắc việc đến hạn.",
+					"image": "/help-center/images/tgn-w1-cong-tac.png",
+					"caption": "Cài đặt → Thông báo: Email nhắc việc và Nhắc việc qua Telegram"
+				},
+				{
+					"title": "Chưa liên kết: liên kết ngay",
+					"text": "Bật công tắc khi chưa liên kết Telegram, NCS AI hiện hộp \"Chưa liên kết Telegram\". Bấm Liên kết Telegram để liên kết ngay (bước tiếp theo). Bấm Sau đó: công tắc vẫn bật, nhắc việc bắt đầu gửi khi bạn liên kết xong, không phải bật lại.",
+					"image": "/help-center/images/tgn-w2-chua-lien-ket.png",
+					"caption": "Bật khi chưa liên kết: bấm Liên kết Telegram"
+				},
+				{
+					"title": "Liên kết ngay trong tab Tài khoản",
+					"text": "Cửa sổ Cài đặt chuyển sang Tài khoản, tới ô Telegram đã bắt đầu liên kết: bấm Mở Telegram, bấm Start trong chat với bot, rồi nhập mã 6 số nhận qua email vào ô này (xem bài \"Liên kết Telegram với tài khoản\"). Liên kết xong là nhận nhắc việc từ lần nhắc kế tiếp.",
+					"image": "/help-center/images/tgn-w3-lien-ket.png",
+					"caption": "Ô Telegram đang chờ bạn bấm Start"
+				},
+				{
+					"title": "Tin nhắc việc trong Telegram",
+					"text": "Mỗi ngày, vào giờ nhắc việc quản trị viên đặt, bot gửi một tin \"🔔 Nhắc việc\" chia theo nhóm: Quá hạn, Đến hạn hôm nay, Đến hạn ngày mai. Mỗi dòng là một việc bạn phụ trách, kèm kênh và hạn. Nội dung giống email nhắc việc; mở NCS AI để xem chi tiết và cập nhật tiến độ (nhắn trong kênh, hoặc gửi từ Telegram vào kênh)."
+				},
+				{
+					"title": "Khi nào có, khi nào không",
+					"text": "Chỉ có tin khi bạn phụ trách việc đến hạn hôm nay hoặc ngày mai (việc quá hạn đi kèm trong tin đó); ngày không có việc nào thì không có tin. Bình thường mỗi ngày một tin, vào giờ nhắc việc; quản trị viên bấm Gửi nhắc nhở ngay thì có thể có thêm một tin trong ngày. Việc đã hoàn thành hoặc đã đóng không được nhắc."
+				},
+				{
+					"title": "Không nhận được tin nhắc việc",
+					"text": "Kiểm tra lần lượt: công tắc Nhắc việc qua Telegram đang bật; ô Telegram trong Cài đặt → Tài khoản ghi Đã liên kết; việc đến hạn có tên bạn ở cột phụ trách trên bảng Tiến độ (tên lạ, chưa gắn tài khoản thì không nhắc được, nhờ người quản lý kênh gán lại); chat với bot không bị chặn (Telegram → bot → Restart nếu đã chặn). Vẫn không có: báo quản trị viên kiểm tra giờ nhắc việc và trạng thái bot."
+				}
+			],
+			"tip": "Bot tự xóa lịch sử chat mỗi ngày, kể cả tin nhắc việc cũ; việc vẫn còn đầy đủ trên bảng Tiến độ. Tắt công tắc thì ngừng nhận từ lần nhắc kế tiếp. Bỏ liên kết Telegram thì cũng không nhận được nữa."
 		},
 		{
 			"id": "reports",
@@ -724,7 +777,7 @@
 					"text": "Gạt công tắc sang phải để bật (nhận email mỗi ngày), sang trái để tắt. Thay đổi được lưu ngay khi bạn gạt, không cần bấm Lưu. Lần gửi tiếp theo sẽ theo lựa chọn mới."
 				}
 			],
-			"tip": "Tắt email không làm mất các thông báo nhắc việc trong NCS AI. Công tắc này chỉ áp dụng cho email nhắc việc gửi riêng cho bạn; email tổng hợp dành cho chủ kênh không bị ảnh hưởng. Không thấy mục này: quản trị viên chưa bật tính năng theo dõi công việc."
+			"tip": "Tắt email không làm mất các thông báo nhắc việc trong NCS AI. Công tắc này chỉ áp dụng cho email nhắc việc gửi riêng cho bạn; email tổng hợp dành cho chủ kênh không bị ảnh hưởng. Không thấy mục này: quản trị viên chưa bật tính năng theo dõi công việc. Muốn nhận nhắc việc qua Telegram: bật Nhắc việc qua Telegram ngay bên dưới, xem bài \"Nhận nhắc việc đến hạn qua Telegram\"."
 		},
 		{
 			"id": "knowledge",
@@ -1044,6 +1097,10 @@
 					"text": "Kênh không nhận tin nhắn từ Telegram: tìm và tích các kênh không được gửi vào từ bot. Bảng Tài khoản Telegram đã liên kết cho biết ai đã liên kết, khi nào và lần dùng cuối; bấm Bỏ liên kết để gỡ, ví dụ khi người đó nghỉ việc. Tài khoản bị khóa sẽ bị bot từ chối ngay ở tin kế tiếp.",
 					"image": "/help-center/images/tga-3-da-lien-ket.png",
 					"caption": "Danh sách tài khoản đã liên kết (dữ liệu minh họa)"
+				},
+				{
+					"title": "Nhắc việc qua Telegram",
+					"text": "Người dùng tự bật Nhắc việc qua Telegram trong Cài đặt → Thông báo (mặc định tắt). Bot gửi cùng lúc với email nhắc việc, theo Giờ nhắc ở Quản trị → Cài đặt → Chung → Nhắc hạn công việc; Gửi nhắc nhở ngay cũng gửi qua Telegram cho người đã bật. Chỉ cần bot đang chạy và người dùng đã liên kết; không có công tắc riêng cho quản trị viên. Máy chạy ở chế độ thử (tracker tắt) thì không nhắc việc."
 				}
 			],
 			"tip": "Tin nhắn và file gửi qua bot đều đi qua máy chủ Telegram: cân nhắc chặn các kênh nhạy cảm. Mỗi ngày bot tự xóa lịch sử chat với người dùng (Telegram chỉ cho xóa tin trong vòng 48 giờ); tin đã đăng vào kênh vẫn giữ nguyên. Bot chỉ cấu hình ở trang này."
