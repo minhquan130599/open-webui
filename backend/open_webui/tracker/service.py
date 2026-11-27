@@ -141,7 +141,7 @@ def _select_batch(messages: list[Message]) -> tuple[list[Message], int]:
 
 
 async def _summarize_batch_attachments(
-    channel_id: str, batch: list[Message], extractions: dict[str, list[dict]]
+    channel_id: str, batch: list[Message], extractions: dict[str, list[dict]], skip: frozenset = frozenset()
 ) -> tuple[list[Message], dict[str, list[str]], Optional[Message], bool]:
     """Summarize attachments in message order.
 
@@ -155,7 +155,7 @@ async def _summarize_batch_attachments(
         used += min(len(message.content or ''), TRACKER_MESSAGE_MAX_CHARS) + 80
         if not _file_names(message):
             continue
-        result = await media.summarize_attachments(channel_id, message)
+        result = await media.summarize_attachments(channel_id, message, skip)
         if result.pending:
             return batch[:index], summaries, message, True
         used += sum(len(line) for line in result.lines)
@@ -587,7 +587,12 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         watermark = watermark if watermark is not None else row.watermark
 
         extractions: dict[str, list[dict]] = {}
-        batch, attachments, stop, waiting = await _summarize_batch_attachments(channel_id, batch, extractions)
+        # Files marked as reference material are not read (nor their items extracted).
+        marks = row.file_marks or {}
+        skip_marks = dict(marks.get('skip') or {})
+        batch, attachments, stop, waiting = await _summarize_batch_attachments(
+            channel_id, batch, extractions, frozenset(skip_marks)
+        )
         if stop:
             watermark = _watermark_before(new_messages, stop, row.watermark)
         retry_after_ns = FILE_RETRY_NS if waiting else 0
@@ -602,14 +607,12 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         edit_watermark = max([row.edit_watermark] + [m.updated_at for m in edited])
         for message in edited:
             if _file_names(message):
-                result = await media.summarize_attachments(channel_id, message)
+                result = await media.summarize_attachments(channel_id, message, frozenset(skip_marks))
                 attachments[message.id] = result.lines
                 if result.extractions:
                     extractions[message.id] = result.extractions
 
         # Files unmarked since they were last read are read again; a message already read in this run is not.
-        marks = row.file_marks or {}
-        skip_marks = dict(marks.get('skip') or {})
         reread = dict(marks.get('reread') or {})
         reread_done: set[str] = set()
         if reread:

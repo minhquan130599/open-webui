@@ -408,10 +408,18 @@ async def _summarize_item(channel_id: str, message: Message, item: dict) -> tupl
     return (f'{name}: {summary}' if summary else None), waiting, extraction
 
 
-async def summarize_attachments(channel_id: str, message: Message) -> AttachmentResult:
+async def summarize_attachments(
+    channel_id: str, message: Message, skip: frozenset = frozenset()
+) -> AttachmentResult:
+    """skip: ids of files marked as reference material (file_marks.skip). They are not read at all: reading one
+    (a large spreadsheet) can take many model calls, and none of its items would be kept."""
     result = AttachmentResult()
     items = [f for f in ((message.data or {}).get('files') or []) if isinstance(f, dict)]
     for item in items[:TRACKER_MAX_ATTACHMENTS_PER_MESSAGE]:
+        if _file_id(item) in skip:
+            name = str(item.get('name') or item.get('filename') or 'tệp')
+            result.lines.append(f'{name}: tài liệu tham khảo, đã đánh dấu không phải đầu việc')
+            continue
         try:
             line, waiting, extraction = await _summarize_item(channel_id, message, item)
         except llm.TrackerLLMError:
