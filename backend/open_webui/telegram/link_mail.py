@@ -12,14 +12,15 @@ from open_webui.telegram.models import OTP_SECONDS
 
 
 async def ready() -> tuple[bool, Optional[dict]]:
-    """(email can be sent, mail settings). Off when the admin switched the email sender off or left it unset."""
+    """(email can be sent, mail settings). The sender only has to be set up (Graph or SMTP): its on/off switch is for
+    task-reminder emails and does not stop the linking code from being sent."""
     from open_webui.tracker import mailer
 
     try:
         settings = await mailer.settings()
     except Exception:
         return False, None
-    return bool(settings.get('enable')) and not mailer.missing(settings), settings
+    return not mailer.missing(settings), settings
 
 
 def _body(name: str, code: str, telegram_name: str) -> str:

@@ -145,14 +145,6 @@
 				</AdminSettingRow>
 			</AdminSettingSection>
 
-			<AdminSettingSection title="Telegram">
-				<!-- Reports are not sent by Telegram for now (backend: REPORTS_PAUSED); email still works. -->
-				<p class="text-xs text-gray-500">
-					<span class="font-medium">{$i18n.t('Sending reports by Telegram is not supported for now')}.</span>
-					{$i18n.t('Schedules that chose Telegram keep that choice but are only sent by email.')}
-				</p>
-			</AdminSettingSection>
-
 			<AdminSettingSection title={$i18n.t('Limits')}>
 				<div class="grid grid-cols-2 gap-3">
 					<label class="flex flex-col gap-1 text-xs text-gray-500">

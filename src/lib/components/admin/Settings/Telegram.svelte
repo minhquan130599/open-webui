@@ -138,14 +138,7 @@
 			</AdminSettingSection>
 
 			<AdminSettingSection title={$i18n.t('Features')}>
-				<!-- Reports are not sent by Telegram for now (backend: REPORTS_PAUSED): the switch is shown off. -->
-				<AdminSettingRow
-					label={$i18n.t('Send scheduled reports by Telegram')}
-					description={$i18n.t('Sending reports by Telegram is not supported for now')}
-					let:labelId
-				>
-					<Switch ariaLabelledbyId={labelId} state={false} disabled />
-				</AdminSettingRow>
+				<!-- Reports are not sent by Telegram for now (backend: REPORTS_PAUSED): the option is not shown. -->
 				<AdminSettingRow
 					label={$i18n.t('Send messages into channels from Telegram')}
 					description={$i18n.t('Users with the "Telegram" permission (Users → Groups → Permissions; admins always) link their Telegram, choose a channel and send messages into it under their own name. The AI does not answer these messages and nothing is sent back to Telegram.')}

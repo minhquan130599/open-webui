@@ -297,14 +297,16 @@
 	const isUnassigned = (item: TrackerWorkItem) => !item.phu_trach?.length;
 	$: unassignedCount = all.filter((item) => isUnassigned(item) && !isDone(item)).length;
 
+	// The status filters (overdue, blocked, in progress, done) show every item they count above, owned or not;
+	// only the plain list leaves unowned items to their own tab.
 	const matches = (item: TrackerWorkItem, current: Filter, hide: boolean) => {
 		if (current === 'unassigned') return isUnassigned(item) && !isDone(item);
-		if (isUnassigned(item)) return false;
-		if (current === 'mine') return isMine(item) && (!hide || !isDone(item));
 		if (current === 'overdue') return isOverdue(item);
-		if (current === 'blocked') return item.trang_thai === 'bi_chan';
+		if (current === 'blocked') return item.trang_thai === 'bi_chan' && !isDone(item);
 		if (current === 'active') return item.trang_thai === 'dang_lam';
 		if (current === 'done') return isDone(item);
+		if (isUnassigned(item)) return false;
+		if (current === 'mine') return isMine(item) && (!hide || !isDone(item));
 		return !hide || !isDone(item);
 	};
 	$: visibleItems = all.filter((item) => matches(item, filter, hideCompleted));

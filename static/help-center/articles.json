@@ -604,7 +604,7 @@
 				},
 				{
 					"title": "Chọn nơi nhận",
-					"text": "Ở mục 4. Gửi qua. Email: bật công tắc, tích Gửi cho tôi; thêm người nhận khác bằng cách gõ email rồi nhấn Enter (nếu quản trị viên giới hạn, chỉ thêm được thành viên các kênh trong báo cáo). Telegram: tạm thời chưa hỗ trợ gửi báo cáo qua Telegram, ô Telegram hiện mờ; báo cáo chỉ gửi qua email, nên phải bật Email thì mới Lưu lịch được.",
+					"text": "Ở mục 4. Gửi qua. Email: bật công tắc, tích Gửi cho tôi; thêm người nhận khác bằng cách gõ email rồi nhấn Enter (nếu quản trị viên giới hạn, chỉ thêm được thành viên các kênh trong báo cáo). Tạm thời chưa hỗ trợ gửi báo cáo qua Telegram nên mục này chỉ có Email; phải bật Email thì mới Lưu lịch được.",
 					"image": "/help-center/images/tgr-b1-telegram-cua-toi.png",
 					"caption": "Gửi qua email cho chính mình và vào Telegram của tôi"
 				},
@@ -644,7 +644,7 @@
 			"steps": [
 				{
 					"title": "Tạm thời chưa hỗ trợ",
-					"text": "Báo cáo định kỳ tạm thời chưa gửi được qua Telegram. Ở mục 4. Gửi qua của lịch báo cáo, ô Telegram hiện mờ với dòng \"Tạm thời chưa hỗ trợ gửi báo cáo qua Telegram\". Hãy bật Email để nhận báo cáo.",
+					"text": "Báo cáo định kỳ tạm thời chưa gửi được qua Telegram. Ở mục 4. Gửi qua của lịch báo cáo chỉ còn Email. Hãy bật Email để nhận báo cáo.",
 					"image": "/help-center/images/tgr-b1-telegram-cua-toi.png",
 					"caption": "Telegram của tôi được tích sẵn khi bật Telegram"
 				},
@@ -1020,15 +1020,15 @@
 				},
 				{
 					"title": "Bật tính năng",
-					"text": "Gửi tin nhắn vào kênh từ Telegram: cho người dùng đã liên kết chọn kênh và gửi tin vào kênh dưới tên mình. Tin chỉ đi một chiều: AI không trả lời các tin này và không có gì được gửi về Telegram. Gửi báo cáo định kỳ qua Telegram: tạm thời chưa hỗ trợ, công tắc bị khóa. Liên kết nhóm Telegram đang tạm tắt."
+					"text": "Gửi tin nhắn vào kênh từ Telegram: cho người dùng đã liên kết chọn kênh và gửi tin vào kênh dưới tên mình. Tin chỉ đi một chiều: AI không trả lời các tin này và không có gì được gửi về Telegram. Gửi báo cáo định kỳ qua Telegram tạm thời chưa hỗ trợ nên không có công tắc. Liên kết nhóm Telegram đang tạm tắt."
 				},
 				{
 					"title": "Cấu hình gửi email để xác nhận liên kết",
-					"text": "Khi người dùng bấm Start trong bot, bot gửi mã xác nhận 6 chữ số tới email tài khoản NCS AI; liên kết chỉ hoàn tất khi nhập đúng mã trên web (hiệu lực 10 phút, sai tối đa 5 lần). Mã được gửi bằng hộp thư Email nhắc việc: trang giám sát → Thành phần & tài nguyên → Chỉnh sửa cấu hình → Email nhắc việc (Microsoft 365 hoặc SMTP), phải bật và điền đủ thông tin. Chưa cấu hình thì không ai liên kết được: web và bot đều báo quản trị viên chưa cấu hình gửi email."
+					"text": "Khi người dùng bấm Start trong bot, bot gửi mã xác nhận 6 chữ số tới email tài khoản NCS AI; liên kết chỉ hoàn tất khi nhập đúng mã trên web (hiệu lực 10 phút, sai tối đa 5 lần). Mã được gửi bằng hộp thư Email nhắc việc: trang giám sát → Thành phần & tài nguyên → Chỉnh sửa cấu hình → Email nhắc việc (Microsoft 365 hoặc SMTP), điền đủ thông tin (không cần bật công tắc gửi email nhắc việc). Chưa cấu hình thì không ai liên kết được: web và bot đều báo quản trị viên chưa cấu hình gửi email."
 				},
 				{
 					"title": "Cấp quyền gửi tin từ Telegram",
-					"text": "Trang Quản trị → Người dùng → Nhóm, bấm Chỉnh sửa ở Quyền mặc định (mọi người dùng) hoặc ở một nhóm, bật Telegram trong phần Tính năng rồi lưu. Quản trị viên luôn có quyền. Người không có quyền không gửi được tin vào kênh qua bot.",
+					"text": "Trang Quản trị → Người dùng → Nhóm, bấm Chỉnh sửa ở Quyền mặc định (mọi người dùng) hoặc ở một nhóm, bật Telegram trong phần Tính năng rồi lưu. Quyền này mặc định bật cho mọi người dùng; cũng sửa được ở trang giám sát → Chỉnh sửa cấu hình → Telegram. Quản trị viên luôn có quyền. Người không có quyền không gửi được tin vào kênh qua bot.",
 					"image": "/help-center/images/tga-4-quyen.png",
 					"caption": "Quyền Telegram trong phần Tính năng của nhóm"
 				},

@@ -42,6 +42,7 @@ class TrackerOutputError(TrackerLLMError):
 
 # Model list per endpoint, refreshed periodically so a pod or model swap is picked up without a restart.
 _MODEL_CACHE_SECONDS = 300
+_FAILED_LIST_SECONDS = 20
 _model_cache: dict[str, tuple[Optional[list[str]], float]] = {}
 # Endpoints that failed recently are tried last until this time (monotonic seconds).
 _down_until: dict[str, float] = {}
@@ -105,7 +106,9 @@ async def _list_models(session: aiohttp.ClientSession, endpoint: Endpoint) -> Op
     except Exception as e:
         log.warning('Tracker could not list models of %s (%s): %s', endpoint.name, endpoint.url, e)
         models = None
-    _model_cache[endpoint.url] = (models, time.monotonic() + _MODEL_CACHE_SECONDS)
+    # A failed listing is asked again soon: a network blip (the app starting, a pod restarting) must not leave the
+    # tracker without a model for the whole cache time, in every worker.
+    _model_cache[endpoint.url] = (models, time.monotonic() + (_MODEL_CACHE_SECONDS if models is not None else _FAILED_LIST_SECONDS))
     return models
 
 

@@ -223,6 +223,13 @@ SETTINGS: list[dict[str, Any]] = [
      'options': [['pyodide', 'Pyodide (trong trình duyệt)'], ['jupyter', 'Jupyter']]},
     {'key': 'code_interpreter.jupyter.url', 'label': 'URL Jupyter', 'type': 'text', 'group': 'code',
      'show_if': {'code_interpreter.enable': [True], 'code_interpreter.engine': ['jupyter']}},
+    # Telegram. The permission is the default for users (Admin > Users > Groups > Permissions in NCS AI keeps the
+    # per-group values): stored inside user.permissions, so it is written there ('store': config key + path).
+    {'key': 'user.permissions.features.telegram', 'store': ['user.permissions', 'features', 'telegram'],
+     'label': 'Mặc định cho người dùng liên kết Telegram', 'type': 'bool', 'group': 'telegram', 'default': True,
+     'help': 'Quyền "Telegram" mặc định của mọi người dùng. Nhóm nào đặt quyền riêng (NCS AI → Người dùng → Nhóm → Quyền) thì theo nhóm đó; admin luôn được.'},
+    {'key': 'telegram.ask', 'label': 'Cho gửi tin nhắn vào kênh từ Telegram', 'type': 'bool', 'group': 'telegram',
+     'help': 'Tắt thì bot không nhận tin để chuyển vào kênh (người dùng vẫn liên kết được).'},
 ]  # fmt: skip
 GROUPS = [
     ('tracker', 'Tracker tiến độ', 'Áp dụng trong tối đa 15 giây, không cần khởi động lại.'),
@@ -248,6 +255,7 @@ GROUPS = [
     ('web', 'Tìm kiếm web', ''),
     ('image', 'Tạo ảnh', ''),
     ('code', 'Chạy code', ''),
+    ('telegram', 'Telegram', 'Liên kết Telegram cần cấu hình gửi email (nhóm Email nhắc việc) để gửi mã xác nhận.'),
 ]
 # File processing settings are shared with the admin Settings > Documents page.
 from open_webui.file_pipeline.settings import FILE_SETTINGS, FILE_SETTINGS_GROUP  # noqa: E402
@@ -387,7 +395,8 @@ def _shown(setting: dict, value: Any) -> Any:
 @router.get('/api/admin/settings')
 async def get_settings(token: str = Depends(require_session)):
     async with _engine().connect() as conn:
-        values = await _get(conn, list(BY_KEY))
+        stored = await _get(conn, _config_keys(list(BY_KEY)))
+        values = {key: _stored_value(BY_KEY[key], stored) for key in BY_KEY}
         history = await conn.execute(
             text(
                 """SELECT ts, name, meta FROM perf_event WHERE kind = 'config_change'
@@ -404,6 +413,46 @@ async def get_settings(token: str = Depends(require_session)):
         'history': history,
         'expires': int(_sessions[token][0]),
     }
+
+
+def _config_keys(keys: list[str]) -> list[str]:
+    """Config rows holding these settings (a setting with 'store' lives inside another row's JSON)."""
+    return sorted({(BY_KEY[k].get('store') or [k])[0] for k in keys})
+
+
+def _stored_value(setting: dict, stored: dict) -> Any:
+    path = setting.get('store')
+    if not path:
+        return stored.get(setting['key'])
+    value = stored.get(path[0])
+    for part in path[1:]:
+        value = value.get(part) if isinstance(value, dict) else None
+    return value
+
+
+async def _store(conn, setting: dict, value: Any, stored: dict) -> None:
+    """Write one setting; one inside a JSON row changes only its own field, the rest of the row is kept."""
+    path = setting.get('store')
+    if not path:
+        await _put(conn, setting['key'], value)
+        return
+    root = stored.get(path[0])
+    if not isinstance(root, dict):
+        # Writing one field into a row that does not exist would leave every other field of it unset (for
+        # user.permissions: every other permission denied).
+        raise HTTPException(
+            400,
+            f'{setting["label"]}: chưa có cấu hình "{path[0]}" trong NCS AI. Mở NCS AI → Quản trị → Người dùng → '
+            'Nhóm → Quyền mặc định, bấm Lưu một lần rồi sửa lại ở đây.',
+        )
+    node = root
+    for part in path[1:-1]:
+        if not isinstance(node.get(part), dict):
+            node[part] = {}
+        node = node[part]
+    node[path[-1]] = value
+    stored[path[0]] = root
+    await _put(conn, path[0], root)
 
 
 def _coerce(setting: dict, value: Any) -> Any:
@@ -452,14 +501,16 @@ async def save_settings(form: SaveForm, request: Request, token: str = Depends(r
         return {'changed': []}
     client = _client(request)
     async with _engine().begin() as conn:
-        current = await _get(conn, list(changes) + [VERSION_KEY])
+        stored = await _get(conn, _config_keys(list(changes)) + [VERSION_KEY])
+        current = {key: _stored_value(BY_KEY[key], stored) for key in changes}
+        current[VERSION_KEY] = stored.get(VERSION_KEY)
         changed = [k for k, v in changes.items() if current.get(k) != v]
         if not changed:
             return {'changed': []}
         groups = sorted({BY_KEY[k]['group'] for k in changed})
         now_ms = int(time.time() * 1000)
         for key in changed:
-            await _put(conn, key, changes[key])
+            await _store(conn, BY_KEY[key], changes[key], stored)
             secret = BY_KEY[key]['type'] == 'secret'
             await conn.execute(
                 text(

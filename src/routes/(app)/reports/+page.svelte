@@ -793,16 +793,6 @@
 												{/if}
 											</div>
 										{/if}
-										{#if access.telegram_paused}
-											<!-- Reports are not sent by Telegram for now (the backend skips it): the option is hidden. -->
-											<div class="flex min-w-64 flex-1 flex-col gap-1.5 rounded-xl border border-dashed border-gray-200 p-3.5 opacity-70 dark:border-gray-700">
-												<div class="flex items-center justify-between">
-													<span class="text-sm font-medium text-gray-500">Telegram</span>
-													<Switch state={false} disabled ariaLabel={$i18n.t('Send by Telegram')} />
-												</div>
-												<p class="text-xs text-gray-500">{$i18n.t('Sending reports by Telegram is not supported for now')}</p>
-											</div>
-										{/if}
 										{#if !access.email_enabled && !access.telegram_enabled}
 											<p class="text-xs text-gray-500">{$i18n.t('The administrator has not enabled email or Telegram yet.')}</p>
 										{/if}
