@@ -1044,8 +1044,30 @@ async def get_builtin_tools(
             'spec': spec,
             'type': 'builtin',
         }
+        if func.__name__ in CHANGES_USER_DATA and not (is_note_chat and func.__name__ in NOTE_WRITES):
+            tools_dict[func.__name__]['confirm_first'] = True
 
     return tools_dict
+
+
+# Built-in tools that change what the user keeps (notes, calendar, automations, skills, tools) or send something out.
+# The model may call them whenever it judges right; the user sees the call and approves it before anything changes,
+# so a call the user did not want (a note saved while answering a question) changes nothing. In a note chat writing
+# the note is the point, so there it runs without asking.
+NOTE_WRITES = {'write_note', 'replace_note_content'}
+CHANGES_USER_DATA = NOTE_WRITES | {
+    'create_calendar_event',
+    'update_calendar_event',
+    'delete_calendar_event',
+    'create_automation',
+    'update_automation',
+    'toggle_automation',
+    'delete_automation',
+    'create_skill',
+    'update_skill_files',
+    'create_tool',
+    'notify',
+}
 
 
 def parse_description(docstring: str | None) -> str:

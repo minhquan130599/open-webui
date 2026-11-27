@@ -1,7 +1,7 @@
 """Links under an answer about files: each page it cites, like [tr.12], links to that page's image in the PDF."""
 
 import re
-from typing import Optional
+from typing import Any, Optional
 
 _CITATION_RE = re.compile(r'\[\s*tr\.?\s*(\d{1,4})(?:\s*[-–]\s*\d{1,4})?[^\]]*\]', re.IGNORECASE)
 FILE_TOOLS = {'view_file', 'query_chat_files', 'grep_chat_files', 'summarize_chat_file', 'file_outline', 'view_pdf_page'}
@@ -49,6 +49,10 @@ def single_pdf(files: list) -> Optional[dict]:
     return pdfs[0] if len(pdfs) == 1 else None
 
 
+PAGE_LINKS = 'Xem trang gốc'
+NOTE_SOURCE = 'file_verification'  # marks the output item appended under an answer (not written by the model)
+
+
 def verification_note(answer: str, sources: list[str], pdf_file: Optional[dict], limit_links: int = 12) -> str:
     """Markdown appended under the answer, or '' when there is nothing to report."""
     parts = []
@@ -56,5 +60,31 @@ def verification_note(answer: str, sources: list[str], pdf_file: Optional[dict],
         pages = sorted(cited_pages(answer))[:limit_links]
         if pages:
             links = ' · '.join(f'[tr.{page}](/api/v1/files/{pdf_file["id"]}/pages/{page}/image)' for page in pages)
-            parts.append(f'Xem trang gốc ({pdf_file["name"]}): {links}')
+            parts.append(f'{PAGE_LINKS} ({pdf_file["name"]}): {links}')
     return '\n\n'.join(parts)
+
+
+def _is_added_note(item: Any) -> bool:
+    if not isinstance(item, dict) or item.get('type') != 'message':
+        return False
+    if item.get('source') == NOTE_SOURCE:
+        return True
+    # Notes saved before the marker existed: an item that is only the text this module writes.
+    text = ''.join(str(part.get('text') or '') for part in item.get('content') or [] if isinstance(part, dict))
+    return text.startswith(f'{PAGE_LINKS} (') or text.startswith('> ℹ️ ')
+
+
+def leave_out_added_notes(messages: list[dict]) -> int:
+    """The page links appended under earlier answers are for the reader, not the model: left in the history, the
+    model copies them into its own next answer (and the next note is added under it again). Messages are replaced,
+    never changed in place (they come from the stored chat). Returns how many notes were left out."""
+    removed = 0
+    for i, message in enumerate(messages):
+        output = message.get('output')
+        if message.get('role') != 'assistant' or not isinstance(output, list):
+            continue
+        kept = [item for item in output if not _is_added_note(item)]
+        if len(kept) != len(output):
+            removed += len(output) - len(kept)
+            messages[i] = {**message, 'output': kept}
+    return removed

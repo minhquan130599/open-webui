@@ -502,6 +502,8 @@
       editor.models = await api('/api/admin/models', { headers: editHeaders() }).catch((e) => ({ error: e.message }));
       const c = await api('/api/admin/connections', { headers: editHeaders() });
       editor.connections = c.connections.map((x) => ({ ...x, key: '', test: null }));
+      const t = await api('/api/admin/terminals', { headers: editHeaders() }).catch(() => ({ terminals: [] }));
+      editor.terminals = (t.terminals || []).map((x) => ({ ...x, key: '', test: null }));
     }
     catch (e) { editor.token = ''; editor.data = null; editor.error = e.message; }
   }
@@ -560,6 +562,7 @@
     ], d.history || [], 'Chưa có thay đổi nào.');
     return card('Chỉnh sửa cấu hình', `<div class="lockbar"><span class="muted" style="font-size:12.5px">Phiên chỉnh sửa còn <b id="edit-left">${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}</b>. Lưu xong, NCS AI áp dụng trong tối đa 15 giây, không cần khởi động lại.</span><button class="btn" type="button" data-lock>Khóa lại</button></div>${ok}${msg}
       ${connectionsHtml()}
+      ${terminalsHtml()}
       <div id="models-box">${modelsHtml()}</div>
       <div class="editor-groups" style="margin-top:12px">${groups}</div>
       <div id="reindex-box">${reindexHtml()}</div>
@@ -689,6 +692,51 @@
         const res = await api('/api/admin/connections', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ connections: list.map((c) => ({ index: c.index, url: c.url, key: c.key, enable: c.enable, prefix_id: c.prefix_id })) }) });
         editor.error = '';
         editor.note = res.changed.length ? `Đã lưu kết nối: ${res.changed.join('; ')}. NCS AI nạp lại danh sách model trong tối đa 15 giây.` : 'Kết nối không có gì thay đổi.';
+        await loadSettings();
+      } catch (err) { editor.error = err.message; if (/hết hạn/.test(err.message)) { editor.token = ''; editor.data = null; } }
+    }
+    drawEditor();
+  }
+
+  // Terminal connections: URL, key and on/off of the ones set up in NCS AI (adding one stays there).
+  function terminalsHtml() {
+    const list = editor.terminals || [];
+    const rows = list.map((t, i) => `<div class="conn-row" data-term="${i}">
+        <div class="conn-n">#${i + 1}</div>
+        <div><input type="text" data-term-field="url" value="${esc(t.url)}" placeholder="http://terminal-broker:8000" title="${esc(t.name)} · spec: ${esc(t.path)}"><div class="muted" style="font-size:11px;margin-top:3px">${esc(t.name)}</div></div>
+        <div><input type="password" data-term-field="key" value="${esc(t.key)}" autocomplete="new-password" placeholder="${t.key_set ? 'Khóa: đã đặt · trống = giữ nguyên' : 'Khóa (chưa đặt)'}"></div>
+        <div></div>
+        <div class="conn-actions">
+          <label class="check" style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="checkbox" data-term-field="enabled" ${t.enabled ? 'checked' : ''}> Bật</label>
+          <button class="btn" type="button" data-term-test="${i}">Kiểm tra</button>
+        </div>
+        ${t.test ? `<div class="conn-test">${t.test.pending ? '<span class="spin"></span> Đang kiểm tra…' : t.test.ok ? `<span class="pill ok">OK</span> ${ms(t.test.ms)} · ${esc(t.test.title || 'OpenAPI')} · ${n(t.test.tools)} đường dẫn` : `<span class="pill err">Lỗi</span> <span class="muted">${esc(t.test.error)}</span>`}</div>` : ''}
+      </div>`).join('');
+    return `<section class="card" style="box-shadow:none;margin-top:12px"><h2>Kết nối terminal <span style="display:flex;gap:6px">${list.length ? '<button class="btn primary" type="button" data-term-save>Lưu terminal</button>' : ''}</span></h2>
+      <p class="muted" style="font-size:12px;margin:-4px 0 6px">Sửa URL, khóa và bật/tắt các terminal đã cấu hình trong NCS AI (Cài đặt → Tích hợp → Terminal); thêm hoặc xóa terminal vẫn làm ở đó. Ô khóa để trống = giữ khóa cũ. Bấm <b>Kiểm tra</b> để thử tải spec OpenAPI từ URL mới trước khi lưu. Lưu xong, NCS AI nạp lại tool terminal trong tối đa 15 giây.</p>
+      ${rows || '<div class="empty">Chưa có terminal nào trong NCS AI.</div>'}</section>`;
+  }
+  document.addEventListener('input', (e) => {
+    const field = e.target.dataset?.termField;
+    if (!field) return;
+    editor.terminals[+e.target.closest('[data-term]').dataset.term][field] = field === 'enabled' ? e.target.checked : e.target.value;
+  });
+  document.addEventListener('change', (e) => {
+    if (e.target.dataset?.termField === 'enabled') editor.terminals[+e.target.closest('[data-term]').dataset.term].enabled = e.target.checked;
+  });
+  async function terminalAction(b) {
+    const list = editor.terminals || [];
+    if (b.dataset.termTest !== undefined) {
+      const t = list[+b.dataset.termTest];
+      t.test = { pending: true }; drawEditor();
+      try { t.test = await api('/api/admin/terminals/test', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ index: t.index, url: t.url, key: t.key }) }); }
+      catch (err) { t.test = { ok: false, error: err.message }; }
+    } else if (b.dataset.termSave !== undefined) {
+      if (!confirm('Lưu thay đổi kết nối terminal? NCS AI sẽ dùng URL mới cho tool terminal.')) return;
+      try {
+        const res = await api('/api/admin/terminals', { method: 'POST', headers: editHeaders(), body: JSON.stringify({ terminals: list.map((t) => ({ index: t.index, url: t.url, key: t.key, enabled: t.enabled })) }) });
+        editor.error = '';
+        editor.note = res.changed.length ? `Đã lưu terminal: ${res.changed.join('; ')}. NCS AI nạp lại tool terminal trong tối đa 15 giây.` : 'Terminal không có gì thay đổi.';
         await loadSettings();
       } catch (err) { editor.error = err.message; if (/hết hạn/.test(err.message)) { editor.token = ''; editor.data = null; } }
     }
@@ -2157,6 +2205,7 @@
       drawEditor(); watchReindex(); return;
     }
     if (b.dataset.connAdd !== undefined || b.dataset.connUp !== undefined || b.dataset.connRemove !== undefined || b.dataset.connTest !== undefined || b.dataset.connSave !== undefined) { await connectionAction(b); return; }
+    if (b.dataset.termTest !== undefined || b.dataset.termSave !== undefined) { await terminalAction(b); return; }
     if (b.dataset.lock !== undefined) { try { await api('/api/admin/lock', { method: 'POST', headers: editHeaders() }); } catch {} editor.token = ''; editor.data = null; editor.note = ''; drawEditor(); return; }
     if (b.dataset.hideContent !== undefined) { const id = revealed.id; revealed = { id: '', question: '', answer: '' }; const box = $('#reveal-box'); if (box) box.innerHTML = revealBox(id); return; }
     if (b.dataset.traceMin !== undefined) { traceMin = +b.dataset.traceMin; traceId = ''; load(); return; }

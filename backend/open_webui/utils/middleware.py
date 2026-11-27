@@ -1446,7 +1446,7 @@ async def append_file_verification(form_data: dict, metadata: dict, output: list
     """Under an answer about files: numbers/dates not found in the file text read, and links to cited pages."""
     try:
         from open_webui.file_pipeline.settings import file_settings
-        from open_webui.file_pipeline.verify import answer_sources, single_pdf, verification_note
+        from open_webui.file_pipeline.verify import NOTE_SOURCE, answer_sources, single_pdf, verification_note
 
         if not (await file_settings())['files.verify.enable']:
             return output
@@ -1474,6 +1474,7 @@ async def append_file_verification(form_data: dict, metadata: dict, output: list
                 'id': output_id('msg'),
                 'status': 'completed',
                 'role': 'assistant',
+                'source': NOTE_SOURCE,  # left out of the history the model sees (verify.leave_out_added_notes)
                 'content': [{'type': 'output_text', 'text': note}],
             },
         ]
@@ -2300,6 +2301,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     cleared = clear_earlier_tool_outputs(form_data.get('messages', []))
     if cleared:
         log.info('Context: %d chars of earlier tool results left out [%s]', cleared, metadata.get('chat_id'))
+    from open_webui.file_pipeline.verify import leave_out_added_notes
+
+    leave_out_added_notes(form_data.get('messages', []))
 
     filter_functions = (
         await get_filter_functions(request, model, metadata.get('filter_ids', [])) if ENABLE_FUNCTIONS else []
@@ -2677,6 +2681,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             skill_ids = sorted(set(skill_ids) | {routing_skill})
     available_skills = []
     terminal_skills = []
+    preloaded_skill_ids: set[str] = set()
 
     model_builtin_tools = model.get('info', {}).get('meta', {}).get('builtinTools') or {}
     skill_tools_enabled = payload_tools is None and use_builtin_tools and model_builtin_tools.get('skills', True)
@@ -2713,6 +2718,8 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             # "preload: true" in a skill's frontmatter: its text is in the system prompt from the start, instead of
             # the model spending a call on view_skill for it in every answer.
             preload = str(skill_frontmatter(skill.content or '').get('preload', '')).strip().lower() in ('true', 'yes', '1')
+            if preload:
+                preloaded_skill_ids.add(skill.id)
             if skill_tools_enabled and not preload:
                 skill_manifest += (
                     f'<skill>\n<id>{skill.id}</id>\n<name>{skill.name}</name>\n'
@@ -3229,7 +3236,8 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         initial_output.extend(
             await preload_skills(
                 form_data['messages'],
-                activated_skill_ids & resolved_skill_ids,
+                # A skill already in the system prompt (preload) is not given a second time as a view_skill result.
+                (activated_skill_ids & resolved_skill_ids) - preloaded_skill_ids,
                 metadata.get('tools', {}).get('view_skill'),
             )
         )
@@ -3334,6 +3342,28 @@ def hidden_tool_result(name: str, result: str) -> list[dict]:
             'status': 'completed',
         },
     ]
+
+
+async def confirmed_by_user(tool: dict, tool_call: dict, name: str, params: dict, metadata: dict, event_caller) -> bool:
+    """A tool that changes the user's data (tools.CHANGES_USER_DATA) runs once the user allows it in the chat page.
+
+    In Telegram and channels, and for API calls (no chat page to ask in), it runs as before. A chat page that is
+    closed or shows another chat answers "cancelled", so nothing is changed.
+    """
+    from open_webui.utils.tools import NON_INTERACTIVE_SESSIONS
+
+    if not tool or not tool.get('confirm_first') or tool_call.get('approved') is True:
+        return True
+    if not event_caller or str(metadata.get('session_id') or '').startswith(NON_INTERACTIVE_SESSIONS):
+        return True
+    try:
+        answer = await event_caller(
+            {'type': 'confirmation', 'data': {'tool_call': {'id': tool_call.get('call_id'), 'name': name, 'arguments': params}}}
+        )
+    except Exception as e:
+        log.warning('Could not ask the user to allow %s: %s', name, e)
+        return False
+    return answer is True
 
 
 async def preload_skills(messages: list[dict], skill_ids: set[str], tool: dict | None) -> list[dict]:
@@ -3490,6 +3520,16 @@ async def execute_tool_call(form_data, metadata, event_caller, tool_call, histor
         ):
             tool_call['status'] = 'failed'
             return params, 'Error: tool call was not approved.', tool, tool_type, direct_tool
+        if not requires_approval and not await confirmed_by_user(tool, tool_call, name, params, metadata, event_caller):
+            tool_call['status'] = 'failed'
+            return (
+                params,
+                'The user did not allow this call, so nothing was changed. Do not call it again unless the user '
+                'asks for it; carry on with what the user asked.',
+                tool,
+                tool_type,
+                direct_tool,
+            )
 
         tool_call['started_at'] = time.time()
         started = time.perf_counter()

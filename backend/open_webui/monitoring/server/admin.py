@@ -671,6 +671,120 @@ async def test_connection(form: TestForm, token: str = Depends(require_session))
 
 
 # ---------------------------------------------------------------------------------------------------------
+# Terminal connections (Admin > Settings > Integrations > Terminal in NCS AI). URL, key and on/off of the
+# connections that exist; adding or removing one (id, policy, type) stays in NCS AI. Every other field is kept.
+# ---------------------------------------------------------------------------------------------------------
+TERMINAL_KEY = 'terminal_server.connections'
+
+
+async def _terminals(conn) -> list[dict]:
+    items = (await _get(conn, [TERMINAL_KEY])).get(TERMINAL_KEY) or []
+    return [dict(t) for t in items if isinstance(t, dict)] if isinstance(items, list) else []
+
+
+@router.get('/api/admin/terminals')
+async def get_terminals(token: str = Depends(require_session)):
+    async with _engine().connect() as conn:
+        items = await _terminals(conn)
+    return {
+        'terminals': [
+            {
+                'index': i,
+                'name': t.get('name') or t.get('id') or f'Terminal #{i + 1}',
+                'url': t.get('url') or '',
+                'path': t.get('path') or '/openapi.json',
+                'auth_type': t.get('auth_type') or 'bearer',
+                'key_set': bool(t.get('key')),
+                'enabled': t.get('enabled', True),
+            }
+            for i, t in enumerate(items)
+        ]
+    }
+
+
+class TerminalIn(BaseModel):
+    index: int
+    url: str
+    key: str = ''  # empty = keep the saved key
+    enabled: bool = True
+
+
+class TerminalsForm(BaseModel):
+    terminals: list[TerminalIn]
+
+
+@router.post('/api/admin/terminals')
+async def save_terminals(form: TerminalsForm, request: Request, token: str = Depends(require_session)):
+    client = _client(request)
+    async with _engine().begin() as conn:
+        items = await _terminals(conn)
+        changes = []
+        for item in form.terminals:
+            if not 0 <= item.index < len(items):
+                raise HTTPException(400, f'Không có terminal #{item.index + 1}; thêm terminal mới trong NCS AI.')
+            current = items[item.index]
+            url = _check_url(item.url)
+            name = f'Terminal {current.get("name") or current.get("id") or item.index + 1}'
+            if (current.get('url') or '').rstrip('/') != url:
+                changes.append((f'{name}: URL', _mask_url(current.get('url') or ''), _mask_url(url)))
+                current['url'] = url
+            if item.key.strip() and item.key.strip() != (current.get('key') or ''):
+                changes.append((f'{name}: khóa', '(khóa bí mật)', '(đã đổi)'))
+                current['key'] = item.key.strip()
+            if current.get('enabled', True) != item.enabled:
+                changes.append((f'{name}: bật', current.get('enabled', True), item.enabled))
+                current['enabled'] = item.enabled
+        if not changes:
+            return {'changed': []}
+        await _put(conn, TERMINAL_KEY, items)
+        for label, old_value, new_value in changes:
+            await _audit(conn, label, old_value, new_value, client, name=TERMINAL_KEY)
+        version = (await _get(conn, [VERSION_KEY])).get(VERSION_KEY)
+        version = version if isinstance(version, dict) else {}
+        await _put(
+            conn,
+            VERSION_KEY,
+            {'version': int(version.get('version') or 0) + 1, 'groups': ['terminals'], 'at': int(time.time())},
+        )
+    log.info('Monitor admin: %s changed terminal connections (%d changes)', client, len(changes))
+    return {'changed': [c[0] for c in changes]}
+
+
+class TerminalTestForm(BaseModel):
+    index: int
+    url: str
+    key: str = ''  # empty = the saved key of this terminal
+
+
+@router.post('/api/admin/terminals/test')
+async def test_terminal(form: TerminalTestForm, token: str = Depends(require_session)):
+    """GET <url><path> (the OpenAPI spec NCS AI loads), so a new URL can be checked before saving."""
+    import aiohttp
+
+    url = _check_url(form.url)
+    async with _engine().connect() as conn:
+        items = await _terminals(conn)
+    current = items[form.index] if 0 <= form.index < len(items) else {}
+    key = form.key.strip() or current.get('key') or ''
+    path = current.get('path') or '/openapi.json'
+    headers = {'Authorization': f'Bearer {key}'} if key and current.get('auth_type', 'bearer') in ('bearer', 'session') else {}
+    started = time.perf_counter()
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+            async with session.get(f'{url}{path if path.startswith("/") else "/" + path}', headers=headers) as response:
+                status = response.status
+                body = await response.json(content_type=None) if status == 200 else await response.text()
+    except Exception as e:
+        return {'ok': False, 'error': f'Không kết nối được: {type(e).__name__}: {e}'[:300]}
+    ms = round((time.perf_counter() - started) * 1000)
+    if status != 200:
+        return {'ok': False, 'ms': ms, 'error': f'HTTP {status}: {str(body)[:200]}'}
+    info = body.get('info') if isinstance(body, dict) else {}
+    paths = body.get('paths') if isinstance(body, dict) else {}
+    return {'ok': True, 'ms': ms, 'title': (info or {}).get('title') or '', 'tools': len(paths or {})}
+
+
+# ---------------------------------------------------------------------------------------------------------
 # Rebuild knowledge and memory vectors (after changing the embedding model)
 # ---------------------------------------------------------------------------------------------------------
 REINDEX_KEY = 'monitor.reindex'

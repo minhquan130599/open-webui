@@ -3,7 +3,7 @@
 The monitor writes the settings to the config table and bumps `monitor.config_version`
 ({'version': n, 'groups': [...]}). Each worker polls that key and rebuilds what it keeps in memory:
 the embedding/reranking functions (knowledge), the local speech-to-text model, the tracker settings cache,
-the cached model lists after a connection change.
+the cached model lists after a connection change, the terminal tool specs after a terminal URL change.
 Everything else is read from the config table on every use and needs nothing.
 """
 
@@ -31,25 +31,33 @@ async def apply(app, groups: set[str]) -> None:
         app.state.faster_whisper_model = None  # loaded again with the new model on the next transcription
     if groups & {'connections', 'models'}:
         # Same as saving connections in Admin > Settings: forget the cached model lists of this worker.
-        from starlette.datastructures import Headers
-        from starlette.requests import Request
-
         from open_webui.routers.openai import clear_models_cache
 
-        request = Request(
-            {
-                'type': 'http',
-                'method': 'GET',
-                'path': '/internal',
-                'query_string': b'',
-                'headers': Headers({}).raw,
-                'client': ('', 0),
-                'server': ('127.0.0.1', 80),
-                'scheme': 'http',
-                'app': app,
-            }
-        )
-        await clear_models_cache(request)
+        await clear_models_cache(_request(app))
+    if 'terminals' in groups:
+        # Same as saving terminals in Admin > Settings: load the terminal tool specs again from the new URL.
+        from open_webui.utils.tools import set_terminal_servers
+
+        await set_terminal_servers(_request(app))
+
+
+def _request(app):
+    from starlette.datastructures import Headers
+    from starlette.requests import Request
+
+    return Request(
+        {
+            'type': 'http',
+            'method': 'GET',
+            'path': '/internal',
+            'query_string': b'',
+            'headers': Headers({}).raw,
+            'client': ('', 0),
+            'server': ('127.0.0.1', 80),
+            'scheme': 'http',
+            'app': app,
+        }
+    )
 
 
 async def config_watch_loop(app) -> None:
