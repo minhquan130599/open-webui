@@ -10,6 +10,7 @@ Items closed or cancelled by a channel owner live in the archive (`tracker_state
 state the LLM sees; `reconcile` keeps them out and keeps every open item at commit time.
 """
 
+import datetime
 import re
 import unicodedata
 import uuid
@@ -69,6 +70,43 @@ def _clean_date(value) -> Optional[str]:
     text = _clean_text(value)
     if text and _DATE_RE.match(text[:10]):
         return text[:10]
+    return None
+
+
+_DUE_WITH_YEAR = ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y', '%d/%m/%y')
+_DUE_NO_YEAR = ('%d/%m', '%d-%m', '%d.%m')
+
+
+def due_date(value, today: str) -> Optional[str]:
+    """A deadline the model wrote, as YYYY-MM-DD. The model is asked for that form but sometimes writes the date as
+    the message did ("23/11", "24/12/2026"): read as a date, a day without a year falls in the year of `today` (the
+    day the message was sent), or the next one when that would be more than half a year back."""
+    text = (_clean_text(value) or '')[:10].strip()
+    if not text:
+        return None
+    for fmt in _DUE_WITH_YEAR:
+        try:
+            return datetime.datetime.strptime(text, fmt).date().isoformat()
+        except ValueError:
+            pass
+    try:
+        base = datetime.date.fromisoformat(today)
+    except ValueError:
+        return None
+    for fmt in _DUE_NO_YEAR:
+        separator = fmt[2]
+        try:
+            # A leap year, so 29/02 reads; the year is set below.
+            parsed = datetime.datetime.strptime(f'{text}{separator}2000', f'{fmt}{separator}%Y')
+        except ValueError:
+            continue
+        try:
+            due = datetime.date(base.year, parsed.month, parsed.day)
+            if (base - due).days > 183:
+                due = datetime.date(base.year + 1, parsed.month, parsed.day)
+        except ValueError:
+            return None
+        return due.isoformat()
     return None
 
 
@@ -297,6 +335,29 @@ class NewItem(WorkItem):
     """A new item in the model's answer: an item plus how it was given (not stored)."""
 
     giao_cho: Optional[Assignment] = Field(default=None, exclude=True)
+    # The model's own reading of how this work relates to an item it was shown (open or closed): the same work
+    # ("cung_viec"), the closed one done again ("lap_lai", a recurring meeting, a second interview), or the closed one
+    # opened again because it is not finished ("mo_lai"). None: new work. Matching by name alone cannot tell these
+    # apart, nor see that "PV khách CG10173" is "Phỏng vấn khách hàng CG10173".
+    viec_cu: Optional[str] = Field(default=None, exclude=True)
+    quan_he: Optional[Literal['cung_viec', 'lap_lai', 'mo_lai']] = Field(default=None, exclude=True)
+
+    @field_validator('han', mode='before')
+    @classmethod
+    def _due(cls, value):
+        # Kept as written; apply_delta reads it with the day the message was sent (due_date).
+        return _clean_text(value)
+
+    @field_validator('viec_cu', mode='before')
+    @classmethod
+    def _old(cls, value):
+        return (_clean_text(value) or '').lstrip('#') or None
+
+    @field_validator('quan_he', mode='before')
+    @classmethod
+    def _relation(cls, value):
+        text = (_clean_text(value) or '').lower()
+        return text if text in ('cung_viec', 'lap_lai', 'mo_lai') else None
 
 
 class RoleUpdate(BaseModel):
@@ -422,19 +483,26 @@ class StateDelta(BaseModel):
         return [v for v in value if isinstance(v, dict) and _clean_text(v.get('id', v.get('vao')))]
 
 
-def update_json_schema(refs: Optional[list[str]] = None) -> dict:
+def update_json_schema(refs: Optional[list[str]] = None, item_ids: Optional[list[str]] = None) -> dict:
     """The answer's JSON schema. With the batch's message refs (m1, m2, ...), every "nguon" can only name one of
     them and a new item must have one: a source written any other way ("[m3]", "tin 3", a message id) made the
-    new item unusable, so it was dropped and the work never reached the progress."""
+    new item unusable, so it was dropped and the work never reached the progress. With the ids of the items shown
+    (open and closed), "viec_cu" can only name one of them."""
     schema = StateDelta.model_json_schema()
-    if not refs:
-        return schema
     for name, definition in (schema.get('$defs') or {}).items():
         properties = definition.get('properties') or {}
-        if 'nguon' in properties:
+        if refs and 'nguon' in properties:
             properties['nguon'] = {'type': 'array', 'items': {'type': 'string', 'enum': list(refs)}}
             if name == 'NewItem':
                 definition['required'] = sorted({*definition.get('required', []), 'nguon'})
+        if 'han' in properties and name in ('NewItem', 'ItemChange'):
+            properties['han'] = {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'YYYY-MM-DD'}
+        if name == 'NewItem':
+            if item_ids:
+                properties['viec_cu'] = {'anyOf': [{'type': 'string', 'enum': list(item_ids)}, {'type': 'null'}]}
+            else:
+                properties.pop('viec_cu', None)
+                properties.pop('quan_he', None)
     return schema
 
 
@@ -517,11 +585,16 @@ def apply_delta(
     ref_map: dict[str, str],
     today: str,
     archived_keys: frozenset[str] = frozenset(),
+    archived: Optional[dict[str, dict]] = None,
+    sent_ns: Optional[int] = None,
+    reopened: Optional[set[str]] = None,
 ) -> tuple['ProjectState', set[str]]:
     """Fold one batch's changes into the state. Returns (new state, ids merged away).
 
-    Items the delta does not mention are kept unchanged. A "new" item whose name matches an open item updates
-    that item instead of duplicating it; one matching an archived (closed/cancelled) item is ignored.
+    Items the delta does not mention are kept unchanged. A "new" item is matched first by the item the model
+    related it to (viec_cu / quan_he: the same open item, a closed one done again or reopened), then by name with an
+    open item. archived: the closed and cancelled items by id; sent_ns: when the messages were sent, so a message
+    from before an item was closed never brings it back; reopened receives the ids taken out of the archive.
     """
     state = old_state.model_copy(deep=True)
     ensure_item_ids(state)
@@ -543,7 +616,7 @@ def apply_delta(
         if change.tien_do is not None:
             item.tien_do = change.tien_do
         if change.han:
-            item.han = _clean_date(change.han) or item.han
+            item.han = due_date(change.han, today) or item.han
         if change.vuong_mac is not None:
             item.vuong_mac = change.vuong_mac or None
         item.nguon = _add_sources(item.nguon, _map_refs(change.nguon, ref_map))
@@ -564,30 +637,30 @@ def apply_delta(
             by_id.pop(source_id, None)
             by_key.pop(normalize_key(source.ten), None)
 
-    for new in delta.hang_muc_moi:
-        key = normalize_key(new.ten)
-        existing = by_key.get(key)
-        sources = _map_refs(new.nguon, ref_map)
-        if existing:
-            if new.phu_trach:
-                existing.phu_trach = new.phu_trach
-                existing.chua_giao = False
-                existing.nhom = new.nhom
-                existing.ben_ngoai = new.ben_ngoai
-            _set_status(existing, new.trang_thai, today)
-            if new.tien_do is not None:
-                existing.tien_do = new.tien_do
-            existing.han = new.han or existing.han
-            existing.vuong_mac = new.vuong_mac or existing.vuong_mac
-            existing.nguon = _add_sources(existing.nguon, sources)
-            existing.cap_nhat_luc = today
-            continue
-        if key in archived_keys:
-            continue  # closed or cancelled by the channel owner; only a reopen brings it back
+    archive = archived or {}
+    archived_by_name = {normalize_key(e.get('ten') or ''): e for e in archive.values()}
+
+    def update(existing: WorkItem, new: 'NewItem', sources: list[str]) -> None:
+        if new.phu_trach:
+            existing.phu_trach = new.phu_trach
+            existing.chua_giao = False
+            existing.nhom = new.nhom
+            existing.ben_ngoai = new.ben_ngoai
+        _set_status(existing, new.trang_thai, today)
+        if new.tien_do is not None:
+            existing.tien_do = new.tien_do
+        existing.han = due_date(new.han, today) or existing.han
+        existing.vuong_mac = new.vuong_mac or existing.vuong_mac
+        existing.nguon = _add_sources(existing.nguon, sources)
+        existing.cap_nhat_luc = today
+
+    def create(new: 'NewItem', sources: list[str], note: Optional[str] = None) -> WorkItem:
         item = WorkItem.model_validate(new.model_dump()).model_copy(
             update={
                 'id': new_item_id(),
                 'phu_trach_ids': [],
+                'han': due_date(new.han, today),
+                'chi_tiet': [*new.chi_tiet, note] if note else list(new.chi_tiet),
                 'nguon': sources[-MAX_SOURCES:],
                 'tao_luc': today,
                 'cap_nhat_luc': today,
@@ -596,7 +669,53 @@ def apply_delta(
         )
         state.hang_muc.append(item)
         by_id[item.id] = item
-        by_key[key] = item
+        by_key[normalize_key(item.ten)] = item
+        return item
+
+    def closed_note(entry: dict, how: str) -> str:
+        when = entry.get('archived_at')
+        day = datetime.datetime.fromtimestamp(when / 1e9).strftime('%d/%m/%Y') if when else '?'
+        kind = 'hủy' if entry.get('archive_kind') == 'huy' else 'đóng'
+        return f'{how} việc đã {kind} ngày {day}: {entry.get("ten")}'
+
+    def after_closing(entry: dict) -> bool:
+        # Messages read again (a rebuild, an edited old message) never bring back what was closed after them.
+        return sent_ns is None or sent_ns > (entry.get('archived_at') or 0)
+
+    for new in delta.hang_muc_moi:
+        key = normalize_key(new.ten)
+        sources = _map_refs(new.nguon, ref_map)
+        # 1. The item the model says this work is (it saw the open items and the closed ones close to the messages).
+        if new.viec_cu and new.viec_cu in by_id:
+            update(by_id[new.viec_cu], new, sources)
+            continue
+        if new.viec_cu and new.viec_cu in archive:
+            entry = archive[new.viec_cu]
+            if new.quan_he == 'mo_lai' and after_closing(entry):
+                restored = {k: v for k, v in entry.items() if k not in ('archive_kind', 'archived_at', 'archived_by', 'closed_from')}
+                restored.update(entry.get('closed_from') or {})
+                item = WorkItem.model_validate(restored)
+                state.hang_muc.append(item)
+                by_id[item.id] = item
+                by_key[normalize_key(item.ten)] = item
+                update(item, new, sources)
+                if reopened is not None:
+                    reopened.add(item.id)
+            elif new.quan_he == 'lap_lai' and after_closing(entry):
+                create(new, sources, closed_note(entry, 'Lặp lại'))
+            continue  # the closed work itself, or a message from before it was closed
+        # 2. Same name as an open item.
+        if key in by_key:
+            update(by_key[key], new, sources)
+            continue
+        # 3. Same name as a closed item the model did not relate it to: new work when asked after the closing,
+        #    noted so the managers see it; the closed work itself when read again from before.
+        entry = archived_by_name.get(key)
+        if entry is not None or key in archived_keys:
+            if entry is not None and after_closing(entry) and sent_ns is not None:
+                create(new, sources, closed_note(entry, 'Trùng tên'))
+            continue
+        create(new, sources)
 
     state.hang_muc = [item for item in state.hang_muc if item.id not in merged_away]
     if delta.tong_quan:
@@ -720,14 +839,22 @@ def _items_for_prompt(
 
 
 def state_for_prompt(
-    state: ProjectState, focus: str = '', max_chars: Optional[int] = None, scores: Optional[list[float]] = None
+    state: ProjectState,
+    focus: str = '',
+    max_chars: Optional[int] = None,
+    scores: Optional[list[float]] = None,
+    closed: Optional[list[dict]] = None,
+    shown_ids: Optional[list[str]] = None,
 ) -> str:
     """The previous state as the LLM sees it: one compact line per item with its id, no sources or bookkeeping.
     With max_chars, a long list keeps the items the focus text (the new messages) is about (scores: see
-    _items_for_prompt)."""
+    _items_for_prompt). closed: archived items close to the new messages (chosen by the caller), shown apart so the
+    model can tell work done again or reopened from new work. shown_ids receives the ids listed."""
     lines = [f'tong_quan: {state.tong_quan}'] if state.tong_quan else []
     if state.hang_muc:
         shown, hidden = _items_for_prompt(state.hang_muc, focus, max_chars, scores)
+        if shown_ids is not None:
+            shown_ids.extend(item.id for item in shown if item.id)
         lines.append('hang_muc (id | ten | phu_trach | trang_thai | tien_do | han | vuong_mac):')
         if hidden:
             lines.append(
@@ -745,6 +872,17 @@ def state_for_prompt(
                 item.vuong_mac or '-',
             ]
             lines.append('- ' + ' | '.join(fields))
+    if closed:
+        lines.append('viec_da_dong (đã đóng hoặc hủy, không còn trong danh sách; id | ten | phu_trach | dong/huy ngày):')
+        for entry in closed:
+            if shown_ids is not None and entry.get('id'):
+                shown_ids.append(entry['id'])
+            when = entry.get('archived_at')
+            day = datetime.datetime.fromtimestamp(when / 1e9).strftime('%Y-%m-%d') if when else '-'
+            lines.append(
+                f'- #{entry.get("id")} | {entry.get("ten")} | {", ".join(entry.get("phu_trach") or []) or "-"} | '
+                f'{"hủy" if entry.get("archive_kind") == "huy" else "đóng"} {day}'
+            )
     for title, entries, fmt in (
         ('quyet_dinh', state.quyet_dinh, lambda e: e.noi_dung + (f' ({e.ngay})' if e.ngay else '')),
         ('rui_ro', state.rui_ro, lambda e: f'[{e.muc_do}] {e.noi_dung}'),

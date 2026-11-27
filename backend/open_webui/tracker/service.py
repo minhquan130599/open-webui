@@ -303,6 +303,32 @@ def _drop_ai_tasks(state, old_state, messages: list[Message], names: set[str], t
     return waiting
 
 
+CLOSED_SHOWN = 5
+CLOSED_MIN_SCORE = 0.55  # bge-m3 cosine; below it a closed item is not about these messages
+CLOSED_MIN_WORDS = 2  # without embeddings: words shared with the messages
+
+
+async def _closed_for_prompt(archive_by_id: dict[str, dict], texts: list[str]) -> list[dict]:
+    """The closed or cancelled items closest to these messages, shown to the model so it can tell work done again
+    or reopened from new work (it never saw them before). Chosen by meaning (the embedding model), else by shared
+    words; the decision itself is the model's."""
+    entries = list(archive_by_id.values())[-200:]
+    if not entries:
+        return []
+    item_texts = [' '.join([e.get('ten') or '', *(e.get('chi_tiet') or [])[:3], *(e.get('phu_trach') or [])]) for e in entries]
+    scores = await relevance.item_scores(item_texts, texts)
+    if scores is None:
+        from open_webui.tracker.schema import _words
+
+        asked = _words(' '.join(texts))
+        scores = [float(len(_words(t) & asked)) for t in item_texts]
+        floor = CLOSED_MIN_WORDS
+    else:
+        floor = CLOSED_MIN_SCORE
+    ranked = sorted(range(len(entries)), key=lambda i: scores[i], reverse=True)
+    return [entries[i] for i in ranked[:CLOSED_SHOWN] if scores[i] >= floor]
+
+
 def _group_time(group: list[PromptMessage]) -> int:
     """When the messages of a call were sent (the latest). An edit or a deletion happens now, whatever the date of
     the message it changes."""
@@ -645,6 +671,8 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             prompt_message.attachments = attachments.get(prompt_message.id, [])
 
         archived_keys = frozenset(normalize_key(e.get('ten', '')) for e in row.archive or [])
+        archive_by_id = {e['id']: e for e in row.archive or [] if e.get('id')}
+        reopened: set[str] = set()
         today = format_time(time.time_ns(), TZ)[:10]
         started = time.monotonic()
         # Table rows of closed items (exact keys); an item archived with a whole-row key closes that row's tasks.
@@ -712,12 +740,15 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                 if items_prompt_chars(state.hang_muc) > state_prompt_chars('\n'.join(texts))
                 else None
             )
+            closed = await _closed_for_prompt(archive_by_id, texts)
+            shown_ids: list[str] = []
             chat_messages, ref_map = build_update_messages(
-                channel.name, state, group, TZ, TRACKER_MESSAGE_MAX_CHARS, group_ns, members, roles, scores
+                channel.name, state, group, TZ, TRACKER_MESSAGE_MAX_CHARS, group_ns, members, roles, scores,
+                closed, shown_ids,
             )
             refs = list(ref_map)
             try:
-                delta = await llm.generate_state_update(chat_messages, refs=refs)
+                delta = await llm.generate_state_update(chat_messages, refs=refs, item_ids=shown_ids)
             except llm.TrackerOutputError as e:
                 if len(group) >= 2:
                     half = len(group) // 2
@@ -727,7 +758,9 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                 # One message whose update does not fit: once more with twice the room, then it is left out so the
                 # messages after it are still read (otherwise the channel would stop updating for good).
                 try:
-                    delta = await llm.generate_state_update(chat_messages, max_tokens=TRACKER_MAX_TOKENS * 2, refs=refs)
+                    delta = await llm.generate_state_update(
+                        chat_messages, max_tokens=TRACKER_MAX_TOKENS * 2, refs=refs, item_ids=shown_ids
+                    )
                 except llm.TrackerOutputError as again:
                     log.error(
                         'Tracker: message %s in %s could not be read (%s); shown to the managers', group[0].id, channel_id, again
@@ -775,7 +808,9 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             unsourced: list = []
             changed_groups = _assign_owners(delta, ref_sources, ctx, counts, state, unsourced)
             pending += [_pending_entry(new, group, day) for new in unsourced]
-            state, merged = apply_delta(state, delta, ref_map, day, archived_keys)
+            state, merged = apply_delta(
+                state, delta, ref_map, day, archived_keys, archive_by_id, group_ns, reopened
+            )
             for item in state.hang_muc:
                 if item.id in changed_groups:
                     item.nhom = changed_groups[item.id].group
@@ -839,6 +874,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             merged_away=merged_away | (started_ids - {i.id for i in state.hang_muc}),
             reread_done=reread_done,
             pending=pending,
+            reopened=reopened,
         )
         log.info(
             'Tracker updated channel %s with %s messages, %s deletions in %.1fs',

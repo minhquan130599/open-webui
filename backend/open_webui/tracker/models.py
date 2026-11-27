@@ -391,6 +391,7 @@ class TrackerTable:
         merged_away: Optional[set[str]] = None,
         reread_done: Optional[set[str]] = None,
         pending: Optional[list[dict]] = None,
+        reopened: Optional[set[str]] = None,
         db: Optional[AsyncSession] = None,
     ) -> bool:
         """Store a processed batch if the lease is still ours, and requeue if messages remain.
@@ -419,6 +420,11 @@ class TrackerTable:
                 )
             ).scalar() or 0
 
+            if reopened and state is not None:
+                # Closed items a message reopened ("chưa xong, làm tiếp"): out of the archive, so they stay open.
+                kept = [e for e in row.archive or [] if e.get('id') not in reopened]
+                if len(kept) != len(row.archive or []):
+                    row.archive = kept or None
             if row.rebuild is not None:
                 self._store_rebuild(row, state, watermark, edit_watermark, remaining, pending, now, channel_id)
             elif state is not None:

@@ -416,10 +416,14 @@ async def generate_text(
 
 
 async def generate_state_update(
-    messages: list[dict], max_tokens: Optional[int] = None, refs: Optional[list[str]] = None
+    messages: list[dict],
+    max_tokens: Optional[int] = None,
+    refs: Optional[list[str]] = None,
+    item_ids: Optional[list[str]] = None,
 ) -> StateDelta:
     """One chat completion returning a validated StateDelta; retries once with the validation error.
-    refs: the batch's message refs, the only values a source may take (update_json_schema)."""
+    refs: the batch's message refs, the only values a source may take; item_ids: the ids of the items shown, the
+    only values "viec_cu" may take (update_json_schema)."""
     global _guided_json_supported
     max_tokens = max_tokens or TRACKER_MAX_TOKENS
 
@@ -435,7 +439,7 @@ async def generate_state_update(
             if _guided_json_supported:
                 payload['response_format'] = {
                     'type': 'json_schema',
-                    'json_schema': {'name': 'state_update', 'schema': update_json_schema(refs)},
+                    'json_schema': {'name': 'state_update', 'schema': update_json_schema(refs, item_ids)},
                 }
 
             status, body = await _post(session, payload)

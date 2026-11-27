@@ -33,6 +33,8 @@ QUOTE_CHARS = 240
 # whether they are the same task; only identical names are merged without asking.
 MAYBE_SIMILAR = 0.35
 MAYBE_WORDS = 0.6
+# Embedding cosine (bge-m3) from which a differently worded name is asked about.
+MAYBE_MEANING = 0.78
 SAME_BATCH = 40
 
 SYSTEM = (
@@ -1313,6 +1315,21 @@ async def match_state(items: list[dict], state_items: list) -> dict[int, str]:
                 best, score, words = state_item, value, overlap
         if best and (score >= MAYBE_SIMILAR or words >= MAYBE_WORDS):
             maybe.append((index, best))
+    # Names worded differently ("PV khách CG10173" / "Phỏng vấn khách hàng CG10173") share few letters: the item
+    # closest in meaning is a candidate too. Either way the model confirms before two items are taken as one.
+    asked = {i for i, _ in maybe} | set(matches)
+    rest = [i for i in range(len(items)) if i not in asked]
+    if rest and state_items:
+        from open_webui.tracker import relevance
+
+        found = await relevance.closest([items[i]['ten'] for i in rest], [s.ten for s in state_items])
+        for i, (best_index, value) in zip(rest, found or []):
+            state_item = state_items[best_index]
+            table = items[i]['khoa'].split(':', 2)[1] if (items[i].get('khoa') or '').startswith('table:') else None
+            if table and any(n.startswith(f'table:{table}:') for n in state_item.nguon):
+                continue  # another row of the same table is another task
+            if value >= MAYBE_MEANING:
+                maybe.append((i, state_item))
     if maybe:
         for number in await same_tasks([(items[i]['ten'], s.ten) for i, s in maybe]):
             index, state_item = maybe[number]

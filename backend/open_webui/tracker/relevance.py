@@ -40,10 +40,21 @@ def _normalized(vectors):
     return array / norms
 
 
-async def item_scores(item_texts: list[str], message_texts: list[str]) -> Optional[list[float]]:
-    """For each item, its highest similarity to any of the messages (a batch can be about several things)."""
+async def closest(queries: list[str], candidates: list[str]) -> Optional[list[tuple[int, float]]]:
+    """For each query, the candidate closest in meaning and how close (cosine), or None without embeddings."""
+    if not queries or not candidates:
+        return None
+    scores = await _matrix(candidates, queries)
+    if scores is None:
+        return None
+    best = scores.argmax(axis=0)
+    return [(int(best[q]), float(scores[best[q], q])) for q in range(len(queries))]
+
+
+async def _matrix(item_texts: list[str], message_texts: list[str]):
+    """items x messages cosine matrix (numpy), or None."""
     function = _embedding_function()
-    messages = [text[:MESSAGE_CHARS] for text in message_texts if text and text.strip()][-MAX_MESSAGES:]
+    messages = [text[:MESSAGE_CHARS] for text in message_texts]
     if function is None or not item_texts or not messages:
         return None
     try:
@@ -53,7 +64,6 @@ async def item_scores(item_texts: list[str], message_texts: list[str]) -> Option
         query_prefix = prefixes.get('rag.embedding_query_prefix')
         content_prefix = prefixes.get('rag.embedding_content_prefix')
         asked = _normalized(await function(messages, prefix=query_prefix))
-
         keys = [hashlib.sha256(f'{content_prefix}\n{text}'.encode()).hexdigest() for text in item_texts]
         missing = {key: text for key, text in zip(keys, item_texts) if key not in _cache}
         if missing:
@@ -69,7 +79,14 @@ async def item_scores(item_texts: list[str], message_texts: list[str]) -> Option
         items = _normalized([_cache[key] for key in keys])
         if items.shape[1] != asked.shape[1]:
             raise ValueError('embedding sizes differ (model changed)')
-        return (items @ asked.T).max(axis=1).tolist()
+        return items @ asked.T
     except Exception as e:
-        log.warning('Tracker: embedding the work items failed, matching by shared words instead: %s', e)
+        log.warning('Tracker: embedding failed, matching by shared words instead: %s', e)
         return None
+
+
+async def item_scores(item_texts: list[str], message_texts: list[str]) -> Optional[list[float]]:
+    """For each item, its highest similarity to any of the messages (a batch can be about several things)."""
+    messages = [text for text in message_texts if text and text.strip()][-MAX_MESSAGES:]
+    scores = await _matrix(item_texts, messages)
+    return None if scores is None else scores.max(axis=1).tolist()
