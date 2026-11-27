@@ -35,7 +35,7 @@ Quy tắc:
    - "ca_nhom": giao chung ("mọi người", "toàn team", "các nhân sự", "anh em") -> không ghi tên ai; "goi_tat_ca": true khi tin gọi tất cả bằng chữ @ ("@all", "@mọi người", "@everyone", "@channel").
    - "tu_nhan": người gửi tự nhận hoặc tự báo cáo việc của mình ("em làm X", "mình sẽ gửi").
    - "khong_ro": không nêu ai làm (kế hoạch, mốc thời gian không ghi người).
-   "ben_ngoai": bên ngoài công ty được giao (khách hàng, đối tác như "PH04").
+   "ben_ngoai": chỉ ghi khi chính người / đơn vị bên ngoài công ty (khách hàng, đối tác như "PH04") là người PHẢI LÀM việc này ("PH04 gửi lại số liệu", "đối tác bàn giao thiết bị"). Khách hàng mà nhóm làm việc với (được phỏng vấn, khảo sát, hỗ trợ, báo cáo cho) và đầu mối / người liên hệ phía khách hàng KHÔNG phải người làm: không ghi vào "ben_ngoai" hay "ten"; tên khách hàng là một phần của tên công việc.
    Đổi người của việc đã có (trong "cap_nhat"): "thay_the": true khi giao lại / chuyển cho người khác / thay / bỏ bớt / "chỉ… các nhân sự sau" (ghi đúng những người SAU khi đổi); "thay_the": false khi chỉ thêm người ("thêm @X hỗ trợ", "cùng @Y") (chỉ ghi người được thêm).
    THÀNH VIÊN KÊNH chỉ để nhận ra tên viết thường / không dấu ("giao triển làm X" là giao cho Triển làm X), KHÔNG dùng để điền người. Tên người không thuộc tên công việc. Dòng bắt đầu bằng "↳" là tóm tắt tệp hoặc ảnh đính kèm của tin nhắn ngay trên, dùng như bằng chứng của tin nhắn đó; đầu việc liệt kê trong tệp cũng phải được ghi nhận.
    Khi tin nhắn phân công chức vụ / nhóm ("AM: @A, @B", "PM dự án là @C", "team SOC gồm @D, @E"), ghi vào "vai_tro_moi" (thay_the: true nếu là danh sách mới thay danh sách cũ).
@@ -44,7 +44,7 @@ Quy tắc:
 10. Tin nhắn có thẻ (hỏi trợ lý AI) gửi cho trợ lý AI. Phần nhờ AI làm (tra cứu, lọc, tổng hợp, soạn báo cáo, thông báo, nhắc, tính điểm) KHÔNG phải việc của dự án. Nhưng tin đó vẫn có thể GIAO VIỆC cho người ("@Knight thông báo cho các AM sẽ báo cáo thứ 3", "@Knight remind PM X cập nhật tiến độ"): việc của những người đó vẫn phải ghi nhận. Tin đó cũng có thể BÁO TIẾN ĐỘ hoặc ĐỔI việc ("@Knight cập nhật các việc dưới đây đã hoàn thành: …", "@Knight việc X dời hạn sang 2/12", "@Knight bổ sung đầu việc Y"): người gửi đang báo cho dự án, ghi đúng như tin nhắn bình thường (cap_nhat trạng thái / hạn / tiến độ, hoặc hang_muc_moi). Trợ lý AI không bao giờ là người làm.
 11. quyet_dinh_moi: quyết định mới trong lô này. rui_ro và viec_tiep_theo: nếu có thay đổi thì ghi lại TOÀN BỘ danh sách mới; nếu không đổi thì bỏ trường đó.
 12. bo_tep: khi tin nhắn nói một tệp đã gửi (có thể gửi từ trước) KHÔNG phải đầu việc, chỉ là tài liệu tham khảo, hoặc không cần tổng hợp / theo dõi ("file X là tài liệu, không phải đầu việc", "bỏ file X đi"), ghi tên tệp đó như trong tin vào bo_tep. Chỉ ghi khi tin nói rõ như vậy; yêu cầu tóm tắt, tra cứu hay rà soát tệp thì không phải bo_tep.
-13. Viết tiếng Việt, ngắn gọn. Chỉ trả về một đối tượng JSON theo mẫu dưới, giữ đúng thứ tự các trường như mẫu, bỏ các trường không có thay đổi:
+13. Viết tiếng Việt, ngắn gọn. Chỉ trả về một đối tượng JSON theo mẫu dưới, bỏ các trường không có thay đổi. Ghi đủ mọi thay đổi của MỌI tin nhắn mới: tin sửa việc cũ (cap_nhat) và tin thêm việc mới (hang_muc_moi) trong cùng lô đều phải có:
 {ANSWER_SHAPE}"""
 # The answer shape is generated from the JSON schema the answer is decoded with, so both list the same fields in the
 # same order (schema.ANSWER_FIELDS).

@@ -20,7 +20,7 @@ from open_webui.tracker.config import (
     TRACKER_MAX_TOKENS,
 )
 from open_webui.tracker.config import runtime as tracker_runtime
-from open_webui.tracker.schema import StateDelta, update_json_schema
+from open_webui.tracker.schema import StateDelta
 from open_webui.utils.json_codec import JSONCodec
 
 log = logging.getLogger(__name__)
@@ -422,8 +422,8 @@ async def generate_state_update(
     item_ids: Optional[list[str]] = None,
 ) -> StateDelta:
     """One chat completion returning a validated StateDelta; retries once with the validation error.
-    refs: the batch's message refs, the only values a source may take; item_ids: the ids of the items shown, the
-    only values "viec_cu" may take (update_json_schema)."""
+    refs, item_ids: the batch's message refs and the ids of the items shown. Not enforced on the answer: a source
+    that names no message falls back to the batch's messages, an unknown "viec_cu" is ignored (apply_delta)."""
     global _guided_json_supported
     max_tokens = max_tokens or TRACKER_MAX_TOKENS
 
@@ -437,10 +437,11 @@ async def generate_state_update(
             # Streamed so a proxy waiting for the first byte (nginx 504 after ~60 s) does not cut a long update.
             payload.update(stream=True, stream_options={'include_usage': True})
             if _guided_json_supported:
-                payload['response_format'] = {
-                    'type': 'json_schema',
-                    'json_schema': {'name': 'state_update', 'schema': update_json_schema(refs, item_ids)},
-                }
+                # Any valid JSON object, fields in any order. A JSON schema here made the server write fields in
+                # the schema's order with no way back: an update written first (the batch's first message changed
+                # an old item) left no place for the new item of the next message, and it was lost. The fields and
+                # values are described in the prompt (answer_shape) and read leniently by StateDelta.
+                payload['response_format'] = {'type': 'json_object'}
 
             status, body = await _post(session, payload)
             if status == 400 and _guided_json_supported:

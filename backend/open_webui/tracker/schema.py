@@ -483,13 +483,10 @@ class StateDelta(BaseModel):
         return [v for v in value if isinstance(v, dict) and _clean_text(v.get('id', v.get('vao')))]
 
 
-# What the update model writes, field by field, in the order it writes them. The JSON schema sent to vLLM is built
-# from this list and the example shape in the prompt is generated from that schema (answer_shape), so the two can
-# never disagree. They must not: guided decoding emits an object's fields in schema order and can skip but never go
-# back, so a model following another order (as the hand-written example once had, the owner before the deadline)
-# loses every field it reaches too late: new items came without deadline, status or progress. Order: what the work
-# is first (name, how it relates to a listed item, deadline, status), who does it after, its source last (required,
-# so it is always written). Fields the system sets itself (ids, dates, linked accounts) are left out.
+# What the update model writes and the order the example in the prompt lists it in (answer_shape, generated from
+# update_json_schema). The answer itself is free JSON, read leniently by StateDelta: the server no longer enforces a
+# schema, whose fixed field order (skip but never go back) lost deadlines and whole new items. Fields the system
+# sets itself (ids, dates, linked accounts) are left out.
 ANSWER_FIELDS: dict[str, list[str]] = {
     'StateDelta': ['tong_quan', 'hang_muc_moi', 'cap_nhat', 'vai_tro_moi', 'gop', 'quyet_dinh_moi', 'rui_ro',
                    'viec_tiep_theo', 'bo_tep', 'tom_tat_lo'],
@@ -518,6 +515,7 @@ _ANSWER_NOTES = {
     'viec_cu': 'id',
     'vao': 'id',
     'tu': '"id", …',
+    'ben_ngoai': '"tên bên ngoài công ty PHẢI LÀM việc này"',
     'nguon': '"m1", "m2", …',
 }
 
@@ -542,7 +540,7 @@ def _ordered(definition: dict, fields: list[str], name: str) -> None:
 
 
 def update_json_schema(refs: Optional[list[str]] = None, item_ids: Optional[list[str]] = None) -> dict:
-    """The answer's JSON schema, its fields and their order from ANSWER_FIELDS. With the batch's message refs (m1,
+    """The answer's JSON schema, its fields and their order from ANSWER_FIELDS (shown to the model as answer_shape). With the batch's message refs (m1,
     m2, ...), every "nguon" can only name one of them and a new item must have one: a source written any other way
     ("[m3]", "tin 3", a message id) made the new item unusable. With the ids of the items shown (open and closed),
     "viec_cu" can only name one of them; without, the relation fields are left out."""

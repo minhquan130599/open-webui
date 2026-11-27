@@ -31,7 +31,7 @@ TRACKER_LLM_FAILOVER = _bool_env('TRACKER_LLM_FAILOVER', True)
 TRACKER_LLM_COOLDOWN = _int_env('TRACKER_LLM_COOLDOWN', 300)
 TRACKER_LLM_TIMEOUT = _int_env('TRACKER_LLM_TIMEOUT', 300)
 TRACKER_MAX_TOKENS = _int_env('TRACKER_MAX_TOKENS', 4096)
-# vLLM structured output (response_format json_schema). Falls back to plain JSON if rejected.
+# Asks the server for a JSON object (response_format json_object, fields in any order). Falls back to plain text if rejected.
 TRACKER_GUIDED_JSON = _bool_env('TRACKER_GUIDED_JSON', True)
 # Sends chat_template_kwargs.enable_thinking=false (Qwen3 templates); ignored by other templates.
 TRACKER_DISABLE_THINKING = _bool_env('TRACKER_DISABLE_THINKING', True)

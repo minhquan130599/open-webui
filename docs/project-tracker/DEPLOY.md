@@ -158,7 +158,7 @@ Tính năng **Channels** phải đang bật: Admin Panel → Settings → Genera
 | `TRACKER_FILE_MAX_CHUNKS` | 8 | Số đoạn tối đa (12k ký tự mỗi đoạn) đọc từ một file. File dài hơn sẽ lấy mẫu rải đều |
 | `TRACKER_FILE_WAIT_SECONDS` | 600 | Thời gian chờ Open WebUI trích text từ file trước khi bỏ qua file đó |
 | `TRACKER_TIMEZONE` | Asia/Ho_Chi_Minh | Múi giờ dùng cho ngày tháng trong prompt |
-| `TRACKER_GUIDED_JSON` | true | Gửi `response_format` cho vLLM |
+| `TRACKER_GUIDED_JSON` | true | Yêu cầu vLLM trả về JSON hợp lệ (`response_format: json_object`, không ép thứ tự trường) |
 | `TRACKER_DISABLE_THINKING` | true | Tắt chế độ suy nghĩ của Qwen3 khi tổng hợp |
 | `TRACKER_WORKER_MODE` | app | `external` nếu muốn chạy worker ở container riêng, xem mục 9 |
 

@@ -1,8 +1,7 @@
-"""The answer schema sent to vLLM and the example in the prompt come from one declaration (schema.ANSWER_FIELDS).
+"""The example answer in the prompt comes from one declaration (schema.ANSWER_FIELDS) via the JSON schema built from it.
 
-Guided decoding writes an object's fields in schema order and can skip a field but never go back to it, so a model
-told another order loses the fields it reaches too late (new items once came without deadline, status or progress).
-These tests keep the schema, the prompt and the models in step.
+The answer is free JSON (no schema enforced by the server), so these tests check that the example lists what the
+models read, and that an answer with its parts in any order is read back whole.
 """
 
 import typing
@@ -94,3 +93,15 @@ def test_an_answer_in_schema_order_is_read_back():
     delta = schema.StateDelta.model_validate(answer)
     item = delta.hang_muc_moi[0]
     assert item.han == '2026-12-03' and item.trang_thai == 'dang_lam' and item.tien_do == 20
+
+
+def test_an_answer_with_updates_first_keeps_its_new_items():
+    answer = {
+        'cap_nhat': [{'id': 'e9e80eaa', 'han': '2026-11-14', 'nguon': ['m1']}],
+        'tom_tat_lo': 'Dời hạn và bổ sung việc PD01.',
+        'hang_muc_moi': [{'nguon': ['m2'], 'giao_cho': {'kieu': 'ten', 'ten': ['Nguyễn Văn C']},
+                          'han': '2026-11-28', 'ten': 'Phỏng vấn khách hàng PD01', 'trang_thai': 'chưa bắt đầu'}],
+    }
+    delta = schema.StateDelta.model_validate(answer)
+    assert [c.id for c in delta.cap_nhat] == ['e9e80eaa']
+    assert delta.hang_muc_moi[0].ten == 'Phỏng vấn khách hàng PD01' and delta.hang_muc_moi[0].han == '2026-11-28'
