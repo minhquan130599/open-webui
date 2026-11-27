@@ -272,24 +272,35 @@ async def _ai_names(messages: list[Message]) -> set[str]:
     return {n for n in names if n} | {'tro ly ai'}
 
 
-def _drop_ai_tasks(state, old_state, messages: list[Message], names: set[str]) -> None:
-    """Guard after the update LLM: an AI model is never an owner, and a new item that only comes from requests
-    to the assistant ("@Knight lọc các việc hạn tháng 11") is a question, not a project task."""
+def _drop_ai_tasks(state, old_state, messages: list[Message], names: set[str], today: str) -> list[dict]:
+    """Guard after the update LLM: an AI model is never an owner. A new item that only comes from requests to the
+    assistant is dropped when the assistant was its only doer ("@Knight lọc các việc hạn tháng 11": a question, not
+    project work). One with nobody to do it ("@Knight bổ sung đầu việc Y") may be real work added through the
+    assistant: it is not dropped but returned for the waiting list a manager confirms. People named next to the
+    assistant keep the item. Returns the waiting-list entries."""
     asks = {f'msg:{m.id}' for m in messages if ai_mentions(m.content or '') and not _file_names(m)}
     known = {item.id for item in old_state.hang_muc}
-    kept = []
+    kept, waiting = [], []
     for item in state.hang_muc:
         owners = [o for o in item.phu_trach if normalize_key(o) not in names]
         had_ai = len(owners) != len(item.phu_trach)
         item.phu_trach = owners
         # Given to a role or team ("các AM") through the assistant is real work, even with nobody resolved yet.
-        if item.id not in known and item.nguon and set(item.nguon) <= asks and (had_ai or not owners) and not item.nhom:
-            log.info('Tracker: dropped "%s", a request to the AI assistant', item.ten)
+        if item.id not in known and item.nguon and set(item.nguon) <= asks and not owners and not item.nhom:
+            if had_ai:
+                log.info('Tracker: dropped "%s", work asked of the AI assistant', item.ten)
+                continue
+            log.info('Tracker: "%s" was added through the AI assistant with nobody to do it; waits for a manager', item.ten)
+            data = item.model_dump(exclude={'nguon'})
+            waiting.append(
+                PendingItem(**{**data, 'chua_giao': True, 'cap_nhat_luc': today}, tin_lien_quan=list(item.nguon)).model_dump()
+            )
             continue
         kept.append(item)
     state.hang_muc = kept
     for step in state.viec_tiep_theo:
         step.phu_trach = [o for o in step.phu_trach if normalize_key(o) not in names]
+    return waiting
 
 
 def _group_time(group: list[PromptMessage]) -> int:
@@ -338,23 +349,49 @@ def _pending_entry(new, group: list[PromptMessage], today: str) -> dict:
     return entry.model_dump()
 
 
+def _owners_in_doubt(new, resolved, sources: list) -> bool:
+    """For an item whose message is not known: the owners it was given cannot be checked against one message."""
+    kind = str((new.giao_cho.kieu if new.giao_cho else '') or ('ten' if new.phu_trach else 'khong_ro')).lower()
+    if kind == 'ten':
+        # Names the model wrote, none of them found in any of the messages.
+        return bool(resolved.rejected) and not resolved.names
+    if kind == 'tu_nhan':
+        # "I'll do it" from one of several senders: which one is not known.
+        return len({s.sender_id for s in sources if s.sender_id}) > 1
+    return False
+
+
 def _assign_owners(delta, ref_sources: dict, ctx, counts: dict, state=None, unsourced: Optional[list] = None) -> dict:
     """Owners of the delta's new items and owner changes, worked out by code from how the model says the work was
-    given (assign.py). A new item without a valid source message cannot be traced nor given owners: it goes to
-    `unsourced` (the waiting list a manager confirms) instead of the progress. Returns {item id: Resolved} for the
-    changes, to set their group after the delta is applied."""
+    given (assign.py). Returns {item id: Resolved} for the changes, to set their group after the delta is applied.
+
+    A new item whose source the model did not name is never dropped: the messages of this call (a few, in order) are
+    its sources, and its owners are worked out from them. Only when that leaves its owners in doubt (names found in
+    none of those messages, or "the sender takes it on" with several senders) does it go to `unsourced`, the waiting
+    list a manager confirms, instead of being given to people the messages may not name."""
     kept = []
     for new in delta.hang_muc_moi:
         refs = [r for r in new.nguon if r in ref_sources]
-        if not refs:
-            counts['khong_nguon'] = counts.get('khong_nguon', 0) + 1
-            log.info('Tracker: new item "%s" has no source message (nguon: %s); waiting for a manager', new.ten, new.nguon)
+        guessed = not refs
+        if guessed:
+            refs = list(ref_sources)
+            counts['nguon_theo_luot'] = counts.get('nguon_theo_luot', 0) + 1
+            log.info('Tracker: new item "%s" without its source message (nguon: %s); sources: this call\'s messages',
+                     new.ten, new.nguon)
+        if not refs:  # a call over deleted messages only
             if unsourced is not None:
                 unsourced.append(new)
             continue
         resolved = assign.resolve(
             new.giao_cho.model_dump() if new.giao_cho else None, new.phu_trach, [ref_sources[r] for r in refs], ctx
         )
+        if guessed and unsourced is not None and _owners_in_doubt(new, resolved, [ref_sources[r] for r in refs]):
+            counts['cho_xac_nhan'] = counts.get('cho_xac_nhan', 0) + 1
+            log.info('Tracker: new item "%s" waits for a manager: its owners are not in this call\'s messages', new.ten)
+            unsourced.append(new)
+            continue
+        if guessed:
+            new.nguon = refs
         counts['ten_bi_loai'] = counts.get('ten_bi_loai', 0) + resolved.rejected
         new.phu_trach, new.nhom, new.ben_ngoai = resolved.names, resolved.group, resolved.external
         new.doi_nhom = resolved.teams
@@ -693,7 +730,20 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                     delta = await llm.generate_state_update(chat_messages, max_tokens=TRACKER_MAX_TOKENS * 2, refs=refs)
                 except llm.TrackerOutputError as again:
                     log.error(
-                        'Tracker: message %s in %s left out, its update does not fit (%s)', group[0].id, channel_id, again
+                        'Tracker: message %s in %s could not be read (%s); shown to the managers', group[0].id, channel_id, again
+                    )
+                    # Not dropped silently: the managers see the message in the waiting list and add its work by hand.
+                    text = ' '.join((group[0].content or '').split())
+                    pending.append(
+                        PendingItem(
+                            id=new_item_id(),
+                            ten=f'Tin nhắn chưa đọc được: {text[:120]}{"…" if len(text) > 120 else ""}',
+                            chi_tiet=[f'Gửi bởi {group[0].user_name}; AI không đọc được việc trong tin này, hãy xem tin và thêm việc bằng tay.'],
+                            chua_giao=True,
+                            tao_luc=day,
+                            cap_nhat_luc=day,
+                            tin_lien_quan=[f'msg:{group[0].id}'],
+                        ).model_dump()
                     )
                     continue
             # What the model asked to change, as it wrote it (refs m1.. of this call), kept with the batch record:
@@ -738,7 +788,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             if delta.tom_tat_lo:
                 summaries.append(delta.tom_tat_lo)
 
-        _drop_ai_tasks(state, old_state, candidates, await _ai_names(candidates))
+        pending += _drop_ai_tasks(state, old_state, candidates, await _ai_names(candidates), today)
         chat_marks, unmatched = await _marks_from_chat(channel_id, file_drops, time.time_ns()) if file_drops else ({}, [])
         for file_id, mark in chat_marks.items():
             await Trackers.set_file_mark(channel_id, file_id, mark, mark['msg'])
