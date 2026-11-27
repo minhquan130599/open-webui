@@ -1212,7 +1212,7 @@
 		<div class="flex flex-col w-full">
 			<Tooltip
 				className="flex w-full justify-between my-1"
-				content={$i18n.t('Link their Telegram and ask the AI from Telegram (Admin settings → Telegram must allow it).')}
+				content={$i18n.t('Link their Telegram and send messages into channels from Telegram (Admin settings → Telegram must allow it).')}
 				placement="top-start"
 			>
 				<div class=" self-center text-xs font-normal">

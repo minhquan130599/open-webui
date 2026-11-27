@@ -58,6 +58,10 @@ class TrackerState(Base):
     # Files marked as reference material (their items are dropped) and files waiting to be read again:
     # {'skip': {file_id: {msg, ten, boi, boi_ten, tu, luc}}, 'reread': {file_id: message_id}}.
     file_marks = Column(JSON, nullable=True)
+    # A rebuild under way (files_admin.rebuild_channel): the summary being read again from the first message, kept
+    # here while `state` stays the one users, reminders and reports see; swapped in when every message is read.
+    # {'state': dict | None, 'watermark': ns, 'edit_watermark': ns, 'started_at': ns, 'total': messages at start}.
+    rebuild = Column(JSON(none_as_null=True), nullable=True)
 
     dirty_at = Column(BigInteger, nullable=True)
     last_activity_at = Column(BigInteger, nullable=True)
@@ -114,6 +118,7 @@ class TrackerStateModel(BaseModel):
     pending_deletions: Optional[list[dict]] = None
     archive: Optional[list[dict]] = None
     file_marks: Optional[dict] = None
+    rebuild: Optional[dict] = None
     dirty_at: Optional[int] = None
     pending_count: int = 0
     force: bool = False
@@ -212,20 +217,32 @@ class TrackerTable:
             limit = max_active - active
             if limit <= 0:
                 return []
+            # A rebuild reads a whole channel again (hundreds of model calls): at most one runs at a time, and the
+            # channels with new messages go first, so day-to-day updates do not wait behind it.
+            rebuilding = (
+                await db.execute(
+                    select(func.count())
+                    .select_from(TrackerState)
+                    .where(TrackerState.lease_until > now, TrackerState.rebuild.is_not(None))
+                )
+            ).scalar() or 0
 
+            conditions = [
+                TrackerState.dirty_at.is_not(None),
+                or_(TrackerState.lease_until.is_(None), TrackerState.lease_until <= now),
+                or_(TrackerState.next_attempt_at.is_(None), TrackerState.next_attempt_at <= now),
+                or_(
+                    TrackerState.force == True,  # noqa: E712
+                    TrackerState.pending_count >= batch_size,
+                    TrackerState.last_activity_at <= now - idle_ns,
+                ),
+            ]
+            if rebuilding:
+                conditions.append(TrackerState.rebuild.is_(None))
             stmt = (
                 select(TrackerState)
-                .where(
-                    TrackerState.dirty_at.is_not(None),
-                    or_(TrackerState.lease_until.is_(None), TrackerState.lease_until <= now),
-                    or_(TrackerState.next_attempt_at.is_(None), TrackerState.next_attempt_at <= now),
-                    or_(
-                        TrackerState.force == True,  # noqa: E712
-                        TrackerState.pending_count >= batch_size,
-                        TrackerState.last_activity_at <= now - idle_ns,
-                    ),
-                )
-                .order_by(TrackerState.force.desc(), TrackerState.dirty_at)
+                .where(*conditions)
+                .order_by(TrackerState.rebuild.is_not(None), TrackerState.force.desc(), TrackerState.dirty_at)
                 .limit(limit)
             )
             if db.bind.dialect.name == 'postgresql':
@@ -234,6 +251,10 @@ class TrackerTable:
             rows = (await db.execute(stmt)).scalars().all()
             claimed = []
             for row in rows:
+                if row.rebuild is not None:
+                    if rebuilding:
+                        continue
+                    rebuilding += 1
                 row.lease_id = str(uuid.uuid4())
                 row.lease_until = now + lease_ns
                 claimed.append((row.channel_id, row.lease_id))
@@ -398,7 +419,9 @@ class TrackerTable:
                 )
             ).scalar() or 0
 
-            if state is not None:
+            if row.rebuild is not None:
+                self._store_rebuild(row, state, watermark, edit_watermark, remaining, pending, now, channel_id)
+            elif state is not None:
                 # Closes/reopens by the channel owner may have happened while the LLM was running.
                 merged = reconcile(state, row.state, row.archive, merged_away or set())
                 # The waiting list as stored now (confirmed / deleted meanwhile) plus this run's.
@@ -412,15 +435,19 @@ class TrackerTable:
                 row.state = merged
                 row.version = (row.version or 0) + 1
                 row.processed_at = now
-            row.watermark = watermark
-            row.edit_watermark = max(row.edit_watermark or 0, edit_watermark)
-            if deletions_done:
+            if row.rebuild is None:  # (a rebuild keeps its own watermark until it is swapped in)
+                row.watermark = watermark
+                row.edit_watermark = max(row.edit_watermark or 0, edit_watermark)
+            if deletions_done and row.rebuild is None:
                 row.pending_deletions = (row.pending_deletions or [])[deletions_done:] or None
             if reread_done and row.file_marks:
                 marks = row.file_marks
                 reread = {k: v for k, v in (marks.get('reread') or {}).items() if k not in reread_done}
                 row.file_marks = {**marks, 'reread': reread}
-            remaining += len(row.pending_deletions or []) + len((row.file_marks or {}).get('reread') or {})
+            # Deletions recorded during a rebuild are not read by it (the deleted messages are simply not read again).
+            if row.rebuild is None:
+                remaining += len(row.pending_deletions or [])
+            remaining += len((row.file_marks or {}).get('reread') or {})
             row.pending_count = remaining
             row.dirty_at = now if remaining else None
             # Keep catching up without waiting for the idle timer, unless we are waiting on files.
@@ -436,6 +463,47 @@ class TrackerTable:
                 db.add(TrackerItem(id=str(uuid.uuid4()), channel_id=channel_id, created_at=now, **item))
             await db.commit()
             return True
+
+    @staticmethod
+    def _store_rebuild(
+        row: TrackerState,
+        state: Optional[dict],
+        watermark: int,
+        edit_watermark: int,
+        remaining: int,
+        pending: Optional[list[dict]],
+        now: int,
+        channel_id: str,
+    ) -> None:
+        """A rebuild run's result goes to row.rebuild; once no message is left after its watermark, it replaces the
+        state in use in one step (users, reminders and reports never see a half-read channel)."""
+        shadow = dict(row.rebuild or {})
+        if state is not None:
+            # Items closed or cancelled meanwhile stay closed; the waiting list is the rebuild's own.
+            archived_ids = {e.get('id') for e in row.archive or [] if e.get('id')}
+            fresh = {**state, 'hang_muc': [i for i in state.get('hang_muc') or [] if i.get('id') not in archived_ids]}
+            fresh['cho_xac_nhan'] = merge_pending(shadow.get('state'), fresh, row.archive, pending or [])
+            shadow['state'] = fresh
+        shadow['watermark'] = watermark
+        shadow['edit_watermark'] = max(shadow.get('edit_watermark') or 0, edit_watermark)
+        if remaining:
+            row.rebuild = shadow
+            return
+        final = shadow.get('state')
+        skip = (row.file_marks or {}).get('skip')
+        if final and skip:
+            marked = load_state(final)
+            drop_marked_files(marked, skip)
+            final = {**final, **marked.model_dump()}
+        row.state = final
+        row.version = (row.version or 0) + 1
+        row.processed_at = now
+        row.watermark = watermark
+        row.edit_watermark = shadow['edit_watermark']
+        # Deleted messages were simply not read again.
+        row.pending_deletions = None
+        row.rebuild = None
+        log.info('Tracker: rebuild of channel %s complete, swapped in', channel_id)
 
     async def _locked_row(self, db: AsyncSession, channel_id: str) -> Optional[TrackerState]:
         stmt = select(TrackerState).where(TrackerState.channel_id == channel_id)

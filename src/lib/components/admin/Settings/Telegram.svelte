@@ -12,7 +12,6 @@
 		type TelegramAdminAccount
 	} from '$lib/apis/telegram';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
-	import { models } from '$lib/stores';
 	import Switch from '$lib/components/common/Switch.svelte';
 	import AdminSettingRow from './AdminSettingRow.svelte';
 	import AdminSettingSection from './AdminSettingSection.svelte';
@@ -107,7 +106,7 @@
 		{#if values}
 			<AdminSettingSection title={$i18n.t('Bot')} first>
 				<p class="text-xs text-gray-500">
-					{$i18n.t('One bot for scheduled reports and for asking the AI. Use a separate bot for each environment (server, test, dev): two apps reading the same bot take messages from each other.')}
+					{$i18n.t('The bot forwards messages of linked users into the channel they choose (one way, no AI). Use a separate bot for each environment (server, test, dev): two apps reading the same bot take messages from each other.')}
 				</p>
 				<div class="flex flex-col gap-1.5">
 					<label for="telegram-bot-token" class="text-xs text-gray-500">
@@ -139,60 +138,36 @@
 			</AdminSettingSection>
 
 			<AdminSettingSection title={$i18n.t('Features')}>
-				<AdminSettingRow label={$i18n.t('Send scheduled reports by Telegram')} let:labelId>
-					<Switch ariaLabelledbyId={labelId} bind:state={values['telegram.reports']} />
+				<!-- Reports are not sent by Telegram for now (backend: REPORTS_PAUSED): the switch is shown off. -->
+				<AdminSettingRow
+					label={$i18n.t('Send scheduled reports by Telegram')}
+					description={$i18n.t('Sending reports by Telegram is not supported for now')}
+					let:labelId
+				>
+					<Switch ariaLabelledbyId={labelId} state={false} disabled />
 				</AdminSettingRow>
 				<AdminSettingRow
-					label={$i18n.t('Ask the AI from Telegram')}
-					description={$i18n.t('Users with the "Telegram" permission (Users → Groups → Permissions; admins always) link their Telegram and ask as themselves, with the same access as on the web.')}
+					label={$i18n.t('Send messages into channels from Telegram')}
+					description={$i18n.t('Users with the "Telegram" permission (Users → Groups → Permissions; admins always) link their Telegram, choose a channel and send messages into it under their own name. The AI does not answer these messages and nothing is sent back to Telegram.')}
 					let:labelId
 				>
 					<Switch ariaLabelledbyId={labelId} bind:state={values['telegram.ask']} />
 				</AdminSettingRow>
-				<AdminSettingRow
-					label={$i18n.t('Ask inside channels')}
-					description={$i18n.t('The question is posted in the channel under the name of the user, like mentioning the AI on the web.')}
-					let:labelId
-				>
-					<Switch ariaLabelledbyId={labelId} bind:state={values['telegram.ask_channels']} />
-				</AdminSettingRow>
-				<AdminSettingRow label={$i18n.t('Send files to Telegram (PDF, Word, Excel, attachments)')} let:labelId>
-					<Switch ariaLabelledbyId={labelId} bind:state={values['telegram.files']} />
-				</AdminSettingRow>
+				<p class="text-xs text-gray-500">
+					{$i18n.t('Linking needs email: pressing Start in the bot emails a 6-digit code to the account, entered on the web. Set up the email sender (monitor page → Reminder email) first.')}
+				</p>
+				<p class="text-xs text-gray-500">{$i18n.t('The chat history with the bot is deleted every day.')}</p>
 				<p class="text-xs text-gray-500">{$i18n.t('Linking Telegram groups is switched off for now.')}</p>
 			</AdminSettingSection>
 
 			<AdminSettingSection title={$i18n.t('Limits')}>
-				<div class="grid grid-cols-2 gap-3">
-					<label class="flex flex-col gap-1 text-xs text-gray-500">
-						{$i18n.t('Messages per user per minute')}
-						<input type="number" min="1" max="120" class={inputClass} bind:value={values['telegram.rate_per_minute']} />
-					</label>
-					<label class="flex flex-col gap-1 text-xs text-gray-500">
-						{$i18n.t('Questions answered at the same time (whole app)')}
-						<input type="number" min="1" max="50" class={inputClass} bind:value={values['telegram.max_running']} />
-					</label>
-					<label class="flex flex-col gap-1 text-xs text-gray-500">
-						{$i18n.t('Start a new conversation after (hours idle)')}
-						<input type="number" min="1" max="168" class={inputClass} bind:value={values['telegram.new_chat_hours']} />
-					</label>
-					<label class="flex flex-col gap-1 text-xs text-gray-500">
-						{$i18n.t('Longest wait for an answer (minutes)')}
-						<input type="number" min="1" max="30" class={inputClass} bind:value={values['telegram.answer_minutes']} />
-					</label>
-					<label class="col-span-2 flex flex-col gap-1 text-xs text-gray-500">
-						{$i18n.t('Default model for Telegram (empty = default model of the user)')}
-						<select class={inputClass} bind:value={values['telegram.model']}>
-							<option value="">—</option>
-							{#each $models as model}
-								<option value={model.id}>{model.name}</option>
-							{/each}
-						</select>
-					</label>
-				</div>
+				<label class="flex flex-col gap-1 text-xs text-gray-500">
+					{$i18n.t('Messages per user per minute')}
+					<input type="number" min="1" max="120" class={inputClass} bind:value={values['telegram.rate_per_minute']} />
+				</label>
 			</AdminSettingSection>
 
-			<AdminSettingSection title={$i18n.t('Channels that cannot be asked from Telegram ({{count}})', { count: (values['telegram.blocked_channels'] ?? []).length })}>
+			<AdminSettingSection title={$i18n.t('Channels that cannot receive messages from Telegram ({{count}})', { count: (values['telegram.blocked_channels'] ?? []).length })}>
 				<input class={inputClass} placeholder={$i18n.t('Search channels')} bind:value={channelFilter} />
 				<div class="max-h-48 overflow-y-auto rounded-lg border border-gray-100 p-2 dark:border-gray-850">
 					{#each shownChannels as channel (channel.id)}

@@ -96,15 +96,19 @@ async def rebuild_preview(channel_id: str) -> dict:
         'open_items': len(state.get('hang_muc') or []),
         'archived_items': len(row.archive or []) if row else 0,
         'running': bool(row and row.lease_until and row.lease_until > time.time_ns()),
+        # A rebuild already under way: starting again reads from the first message again.
+        'rebuilding': bool(row and row.rebuild is not None),
     }
 
 
 async def rebuild_channel(channel_id: str) -> dict:
     """Start the channel's summary over: every message and file is read again with the current code.
 
-    Items closed or cancelled in the channel stay in the archive, so they do not come back. The update history is
-    written again as the messages are read again. Refused while the tracker is working on the channel (its result
-    would be committed on top).
+    The new summary is read next to the one in use, a few messages per model call in the order they were sent, each
+    on the day it was sent; the one in use is replaced only when every message has been read. Items closed or
+    cancelled in the channel stay in the archive, so they do not come back. The update history is written again as
+    the messages are read again. Refused while the tracker is working on the channel (its result would be committed
+    on top).
     """
     now = time.time_ns()
     preview = await rebuild_preview(channel_id)
@@ -128,11 +132,9 @@ async def rebuild_channel(channel_id: str) -> dict:
         history = await db.execute(
             delete(TrackerItem).where(TrackerItem.channel_id == channel_id, TrackerItem.source_type == 'message_batch')
         )
-        row.state = None
-        row.version = (row.version or 0) + 1
-        row.watermark = 0
-        row.edit_watermark = 0
-        row.pending_deletions = None
+        # The summary in use stays (users, reminders and reports keep seeing it) while the new one is read next to
+        # it, from the first message; it replaces the old one when every message is read (models._store_rebuild).
+        row.rebuild = {'state': None, 'watermark': 0, 'edit_watermark': 0, 'started_at': now, 'total': preview['messages']}
         row.pending_count = preview['messages']
         row.dirty_at = now
         row.force = True

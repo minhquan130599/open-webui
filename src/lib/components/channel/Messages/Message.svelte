@@ -587,6 +587,13 @@
 							</div>
 
 							{#if message.app_id}<span class="text-[0.65rem] text-gray-500">App</span>{/if}
+							<!-- Posted from the Telegram bot (meta.source is set by the server only). -->
+							{#if message?.meta?.source === 'telegram'}
+								<span
+									class="shrink-0 rounded px-1 py-px text-[0.625rem] font-medium leading-4 bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+									title={$i18n.t('This message was sent from Telegram')}>{$i18n.t('Sent from Telegram')}</span
+								>
+							{/if}
 							{#if message.created_at}
 								<div
 									class=" shrink-0 translate-y-px text-[0.6875rem] leading-4 text-gray-500 dark:text-gray-400 font-normal first-letter:capitalize"
@@ -795,6 +802,13 @@
 											class="text-gray-500 text-[0.625rem] pl-1 self-center"
 											>({$i18n.t('edited')})</span
 										>{/if}
+									<!-- Grouped under the previous message (no header): the Telegram label goes here. -->
+									{#if message?.meta?.source === 'telegram' && !(showUserProfile && !$$slots.header)}
+										<span
+											class="shrink-0 rounded px-1 py-px text-[0.625rem] font-medium leading-4 bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+											title={$i18n.t('This message was sent from Telegram')}>{$i18n.t('Sent from Telegram')}</span
+										>
+									{/if}
 								{/if}
 							</slot>
 						</div>

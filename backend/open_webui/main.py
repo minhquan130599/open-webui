@@ -481,6 +481,10 @@ async def lifespan(app: FastAPI):
     from open_webui.telegram.bot import bot_loop
 
     app.state.telegram_bot_loop = asyncio.create_task(bot_loop(app))
+    # Once a day the bot's chat history is deleted from Telegram (one worker runs it, a lease in report_lock).
+    from open_webui.telegram.cleanup import cleanup_loop as telegram_cleanup_loop
+
+    app.state.telegram_cleanup_loop = asyncio.create_task(telegram_cleanup_loop())
     if ENABLE_PROJECT_TRACKER:
         from open_webui.tracker.reminders import reminder_loop
 
@@ -596,6 +600,8 @@ async def lifespan(app: FastAPI):
         app.state.perf_load_sampler.cancel()
     if hasattr(app.state, 'monitor_config_watch'):
         app.state.monitor_config_watch.cancel()
+    if hasattr(app.state, 'telegram_cleanup_loop'):
+        app.state.telegram_cleanup_loop.cancel()
     if hasattr(app.state, 'telegram_bot_loop'):
         app.state.telegram_bot_loop.cancel()
         try:  # let it hand back its reading lease, so the next start reads Telegram at once

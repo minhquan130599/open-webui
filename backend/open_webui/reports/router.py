@@ -11,6 +11,7 @@ from open_webui.reports import build, service, telegram
 from open_webui.reports.models import Schedules, TelegramLinks
 from open_webui.reports.schedule import describe, next_run, normalize_config
 from open_webui.reports.settings import get_settings, public, save_settings
+from open_webui.telegram.settings import REPORTS_PAUSED
 from open_webui.utils.auth import get_admin_user, get_verified_user
 
 router = APIRouter()
@@ -77,7 +78,12 @@ async def _validated(user, form: ScheduleForm, settings: dict, schedule_id: Opti
         config['prompt'] = ''
     if config['email']['enabled'] and not settings['reports.email.enable']:
         _bad('Quản trị viên chưa bật gửi qua email')
-    if config['telegram']['enabled']:
+    if REPORTS_PAUSED:
+        # Telegram is hidden on the form for now: a schedule keeps the Telegram choice it had (not sent), so it
+        # needs email to send anything.
+        if not config['email']['enabled']:
+            _bad('Tạm thời chưa hỗ trợ gửi báo cáo qua Telegram: hãy bật gửi qua email')
+    elif config['telegram']['enabled']:
         if not settings['reports.telegram.enable']:
             _bad('Quản trị viên chưa bật gửi qua Telegram')
         mine = {l.id for l in await TelegramLinks.list(user.id)}
@@ -106,7 +112,9 @@ async def access(user=Depends(get_verified_user)):
         'allow_prompt': settings['reports.allow_prompt'],
         'allow_outside': settings['reports.allow_outside'],
         'email_enabled': settings['reports.email.enable'],
-        'telegram_enabled': settings['reports.telegram.enable'] and bool(settings['reports.telegram.bot_token']),
+        'telegram_enabled': settings['reports.telegram.enable'] and bool(settings['reports.telegram.bot_token'])
+        and not REPORTS_PAUSED,
+        'telegram_paused': REPORTS_PAUSED,
         'telegram_bot': settings['reports.telegram.bot_username'],
         'allow_groups': settings['reports.telegram.allow_groups'],
         'max_schedules': settings['reports.max_schedules'],
@@ -262,6 +270,8 @@ async def telegram_links(user=Depends(get_verified_user)):
 async def telegram_new_link(user=Depends(get_verified_user)):
     """A one-time code: open the t.me link (private chat) or send "/link <code>" in a group with the bot."""
     settings = await _require_creator(user)
+    if REPORTS_PAUSED:
+        _bad('Tạm thời chưa hỗ trợ gửi báo cáo qua Telegram')
     if not (settings['reports.telegram.enable'] and settings['reports.telegram.bot_token']):
         _bad('Quản trị viên chưa bật Telegram')
     bot = settings['reports.telegram.bot_username']

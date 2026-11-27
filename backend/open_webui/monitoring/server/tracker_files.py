@@ -123,7 +123,13 @@ async def tracked_channels():
                (SELECT string_agg(mu.name, ', ') FROM channel_member cm JOIN "user" mu ON mu.id = cm.user_id
                  WHERE cm.channel_id = s.channel_id AND cm.role = 'manager' AND cm.is_active) AS managers,
                jsonb_array_length(coalesce(s.archive::jsonb, '[]'::jsonb)) AS archived_items,
-               (SELECT count(*) FROM message m WHERE m.channel_id = s.channel_id) AS messages
+               (SELECT count(*) FROM message m WHERE m.channel_id = s.channel_id) AS messages,
+               -- A rebuild under way: messages read so far (up to its own watermark) out of those in the channel.
+               (s.rebuild IS NOT NULL) AS rebuilding,
+               (s.rebuild::jsonb->>'started_at')::bigint / 1000000 AS rebuild_started_at,
+               CASE WHEN s.rebuild IS NOT NULL THEN
+                 (SELECT count(*) FROM message m WHERE m.channel_id = s.channel_id
+                    AND m.created_at <= coalesce((s.rebuild::jsonb->>'watermark')::bigint, 0)) END AS rebuild_read
            FROM tracker_state s LEFT JOIN channel c ON c.id = s.channel_id LEFT JOIN "user" o ON o.id = c.user_id
            ORDER BY s.processed_at DESC NULLS LAST LIMIT 200""",
         now=time.time_ns(),

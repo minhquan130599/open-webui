@@ -292,6 +292,14 @@ def _drop_ai_tasks(state, old_state, messages: list[Message], names: set[str]) -
         step.phu_trach = [o for o in step.phu_trach if normalize_key(o) not in names]
 
 
+def _group_time(group: list[PromptMessage]) -> int:
+    """When the messages of a call were sent (the latest). An edit or a deletion happens now, whatever the date of
+    the message it changes."""
+    if any(m.edited or m.deleted for m in group):
+        return time.time_ns()
+    return min(max(m.created_at for m in group), time.time_ns())
+
+
 ANSWERS_MAX_CHARS = 20_000
 
 
@@ -490,6 +498,17 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
     try:
         row = await Trackers.get_state(channel_id)
         channel = await Channels.get_channel_by_id(channel_id)
+        if row is not None and row.rebuild is not None:
+            # A rebuild works on its own copy (Trackers.complete stores the result there); deletions recorded meanwhile
+            # do not concern it, the deleted messages are simply not read again.
+            row = row.model_copy(
+                update={
+                    'state': row.rebuild.get('state'),
+                    'watermark': row.rebuild.get('watermark') or 0,
+                    'edit_watermark': row.rebuild.get('edit_watermark') or 0,
+                    'pending_deletions': None,
+                }
+            )
         if not row or not channel:
             await Trackers.complete(
                 channel_id,
@@ -598,8 +617,18 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             for source in entry.get('nguon') or []
             if source.startswith('table:')
         )
+        # A file's items join the state at the file's place among the messages (just before the group holding the
+        # message that carried it), so a later message that reports one done is applied after it, and an earlier one
+        # does not overwrite what the file says. Files read again for a message outside this run go first.
+        in_run = {m.id for m in prompt_messages}
+        folded = {message_id for message_id in extractions if message_id not in in_run}
         state, file_tasks = await _merge_extractions(
-            old_state, extractions, today, archived_keys, archived_rows, frozenset(skip_marks)
+            old_state,
+            {k: v for k, v in extractions.items() if k in folded},
+            today,
+            archived_keys,
+            archived_rows,
+            frozenset(skip_marks),
         )
         merged_away, summaries = set(), []
         people = await channel_people(channel)
@@ -626,6 +655,18 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         answers: list[dict] = []
         while groups:
             group = groups.pop(0)
+            # The day these messages were sent: "today" for the model (relative dates such as "thứ 6 tuần này") and
+            # the date written on what they change (done on, updated on), so reading old messages again (a rebuild)
+            # dates them as they happened, not on the day of the rebuild.
+            group_ns = _group_time(group)
+            day = format_time(group_ns, TZ)[:10]
+            here = {m.id: extractions[m.id] for m in group if m.id in extractions and m.id not in folded}
+            if here:
+                folded |= set(here)
+                state, entries = await _merge_extractions(
+                    state, here, day, archived_keys, archived_rows, frozenset(skip_marks)
+                )
+                file_tasks += entries
             roles = [f'{r["ten"]}: {", ".join(r["nguoi"])}' for r in ctx.config['vai_tro'].values()]
             texts = ['\n'.join([m.content or '', *m.attachments]) for m in group]
             # Only a list that does not fit is cut down, and only then is it worth matching items by meaning.
@@ -635,7 +676,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                 else None
             )
             chat_messages, ref_map = build_update_messages(
-                channel.name, state, group, TZ, TRACKER_MESSAGE_MAX_CHARS, time.time_ns(), members, roles, scores
+                channel.name, state, group, TZ, TRACKER_MESSAGE_MAX_CHARS, group_ns, members, roles, scores
             )
             refs = list(ref_map)
             try:
@@ -683,8 +724,8 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                 learned += roles_now
             unsourced: list = []
             changed_groups = _assign_owners(delta, ref_sources, ctx, counts, state, unsourced)
-            pending += [_pending_entry(new, group, today) for new in unsourced]
-            state, merged = apply_delta(state, delta, ref_map, today, archived_keys)
+            pending += [_pending_entry(new, group, day) for new in unsourced]
+            state, merged = apply_delta(state, delta, ref_map, day, archived_keys)
             for item in state.hang_muc:
                 if item.id in changed_groups:
                     item.nhom = changed_groups[item.id].group

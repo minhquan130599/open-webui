@@ -39,11 +39,28 @@ export const getTelegramMe = (token: string): Promise<TelegramMe> => request(tok
 export const newTelegramAccountLink = (
 	token: string
 ): Promise<{ code: string; url: string; bot: string; minutes: number }> => request(token, '/me/link', 'POST');
-export const getTelegramAccountLinkStatus = (
-	token: string,
-	code: string
-): Promise<{ linked: boolean; gone?: boolean; account: TelegramAccount | null }> =>
+export type TelegramLinkStatus = {
+	linked: boolean;
+	gone?: boolean;
+	// why the link stopped: mail (email sending not configured), send (email not sent), account, expired, locked
+	error?: string;
+	// Start was pressed: a 6-digit code was emailed and must be entered here
+	otp?: boolean;
+	email?: string; // masked
+	telegram?: { username: string; display_name: string };
+	otp_seconds?: number;
+	attempts_left?: number;
+	account: TelegramAccount | null;
+};
+
+export const getTelegramAccountLinkStatus = (token: string, code: string): Promise<TelegramLinkStatus> =>
 	request(token, '/me/link/status', 'POST', { code });
+export const verifyTelegramAccountLink = (
+	token: string,
+	code: string,
+	otp: string
+): Promise<{ status: 'linked' | 'wrong' | 'expired' | 'locked' | 'invalid'; attempts_left?: number; account?: TelegramAccount }> =>
+	request(token, '/me/link/verify', 'POST', { code, otp });
 export const unlinkTelegramAccount = (token: string) => request(token, '/me', 'DELETE');
 
 export const getTelegramAdminSettings = (token: string): Promise<Record<string, any>> =>

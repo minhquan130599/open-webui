@@ -146,9 +146,10 @@
 			</AdminSettingSection>
 
 			<AdminSettingSection title="Telegram">
+				<!-- Reports are not sent by Telegram for now (backend: REPORTS_PAUSED); email still works. -->
 				<p class="text-xs text-gray-500">
-					{$i18n.t('The Telegram bot (token, sending reports by Telegram, asking the AI) is set up in Admin settings → Telegram.')}
-					<span class="font-medium">{values['reports.telegram.enable'] ? $i18n.t('Sending reports by Telegram: on') : $i18n.t('Sending reports by Telegram: off')}</span>
+					<span class="font-medium">{$i18n.t('Sending reports by Telegram is not supported for now')}.</span>
+					{$i18n.t('Schedules that chose Telegram keep that choice but are only sent by email.')}
 				</p>
 			</AdminSettingSection>
 

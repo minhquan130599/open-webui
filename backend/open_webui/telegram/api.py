@@ -111,8 +111,27 @@ def _plain(html_text: str) -> str:
     return html.unescape(re.sub(r'<[^>]+>', '', html_text))
 
 
+async def remember(chat_id, result) -> None:
+    """A message in a private chat with the bot is logged, so the daily cleanup (cleanup.py) can delete it from the
+    chat. Group chats (negative ids) are left alone. Never fails the send."""
+    try:
+        message_id = result.get('message_id') if isinstance(result, dict) else None
+        if message_id and int(chat_id) > 0:
+            from open_webui.telegram.models import ChatLog
+
+            await ChatLog.add(chat_id, message_id)
+    except Exception:
+        log.debug('Telegram: could not log message of chat %s', chat_id, exc_info=True)
+
+
 async def send_message(token: str, chat_id, html_text: str, reply_markup: Optional[dict] = None, **extra) -> dict:
     """One message in Telegram HTML; sent as plain text when Telegram cannot parse the HTML."""
+    result = await _send_message(token, chat_id, html_text, reply_markup, **extra)
+    await remember(chat_id, result)
+    return result
+
+
+async def _send_message(token: str, chat_id, html_text: str, reply_markup: Optional[dict] = None, **extra) -> dict:
     params = {'chat_id': chat_id, 'text': html_text[:4096], 'parse_mode': 'HTML', 'disable_web_page_preview': True, **extra}
     if reply_markup:
         params['reply_markup'] = reply_markup
@@ -193,6 +212,7 @@ async def send_document(token: str, chat_id, name: str, data: bytes, content_typ
     body = await _post(token, 'sendPhoto' if photo else 'sendDocument', 120, data=form)
     if not body.get('ok'):
         raise TelegramError(body.get('description') or 'Telegram không nhận file', body.get('error_code'))
+    await remember(chat_id, body.get('result'))
     return body.get('result')
 
 

@@ -1,31 +1,32 @@
 """The bot: reads Telegram updates (one worker at a time, a lease in report_lock), handles commands and buttons,
-and answers questions as the linked user.
+and posts the linked user's messages into the channel they chose.
 
-Many users at once:
-- each update is handled in its own task, so a long answer never blocks the others;
-- one question at a time per Telegram user (a second one is refused politely, or the first can be stopped);
-- at most `telegram.max_running` answers at once for the whole app; others wait their turn (told so);
-- `telegram.rate_per_minute` messages per user per minute;
-- sends go through one rate limiter (api.py) and the progress message is edited at most every 2 seconds.
+The bot does not chat with the AI any more. Messages go one way only, Telegram -> channel: they are posted under
+the user's name as ordinary channel messages (marked as sent from Telegram), never start an AI answer, and nothing
+from the channel is sent back. A message sent while no channel is chosen gets a short note on how to choose one.
+
+Linking: the t.me link opened from the web carries a one-time code; pressing Start emails a 6-digit code to the
+NCS AI account, and the link is made only when that code is entered on the web page that is waiting.
+
+Many users at once: each update is handled in its own task; `telegram.rate_per_minute` messages per user per
+minute; sends go through one rate limiter (api.py).
 
 Security: the sender is `from.id`; the linked account is checked again on every update (active, allowed);
-every id coming back from a button or a reply is checked against the user's access before use; groups are not
-answered (only the legacy report /link, which stays switched off).
+every id coming back from a button is checked against the user's access before use; groups are not answered
+(only the legacy report /link, which stays switched off).
 """
 
 import asyncio
 import html
 import logging
 import time
-import uuid
 from typing import Optional
 
 from open_webui.reports.models import Locks
 from open_webui.telegram import access, api, ask
-from open_webui.telegram import format as fmt
 from open_webui.telegram import keyboards as kb
-from open_webui.telegram.models import Accounts, MessageMap, Sessions
-from open_webui.telegram.settings import get_settings
+from open_webui.telegram.models import Accounts, Sessions
+from open_webui.telegram.settings import REPORTS_PAUSED, get_settings
 
 log = logging.getLogger(__name__)
 
@@ -34,32 +35,35 @@ POLL_SECONDS = 25
 TEXT_LIMIT = 4000
 COMMANDS = [
     ('start', 'Bắt đầu / menu chính'),
-    ('moi', 'Cuộc trò chuyện mới'),
-    ('kenh', 'Chọn kênh để hỏi (/kenh tên để tìm)'),
-    ('truc_tiep', 'Về hỏi trực tiếp'),
-    ('model', 'Đổi model'),
-    ('caidat', 'Cài đặt'),
+    ('kenh', 'Chọn kênh để gửi tin (/kenh tên để tìm)'),
+    ('caidat', 'Cài đặt, hủy liên kết'),
     ('help', 'Hướng dẫn'),
-    ('ngungnhan', 'Ngừng nhận báo cáo được mời qua link'),
 ]
+ABOUT = 'Bot chỉ chuyển tin nhắn của bạn vào một kênh trên NCS AI, không trò chuyện với AI.'
 HELP = (
-    '<b>Cách dùng trợ lý NCS AI trên Telegram</b>\n'
-    '• Gõ câu hỏi bất kỳ để hỏi AI (như chat riêng trên web).\n'
-    '• <b>📁 Hỏi trong kênh</b>: chọn kênh, câu hỏi được đăng vào kênh dưới tên bạn và AI trả lời theo dữ liệu kênh '
-    '(như gọi @Knight trên web). Trả lời (reply) vào tin của bot để hỏi tiếp trong cùng luồng.\n'
-    '• Gửi file / ảnh kèm câu hỏi để AI đọc file.\n'
-    '• Dưới mỗi câu trả lời: <b>📄 PDF</b> / <b>📝 Word</b> để nhận file, <b>🔁 Trả lời lại</b>.\n'
-    '• <b>🆕 Cuộc trò chuyện mới</b> để bắt đầu lại; <b>⚙️ Cài đặt</b> để đổi model hoặc hủy liên kết.\n'
+    '<b>Cách dùng bot NCS AI trên Telegram</b>\n'
+    f'• {ABOUT}\n'
+    f'• Bấm <b>{kb.CHOOSE_CHANNEL}</b> (hoặc gõ /kenh, /kenh tên để tìm) rồi gửi tin nhắn: tin được đăng vào kênh '
+    'dưới tên bạn, có nhãn "Gửi từ Telegram".\n'
+    '• Có thể gửi file hoặc ảnh (tối đa 20 MB), chú thích đi kèm thành nội dung tin.\n'
+    '• AI không trả lời các tin gửi từ Telegram (kể cả khi có gọi tên AI), và tin trong kênh không được gửi về '
+    'Telegram: xem và trả lời trên web.\n'
+    '• Lịch sử chat với bot được tự xóa mỗi ngày.\n'
+    f'• <b>{kb.SETTINGS}</b> (/caidat) để xem tài khoản hoặc hủy liên kết.\n'
     'Bot chỉ làm được những gì tài khoản NCS AI của bạn được phép.'
+)
+DIRECT_NOTE = (
+    f'{ABOUT}\nBấm <b>{kb.CHOOSE_CHANNEL}</b> (hoặc gõ /kenh) để chọn kênh, rồi gửi lại tin nhắn: tin sẽ được đăng '
+    'vào kênh đó dưới tên bạn.'
+)
+MAIL_MISSING = (
+    'Chưa liên kết được: liên kết Telegram cần gửi mã xác nhận qua email, nhưng quản trị viên chưa cấu hình gửi '
+    'email. Hãy liên hệ quản trị viên.'
 )
 
 STATUS: dict = {}
 _tasks: set = set()
-_running: dict[str, dict] = {}  # telegram user id -> running answer
-_uploading: set = set()  # telegram user ids receiving a file
-_semaphore: Optional[asyncio.Semaphore] = None
-_semaphore_size = 0
-_waiting = 0
+_uploading: set = set()  # telegram user ids sending a file
 
 
 _recent_updates: dict[int, None] = {}
@@ -122,13 +126,6 @@ def _spawn(coro) -> None:
     task = asyncio.create_task(coro)
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
-
-
-def _gate(size: int) -> asyncio.Semaphore:
-    global _semaphore, _semaphore_size
-    if _semaphore is None or size != _semaphore_size:
-        _semaphore, _semaphore_size = asyncio.Semaphore(size), size
-    return _semaphore
 
 
 async def _base() -> str:
@@ -304,7 +301,7 @@ async def _load(ctx: Ctx) -> bool:
     if not ctx.account:
         base = await _base()
         await ctx.send(
-            'Chào bạn 👋 Đây là trợ lý NCS AI.\nĐể hỏi AI và nhận báo cáo tại đây, hãy liên kết với tài khoản NCS AI: '
+            'Chào bạn 👋 Đây là bot NCS AI.\nĐể gửi tin nhắn vào kênh NCS AI từ đây, hãy liên kết với tài khoản NCS AI: '
             'đăng nhập web → <b>Cài đặt → Tài khoản → Telegram</b> → <b>Liên kết Telegram</b>.',
             kb.link_account(f'{base}/?settings=account' if base else ''),
         )
@@ -325,7 +322,9 @@ async def _on_message(app, settings: dict, message: dict) -> None:
     if chat.get('type') != 'private':
         if text.startswith('/link'):
             await _legacy_report_link(settings, message, text)
-        return  # questions in groups are not answered
+        return  # nothing is posted from groups
+    # The user's own messages are deleted from the chat with the bot's ones, once a day (cleanup.py).
+    await api.remember(chat['id'], message)
     ctx = Ctx(app, settings, chat['id'], sender)
     # Counted before anything else (also for unlinked senders and /start): nobody can flood the bot.
     if not access.rate_ok(ctx.tg_id, settings['telegram.rate_per_minute']):
@@ -345,7 +344,7 @@ async def _on_message(app, settings: dict, message: dict) -> None:
             await _welcome(ctx)
         return
 
-    # Anyone who receives reports here (invited with a link, no account needed) can stop them.
+    # Anyone who was invited to receive reports here (a link, no account needed) can stop them.
     if text.startswith('/') and text.split()[0].split('@')[0].lower() in STOP_REPORTS:
         await _stop_reports(settings, chat['id'])
         return
@@ -355,86 +354,84 @@ async def _on_message(app, settings: dict, message: dict) -> None:
     await Accounts.touch(ctx.tg_id, sender.get('username') or '', _display(sender))
 
     command = text.split()[0].split('@')[0].lower() if text.startswith('/') else ''
-    if command in ('/help',):
+    if command == '/help':
         await ctx.send(HELP, _keyboard(ctx))
         return
     if command == '/caidat' or text == kb.SETTINGS:
         await _settings(ctx)
         return
-    can_ask = await access.can_ask(ctx.user, settings)
-    if not can_ask:
+    if not await access.can_ask(ctx.user, settings):
         await ctx.send(
-            'Tài khoản của bạn chưa được dùng hỏi đáp AI qua Telegram (quản trị viên chưa cấp quyền). '
-            'Bạn vẫn nhận được báo cáo định kỳ tại đây.',
+            'Tài khoản của bạn chưa được gửi tin nhắn vào kênh qua Telegram (quản trị viên chưa cấp quyền).',
             kb.remove_keyboard(),
         )
         return
-    if command == '/moi' or text == kb.NEW_CHAT:
-        await _new_chat(ctx)
-        return
-    if command == '/truc_tiep' or text == kb.ASK_DIRECT or text == kb.BACK_DIRECT:
-        await _to_direct(ctx)
-        return
-    if command == '/kenh' or text == kb.ASK_CHANNEL or text == kb.CHANGE_CHANNEL:
+    if command == '/kenh' or text in (kb.CHOOSE_CHANNEL, kb.CHANGE_CHANNEL):
         query = text.split(maxsplit=1)[1] if command == '/kenh' and len(text.split(maxsplit=1)) > 1 else ''
         await _pick_channel(ctx, 0, query)
         return
-    if command == '/model':
-        await _pick_model(ctx)
-        return
     if command:
-        await ctx.send('Không có lệnh này. Gõ câu hỏi hoặc dùng các nút bên dưới.', _keyboard(ctx))
+        await ctx.send('Không có lệnh này. Dùng /kenh để chọn kênh, /caidat để cài đặt, /help để xem hướng dẫn.', _keyboard(ctx))
         return
-    if text == kb.EXPORT:
-        if ctx.session.mode != 'channel':
-            await ctx.send('Chọn kênh trước khi xuất báo cáo.', _keyboard(ctx))
-            return
-        await ctx.send('Chọn định dạng báo cáo:', kb.export_formats())
+    if text in kb.OLD_BUTTONS:
+        # A button of the keyboard from before the bot stopped chatting with the AI: show the new keyboard.
+        await ctx.send(
+            'Bot không còn trò chuyện với AI. Bot chỉ chuyển tin nhắn của bạn vào kênh đã chọn trên NCS AI.',
+            _keyboard(ctx),
+        )
         return
-    if text in kb.PRESETS:
-        if ctx.session.mode != 'channel':
-            await ctx.send('Chọn kênh trước.', _keyboard(ctx))
-            return
-        text = kb.PRESETS[text]
+
+    channel = await _current_channel(ctx)
+    if not channel:
+        await ctx.send(DIRECT_NOTE, _keyboard(ctx))
+        return
 
     files = []
     if message.get('document') or message.get('photo'):
-        if ctx.tg_id in _uploading or ctx.tg_id in _running:
-            await ctx.send('⏳ Đang xử lý việc trước của bạn, gửi file lại sau ít phút nhé.')
+        if ctx.tg_id in _uploading:
+            await ctx.send('⏳ Đang nhận file trước của bạn, gửi lại sau ít phút nhé.')
             return
         _uploading.add(ctx.tg_id)
         try:
-            entry = await _receive_file(ctx, message)
+            entry = await _receive_file(ctx, message, channel.id)
         finally:
             _uploading.discard(ctx.tg_id)
         if not entry:
             return
         files.append(entry)
-        if not text:
-            ctx.session = await Sessions.get(str(ctx.chat_id), ctx.tg_id)  # fresh: another file may have arrived
-            data = dict(ctx.session.data or {})
-            data['pending_files'] = [*(data.get('pending_files') or []), entry][-5:]
-            ctx.session.data = data
-            await Sessions.save(ctx.session)
-            await ctx.send(f'Đã nhận file <b>{html.escape(entry["name"])}</b>. Bạn muốn làm gì?', kb.file_actions())
-            return
-    if not text:
+    if not text and not files:
+        await ctx.send('Bot chỉ chuyển được tin nhắn chữ, file hoặc ảnh vào kênh.', _keyboard(ctx))
         return
     if len(text) > TEXT_LIMIT:
-        await ctx.send(f'Câu hỏi dài quá ({len(text)} ký tự). Rút gọn dưới {TEXT_LIMIT} ký tự, hoặc gửi nội dung dạng file.')
+        await ctx.send(f'Tin nhắn dài quá ({len(text)} ký tự). Rút gọn dưới {TEXT_LIMIT} ký tự, hoặc gửi nội dung dạng file.')
         return
-    pending = (ctx.session.data or {}).get('pending_files') or []
-    if pending:
-        files = [*pending, *files]
-        data = dict(ctx.session.data or {})
-        data.pop('pending_files', None)
-        ctx.session.data = data
+    try:
+        await ask.post_to_channel(await ctx.request(), ctx.user, channel, text, files)
+    except Exception as error:
+        detail = getattr(error, 'detail', None) or str(error)
+        log.warning('Telegram: posting into channel %s failed for %s: %s', channel.id, ctx.user.id, detail)
+        await ctx.send(f'⚠️ Không gửi được vào #{html.escape(channel.name)}: {html.escape(str(detail))}', _keyboard(ctx))
+        return
+    data = dict(ctx.session.data or {})
+    data['recent'] = [channel.id, *[i for i in data.get('recent', []) if i != channel.id]][:4]
+    ctx.session.data = data
+    await Sessions.save(ctx.session)
+    await ctx.send(f'✅ Đã gửi vào <b>#{html.escape(channel.name)}</b>.', _keyboard(ctx))
 
-    target = None
-    reply = message.get('reply_to_message')
-    if reply and (reply.get('from') or {}).get('is_bot'):
-        target = await MessageMap.get(str(ctx.chat_id), reply.get('message_id'))
-    await _ask(ctx, text, files, target)
+
+async def _current_channel(ctx: Ctx):
+    """The channel chosen in this chat, if the user may still post in it (else the choice is dropped)."""
+    if ctx.session.mode != 'channel' or not ctx.session.channel_id:
+        return None
+    channel = await ask.get_channel_for(ctx.user, ctx.session.channel_id, ctx.settings)
+    if not channel:
+        ctx.session.mode, ctx.session.channel_id = 'direct', None
+        data = dict(ctx.session.data or {})
+        data.pop('channel_name', None)
+        ctx.session.data = data
+        await Sessions.save(ctx.session)
+        await ctx.send('Bạn không còn gửi được vào kênh đã chọn. Hãy chọn kênh khác.', kb.main_keyboard())
+    return channel
 
 
 def _display(sender: dict) -> str:
@@ -447,52 +444,114 @@ def _keyboard(ctx: Ctx) -> dict:
     return kb.main_keyboard()
 
 
+def _intro(ctx: Ctx) -> str:
+    name = (ctx.session.data or {}).get('channel_name') if ctx.session and ctx.session.mode == 'channel' else ''
+    if name:
+        return f'Tin nhắn bạn gửi ở đây sẽ được đăng vào <b>#{html.escape(name)}</b>. Bấm <b>{kb.CHANGE_CHANNEL}</b> để đổi kênh.'
+    return f'Bấm <b>{kb.CHOOSE_CHANNEL}</b> (hoặc gõ /kenh) để chọn kênh, rồi gửi tin nhắn vào kênh đó.'
+
+
 async def _welcome(ctx: Ctx) -> None:
     name = html.escape(ctx.user.name or '')
-    can_ask = await access.can_ask(ctx.user, ctx.settings)
-    lines = [f'Chào <b>{name}</b> 👋']
-    if can_ask:
-        lines.append('Gõ câu hỏi bất kỳ để hỏi AI, hoặc chọn bên dưới.')
-    if ctx.settings['telegram.reports']:
-        lines.append('Báo cáo định kỳ chọn "Telegram của tôi" sẽ được gửi vào đây.')
-    await ctx.send('\n'.join(lines), _keyboard(ctx) if can_ask else kb.remove_keyboard())
+    if not await access.can_ask(ctx.user, ctx.settings):
+        await ctx.send(
+            f'Chào <b>{name}</b> 👋\nTài khoản của bạn chưa được gửi tin nhắn vào kênh qua Telegram (quản trị viên chưa cấp quyền).',
+            kb.remove_keyboard(),
+        )
+        return
+    await ctx.send(f'Chào <b>{name}</b> 👋\n{ABOUT}\n{_intro(ctx)}', _keyboard(ctx))
 
 
 # ---------------------------------------------------------------- linking
 
 
 async def _link_account(ctx: Ctx, code: str) -> None:
+    """Start pressed with a link code from the web: nothing is linked yet. A 6-digit code is emailed to the NCS AI
+    account, and the link is made when it is entered on the web page that is waiting (router: /me/link/verify)."""
+    from open_webui.telegram import link_mail
+    from open_webui.telegram.models import mask_email
+
     if not code or len(code) > 64:
         await ctx.send('Mã liên kết không đúng.')
         return
-    status, account = await Accounts.confirm(code, ctx.tg_id, ctx.sender.get('username') or '', _display(ctx.sender))
+    # Checked first: without email nothing can be linked, and no code is made that could not be delivered.
+    ok, mail_settings = await link_mail.ready()
+    if not ok:
+        await Accounts.link_failed(code, 'mail')
+        log.info('Telegram: link of %s stopped: email sending is not configured', ctx.tg_id)
+        await ctx.send(MAIL_MISSING)
+        return
+    status, otp, user_id = await Accounts.request_otp(
+        code, ctx.tg_id, str(ctx.chat_id), ctx.sender.get('username') or '', _display(ctx.sender)
+    )
     log.info('Telegram: link code from %s: %s', ctx.tg_id, status)
+    if status == 'invalid':
+        await ctx.send('Mã liên kết không đúng hoặc đã hết hạn (10 phút). Vào web bấm <b>Liên kết Telegram</b> để bắt đầu lại.')
+        return
+    if status == 'other':
+        await ctx.send('Liên kết này đang được xác nhận cho một Telegram khác. Vào web bấm <b>Liên kết Telegram</b> để bắt đầu lại.')
+        return
+    if status == 'locked':
+        await ctx.send('Đã nhập sai mã xác nhận quá nhiều lần. Vào web bấm <b>Liên kết Telegram</b> để bắt đầu lại.')
+        return
     if status == 'already':
-        # Nothing changed: a link opened again (browser and app both open it, Start pressed twice, several links
-        # tapped) is answered once per 10 minutes.
+        # Nothing changed: a link opened again (browser and app both open it, Start pressed twice) is answered once
+        # per 10 minutes.
         if time.monotonic() - _already_told.get(ctx.tg_id, -1e9) < 600:
             return
         _already_told[ctx.tg_id] = time.monotonic()
-    if status == 'invalid':
-        await ctx.send('Mã liên kết không đúng hoặc đã hết hạn (10 phút). Vào web bấm <b>Liên kết Telegram</b> để lấy mã mới.')
+        if await _load(ctx):
+            await ctx.send('Telegram này đã liên kết với tài khoản rồi.', _keyboard(ctx))
         return
-    ctx.account, ctx.user = account, await access.active_user(account.user_id)
-    if not ctx.user:
-        await Accounts.unlink_user(account.user_id)
+    user = await access.active_user(user_id) if user_id else None
+    if not user:
+        await Accounts.link_failed(code, 'account')
         await ctx.send('Tài khoản NCS AI này hiện không dùng được (bị khóa hoặc chưa được duyệt).')
         return
-    ctx.session = await Sessions.get(str(ctx.chat_id), ctx.tg_id)
-    if status == 'already':
-        await ctx.send('Telegram này đã liên kết với tài khoản rồi.', _keyboard(ctx))
+    masked = html.escape(mask_email(user.email or ''))
+    if status == 'recent':
+        await ctx.send(
+            f'Mã xác nhận vừa được gửi tới email <b>{masked}</b>. Kiểm tra hộp thư (cả thư rác) rồi nhập mã trên '
+            'trang web NCS AI đang chờ liên kết.'
+        )
         return
-    log.info('Telegram: account %s linked to user %s', ctx.tg_id, account.user_id)
-    can_ask = await access.can_ask(ctx.user, ctx.settings)
-    lines = [f'✅ Đã liên kết với <b>{html.escape(ctx.user.name or "")}</b> ({html.escape(ctx.user.email or "")}).']
-    if can_ask:
-        lines.append('Gõ câu hỏi bất kỳ để hỏi AI, hoặc chọn bên dưới.')
-    if ctx.settings['telegram.reports']:
-        lines.append('Báo cáo định kỳ chọn "Telegram của tôi" sẽ được gửi vào đây.')
-    await ctx.send('\n'.join(lines), _keyboard(ctx) if can_ask else kb.remove_keyboard())
+    telegram_name = f'@{ctx.sender["username"]}' if ctx.sender.get('username') else _display(ctx.sender)
+    try:
+        await link_mail.send_code(user, otp, telegram_name, mail_settings)
+    except Exception as error:
+        log.warning('Telegram: link code email to user %s failed: %s', user.id, error)
+        await Accounts.link_failed(code, 'send')
+        await ctx.send(
+            'Không gửi được email mã xác nhận nên chưa liên kết được. Thử lại sau ít phút (vào web bấm '
+            '<b>Liên kết Telegram</b>), hoặc liên hệ quản trị viên.'
+        )
+        return
+    await Accounts.otp_sent(code, mask_email(user.email or ''))
+    await ctx.send(
+        f'📧 Mã xác nhận gồm 6 chữ số đã được gửi tới email <b>{masked}</b> của tài khoản NCS AI.\n'
+        'Nhập mã đó trên <b>trang web NCS AI</b> đang chờ liên kết để hoàn tất (không gửi mã vào đây). '
+        'Mã có hiệu lực 10 phút.'
+    )
+
+
+async def announce_linked(app, settings: dict, account, chat_id: Optional[str] = None) -> None:
+    """The email code was entered on the web: tell the Telegram chat that it is linked now."""
+    if not settings['telegram.bot_token']:
+        return
+    user = await access.active_user(account.user_id)
+    if not user:
+        return
+    ctx = Ctx(app, settings, chat_id or account.telegram_user_id, {'id': account.telegram_user_id})
+    ctx.account, ctx.user = account, user
+    ctx.session = await Sessions.get(str(ctx.chat_id), ctx.tg_id)
+    lines = [f'✅ Đã liên kết với <b>{html.escape(user.name or "")}</b> ({html.escape(user.email or "")}).']
+    can_post = await access.can_ask(user, settings)
+    if can_post:
+        lines += [ABOUT, _intro(ctx)]
+    try:
+        await ctx.send('\n'.join(lines), _keyboard(ctx) if can_post else kb.remove_keyboard())
+    except api.TelegramError as error:
+        log.info('Telegram: could not tell chat %s it is linked: %s', ctx.chat_id, error)
 
 
 async def _legacy_report_link(settings: dict, message: dict, text: str) -> None:
@@ -506,6 +565,9 @@ async def _legacy_report_link(settings: dict, message: dict, text: str) -> None:
     code = words[1] if len(words) > 1 else ''
     chat_type = chat.get('type') or 'private'
     if not code:
+        return
+    if REPORTS_PAUSED:
+        await api.send_message(token, chat['id'], 'Tạm thời chưa hỗ trợ gửi báo cáo qua Telegram, nên link nhận báo cáo này chưa dùng được.')
         return
     if chat_type != 'private' and not (await report_settings())['reports.telegram.allow_groups']:
         await api.send_message(token, chat['id'], 'NCS AI tạm thời chưa gửi báo cáo vào nhóm Telegram. Hãy liên kết chat riêng với bot.')
@@ -552,40 +614,20 @@ async def _stop_reports(settings: dict, chat_id) -> None:
     )
 
 
-# ---------------------------------------------------------------- modes and menus
-
-
-async def _new_chat(ctx: Ctx) -> None:
-    ctx.session.chat_ref = None
-    ctx.session.last_message_id = None
-    if ctx.session.mode == 'channel':
-        ctx.session.mode = 'direct'
-        ctx.session.channel_id = None
-    await Sessions.save(ctx.session)
-    await ctx.send('🆕 Đã bắt đầu cuộc trò chuyện mới. Gõ câu hỏi nhé.', kb.main_keyboard())
-
-
-async def _to_direct(ctx: Ctx) -> None:
-    ctx.session.mode = 'direct'
-    ctx.session.channel_id = None
-    await Sessions.save(ctx.session)
-    await ctx.send('💬 Đang hỏi trực tiếp. Gõ câu hỏi nhé.', kb.main_keyboard())
+# ---------------------------------------------------------------- channels and menus
 
 
 async def _pick_channel(ctx: Ctx, page: int, query: str = '', edit_id: Optional[int] = None) -> None:
-    if not ctx.settings['telegram.ask_channels']:
-        await ctx.send('Quản trị viên chưa bật hỏi trong kênh qua Telegram.', _keyboard(ctx))
-        return
     channels = await ask.user_channels(ctx.user, ctx.settings)
     if query:
         needle = query.lower().lstrip('#')
         channels = [c for c in channels if needle in (c.name or '').lower()]
     if not channels:
-        await ctx.send('Không tìm thấy kênh nào bạn được hỏi.' if query else 'Bạn chưa ở kênh nào có thể hỏi.', _keyboard(ctx))
+        await ctx.send('Không tìm thấy kênh nào bạn được gửi tin.' if query else 'Bạn chưa ở kênh nào có thể gửi tin.', _keyboard(ctx))
         return
     by_id = {c.id: c for c in channels}
     recent = [by_id[i] for i in (ctx.session.data or {}).get('recent', []) if i in by_id] if not query else []
-    text = 'Chọn kênh để hỏi' + (f' (lọc "{html.escape(query)}")' if query else ' — gõ <code>/kenh tên</code> để tìm') + ':'
+    text = 'Chọn kênh để gửi tin nhắn' + (f' (lọc "{html.escape(query)}")' if query else ' — gõ <code>/kenh tên</code> để tìm') + ':'
     markup = kb.channel_picker(channels, recent, page)
     if edit_id:
         await ctx.edit(edit_id, text, markup)
@@ -596,7 +638,7 @@ async def _pick_channel(ctx: Ctx, page: int, query: str = '', edit_id: Optional[
 async def _choose_channel(ctx: Ctx, channel_id: str) -> None:
     channel = await ask.get_channel_for(ctx.user, channel_id, ctx.settings)
     if not channel:
-        await ctx.send('Bạn không còn hỏi được trong kênh này.', _keyboard(ctx))
+        await ctx.send('Bạn không còn gửi được tin vào kênh này.', _keyboard(ctx))
         return
     data = dict(ctx.session.data or {})
     data['recent'] = [channel.id, *[i for i in data.get('recent', []) if i != channel.id]][:4]
@@ -606,51 +648,20 @@ async def _choose_channel(ctx: Ctx, channel_id: str) -> None:
     ctx.session.channel_id = channel.id
     await Sessions.save(ctx.session)
     await ctx.send(
-        f'📁 Đang hỏi trong <b>#{html.escape(channel.name)}</b>.\n'
-        'Câu hỏi sẽ được đăng vào kênh dưới tên bạn (thành viên kênh thấy được), giống gọi AI trên web.',
+        f'📁 Đang gửi vào <b>#{html.escape(channel.name)}</b>.\n'
+        'Tin nhắn, file và ảnh bạn gửi ở đây sẽ được đăng vào kênh dưới tên bạn (thành viên kênh thấy được, có nhãn '
+        '"Gửi từ Telegram"). AI không trả lời các tin này, và tin trong kênh không được gửi ngược về Telegram.',
         kb.channel_keyboard(channel.name),
     )
 
 
-async def _pick_model(ctx: Ctx) -> None:
-    request = await ctx.request()
-    models = await ask.allowed_models(request, ctx.user)
-    if not models:
-        await ctx.send('Bạn chưa được dùng model nào.')
-        return
-    current = ask.default_model_id(ctx.user, ctx.settings, models, ctx.session.model_id)
-    data = dict(ctx.session.data or {})
-    data['models'] = [m['id'] for m in models[:40]]
-    ctx.session.data = data
-    await Sessions.save(ctx.session)
-    await ctx.send('Chọn model:', kb.model_picker(models, current))
-
-
 async def _settings(ctx: Ctx) -> None:
-    can_ask = await access.can_ask(ctx.user, ctx.settings)
+    can_post = await access.can_ask(ctx.user, ctx.settings)
     lines = ['<b>⚙️ Cài đặt</b>', f'Tài khoản: {html.escape(ctx.user.name or "")} ({html.escape(ctx.user.email or "")})']
-    if can_ask:
-        models = await ask.allowed_models(await ctx.request(), ctx.user)
-        current = ask.default_model_id(ctx.user, ctx.settings, models, ctx.session.model_id)
-        lines.append(f'Model: {html.escape(ask.model_name(models, current) if current else "chưa có")}')
-        if ctx.session.mode == 'channel' and (ctx.session.data or {}).get('channel_name'):
-            lines.append(f'Đang hỏi trong: #{html.escape(ctx.session.data["channel_name"])}')
-    if ctx.settings['telegram.reports']:
-        lines.append(f'Báo cáo định kỳ nhận tại đây: {len(await _schedules_here(ctx))} lịch')
-    await ctx.send('\n'.join(lines), kb.settings_menu(ctx.settings['telegram.reports'], can_ask))
-
-
-async def _schedules_here(ctx: Ctx) -> list:
-    from open_webui.reports.models import Schedules, TelegramLinks
-
-    mine = {l.id for l in await TelegramLinks.list(ctx.user.id) if l.chat_id == str(ctx.chat_id)}
-    out = []
-    for schedule in await Schedules.list(ctx.user.id):
-        tg = (schedule.config or {}).get('telegram') or {}
-        ids = set(tg.get('link_ids') or [])
-        if tg.get('enabled') and ('account' in ids or ids & mine):
-            out.append(schedule)
-    return out
+    if can_post and ctx.session.mode == 'channel' and (ctx.session.data or {}).get('channel_name'):
+        lines.append(f'Đang gửi vào: #{html.escape(ctx.session.data["channel_name"])}')
+    lines.append('Lịch sử chat với bot được tự xóa mỗi ngày.')
+    await ctx.send('\n'.join(lines), kb.settings_menu(can_post))
 
 
 # ---------------------------------------------------------------- callbacks
@@ -690,7 +701,7 @@ async def _on_callback(app, settings: dict, callback: dict) -> None:
         if data.startswith('unl'):
             await note()
             if data == 'unl':
-                await ctx.send('Hủy liên kết Telegram với tài khoản NCS AI? Bạn sẽ không hỏi AI và không nhận báo cáo tại đây nữa.', kb.confirm_unlink())
+                await ctx.send('Hủy liên kết Telegram với tài khoản NCS AI? Bạn sẽ không gửi được tin vào kênh từ đây nữa.', kb.confirm_unlink())
             elif data == 'unl:yes':
                 await Accounts.unlink_user(ctx.user.id)
                 log.info('Telegram: account %s unlinked by the user', ctx.tg_id)
@@ -698,99 +709,19 @@ async def _on_callback(app, settings: dict, callback: dict) -> None:
             else:
                 await ctx.send('Đã giữ liên kết.', _keyboard(ctx))
             return
-        if data == 'rcv':
+        if data.startswith('chp:') or data.startswith('ch:'):
+            if not await access.can_ask(ctx.user, settings):
+                await note('Tài khoản chưa được gửi tin vào kênh qua Telegram', True)
+                return
             await note()
-            schedules = await _schedules_here(ctx)
-            base = await _base()
-            lines = ['<b>📬 Báo cáo định kỳ nhận tại đây</b>']
-            lines += [f'• {html.escape(s.name)}' for s in schedules] or ['Chưa có lịch nào gửi vào Telegram này.']
-            button = kb.url_button('🗓️ Tạo / sửa lịch trên web', f'{base}/reports' if base else '')
-            await ctx.send('\n'.join(lines), kb.inline([[button]] if button else []))
-            return
-
-        if not await access.can_ask(ctx.user, settings):
-            await note('Tài khoản chưa được dùng hỏi đáp AI qua Telegram', True)
-            return
-        if data.startswith('stop:'):
-            running = _running.get(ctx.tg_id)
-            if running and running.get('key') == data[5:]:
-                running['stopped'] = True
-                if running.get('handle'):
-                    await ask.stop(app, running['handle'])
-                await note('Đã dừng')
+            if data.startswith('chp:'):
+                page = data[4:]
+                await _pick_channel(ctx, int(page) if page.isdigit() else 0, edit_id=message.get('message_id'))
             else:
-                await note('Câu trả lời đã xong')
+                await _choose_channel(ctx, data[3:])
             return
-        if data.startswith('chp:'):
-            await note()
-            await _pick_channel(ctx, int(data[4:] or 0), edit_id=message.get('message_id'))
-            return
-        if data.startswith('ch:'):
-            await note()
-            await _choose_channel(ctx, data[3:])
-            return
-        if data == 'mdl':
-            await note()
-            await _pick_model(ctx)
-            return
-        if data.startswith('m:'):
-            ids = (ctx.session.data or {}).get('models') or []
-            index = int(data[2:]) if data[2:].isdigit() else -1
-            models = await ask.allowed_models(await ctx.request(), ctx.user)
-            allowed = {m['id']: m for m in models}
-            if not 0 <= index < len(ids) or ids[index] not in allowed:
-                await note('Model này không còn dùng được', True)
-                return
-            ctx.session.model_id = ids[index]
-            await Sessions.save(ctx.session)
-            await note('Đã đổi model')
-            await ctx.send(f'🤖 Model: <b>{html.escape(allowed[ids[index]].get("name") or ids[index])}</b>', _keyboard(ctx))
-            return
-        if data.startswith('rep:'):
-            kind = data[4:]
-            if kind not in kb.EXPORT_FORMATS or ctx.session.mode != 'channel':
-                await note('Chọn kênh trước', True)
-                return
-            if not ctx.settings['telegram.files']:
-                await note('Quản trị viên đã tắt gửi file qua Telegram', True)
-                return
-            await note('Đang lập báo cáo…')
-            await _ask(ctx, kb.EXPORT_QUESTION.format(label=kb.EXPORT_FORMATS[kind]), [], None)
-            return
-        if data.startswith('fa:'):
-            action = data[3:]
-            pending = (ctx.session.data or {}).get('pending_files') or []
-            if not pending:
-                await note('Không còn file đang chờ', True)
-                return
-            if action == 'wait':
-                await note()
-                await ctx.send('Gõ câu hỏi về file, mình sẽ dùng file vừa gửi.')
-                return
-            if action in kb.FILE_ACTIONS:
-                await note()
-                session_data = dict(ctx.session.data or {})
-                session_data.pop('pending_files', None)
-                ctx.session.data = session_data
-                await _ask(ctx, kb.FILE_ACTIONS[action][1], pending, None)
-            return
-
-        # Buttons under an answer: the mapped answer, checked against the user's access again.
-        target = await MessageMap.get(str(ctx.chat_id), message.get('message_id'))
-        if data in ('x:pdf', 'x:docx', 'rg') and not target:
-            await note('Tin này đã cũ, không còn thao tác được', True)
-            return
-        if data in ('x:pdf', 'x:docx'):
-            await _export(ctx, target, data[2:], note)
-            return
-        if data == 'rg':
-            if not target.question:
-                await note('Không còn câu hỏi gốc', True)
-                return
-            await note()
-            await _ask(ctx, target.question, [], target, regenerate=True)
-            return
-        await note()
+        # Buttons under answers of the AI, sent before the bot stopped chatting with it.
+        await note('Nút này không còn dùng được: bot chỉ chuyển tin nhắn vào kênh.', True)
     finally:
         if not answered:
             await api.answer_callback(token, callback.get('id', ''))
@@ -799,7 +730,8 @@ async def _on_callback(app, settings: dict, callback: dict) -> None:
 # ---------------------------------------------------------------- files
 
 
-async def _receive_file(ctx: Ctx, message: dict) -> Optional[dict]:
+async def _receive_file(ctx: Ctx, message: dict, channel_id: str) -> Optional[dict]:
+    """A file or photo sent to the bot, stored like an upload in the channel on the web."""
     if message.get('photo'):
         photo = max(message['photo'], key=lambda p: p.get('file_size') or 0)
         file_id, name, content_type, size = photo['file_id'], f'anh-{int(time.time())}.jpg', 'image/jpeg', photo.get('file_size') or 0
@@ -815,9 +747,6 @@ async def _receive_file(ctx: Ctx, message: dict) -> Optional[dict]:
     await api.chat_action(ctx.token, ctx.chat_id, 'upload_document')
     try:
         data = await api.download_file(ctx.token, file_id)
-        channel_id = ctx.session.channel_id if ctx.session.mode == 'channel' else None
-        if channel_id and not await ask.get_channel_for(ctx.user, channel_id, ctx.settings):
-            channel_id = None
         return await ask.save_upload(await ctx.request(), ctx.user, name, data, content_type, channel_id)
     except Exception as error:
         log.warning('Telegram: receiving a file failed', exc_info=True)
@@ -825,246 +754,3 @@ async def _receive_file(ctx: Ctx, message: dict) -> Optional[dict]:
         detail = getattr(error, 'detail', None) or (str(error) if isinstance(error, ValueError) else 'lỗi khi lưu hoặc đọc file')
         await ctx.send(f'Không nhận được file: {html.escape(str(detail))}')
         return None
-
-
-async def _send_files(ctx: Ctx, entries: list) -> None:
-    if not entries or not ctx.settings['telegram.files']:
-        return
-    base = await _base()
-    for entry in entries[:10]:
-        try:
-            got = await ask.readable_file(ctx.user, entry)
-            if not got:
-                continue
-            name, data, content_type = got
-            if len(data) > api.UPLOAD_LIMIT:
-                url = f'{base}/api/v1/files/{entry.get("id")}/content' if base else ''
-                await ctx.send(f'📎 {html.escape(name)} lớn hơn 50 MB, tải trên web.', kb.inline([[kb.url_button('⬇️ Tải trên web', url)]] if url else []))
-                continue
-            await api.chat_action(ctx.token, ctx.chat_id, 'upload_document')
-            await api.send_document(ctx.token, ctx.chat_id, name, data, content_type, f'📎 {html.escape(name)}',
-                                    photo=content_type in ('image/jpeg', 'image/png', 'image/webp') and len(data) < 10 * 1024 * 1024)
-        except Exception as error:
-            log.warning('Telegram: sending a file failed: %s', error)
-            await ctx.send(f'Không gửi được file {html.escape(entry.get("name") or "")}: {html.escape(str(error))}')
-
-
-async def _export(ctx: Ctx, target, kind: str, note) -> None:
-    if not ctx.settings['telegram.files']:
-        await note('Quản trị viên đã tắt gửi file qua Telegram', True)
-        return
-    cached = ((target.data or {}).get('exports') or {}).get(kind)
-    if cached:
-        await note()
-        await api.call(ctx.token, 'sendDocument', chat_id=ctx.chat_id, document=cached)
-        return
-    if target.target == 'channel':
-        channel = await ask.get_channel_for(ctx.user, target.target_id, ctx.settings)
-        if not channel:
-            await note('Bạn không còn quyền trong kênh này', True)
-            return
-    else:
-        from open_webui.models.chats import Chats
-
-        if not await Chats.get_chat_by_id_and_user_id(target.target_id, ctx.user.id):
-            await note('Cuộc trò chuyện không còn', True)
-            return
-    await note('Đang tạo file…')
-    handle = {'kind': target.target, 'channel_id': target.target_id, 'chat_id': target.target_id, 'message_id': target.message_id}
-    answer = await ask.fetch(handle)
-    if not answer['content'].strip():
-        await ctx.send('Câu trả lời trống, không có gì để xuất.')
-        return
-    await api.chat_action(ctx.token, ctx.chat_id, 'upload_document')
-    try:
-        name, data, content_type = await ask.export_answer(
-            ctx.app, await ctx.request(), ctx.user, {'target': target.target, 'target_id': target.target_id, 'message_id': target.message_id},
-            answer['content'], target.question or '', kind,
-        )
-        sent = await api.send_document(ctx.token, ctx.chat_id, name, data, content_type, f'📎 {html.escape(name)}')
-        file_id = ((sent or {}).get('document') or {}).get('file_id')
-        if file_id:
-            data_map = dict(target.data or {})
-            data_map['exports'] = {**(data_map.get('exports') or {}), kind: file_id}
-            await MessageMap.set_data(str(ctx.chat_id), target.tg_message_id, data_map)
-    except Exception as error:
-        log.warning('Telegram: export failed: %s', error)
-        await ctx.send(f'Không tạo được file: {html.escape(str(error))}')
-
-
-# ---------------------------------------------------------------- asking
-
-
-async def _ask(ctx: Ctx, text: str, files: list, target=None, regenerate: bool = False) -> None:
-    """Answer one question (one at a time per user, a limited number at once for the app)."""
-    global _waiting
-    if ctx.tg_id in _running:
-        await ctx.send('⏳ Đang trả lời câu trước. Đợi xong, hoặc bấm <b>⏹ Dừng</b> ở tin đang trả lời.')
-        return
-    run = {'key': uuid.uuid4().hex[:12], 'stopped': False, 'handle': None}
-    _running[ctx.tg_id] = run
-    queued = False
-    try:
-        gate = _gate(ctx.settings['telegram.max_running'])
-        waiting_note = None
-        if gate.locked():
-            _waiting += 1
-            queued = True
-            waiting_note = await ctx.send(
-                f'⏳ Hệ thống đang bận, câu hỏi của bạn đang chờ đến lượt (trước bạn {_waiting - 1} câu)…',
-                kb.stop(run['key']),
-            )
-        async with gate:
-            if queued:
-                _waiting -= 1
-                queued = False
-                if waiting_note:
-                    await api.delete_message(ctx.token, ctx.chat_id, waiting_note['message_id'])
-            if run['stopped']:
-                await ctx.send('⏹ Đã hủy câu hỏi đang chờ.')
-                return
-            await _answer(ctx, run, text, files, target, regenerate)
-    finally:
-        if queued:
-            _waiting -= 1
-        _running.pop(ctx.tg_id, None)
-
-
-async def _answer(ctx: Ctx, run: dict, text: str, files: list, target, regenerate: bool) -> None:
-    request = await ctx.request()
-    models = await ask.allowed_models(request, ctx.user)
-    model_id = ask.default_model_id(ctx.user, ctx.settings, models, ctx.session.model_id)
-    if not model_id:
-        await ctx.send('Bạn chưa được dùng model nào. Liên hệ quản trị viên.')
-        return
-    model = next(m for m in models if m['id'] == model_id)
-    base = await _base()
-
-    # Where the question goes: the answer replied to, else the chat's mode.
-    channel, thread_id = None, None
-    if target and target.target == 'channel':
-        channel = await ask.get_channel_for(ctx.user, target.target_id, ctx.settings)
-        if not channel:
-            await ctx.send('Bạn không còn hỏi được trong kênh của tin này.')
-            return
-        thread_id = target.thread_id
-    elif target and target.target == 'chat':
-        from open_webui.models.chats import Chats
-
-        if not await Chats.get_chat_by_id_and_user_id(target.target_id, ctx.user.id):
-            await ctx.send('Cuộc trò chuyện của tin này không còn.')
-            return
-        # Replying to an older answer continues that conversation, however long ago it was.
-        ctx.session.chat_ref, ctx.session.last_message_id = target.target_id, target.message_id
-        ctx.session.updated_at = time.time_ns()
-    elif ctx.session.mode == 'channel':
-        channel = await ask.get_channel_for(ctx.user, ctx.session.channel_id, ctx.settings)
-        if not channel:
-            ctx.session.mode, ctx.session.channel_id = 'direct', None
-            await Sessions.save(ctx.session)
-            await ctx.send('Bạn không còn hỏi được trong kênh đã chọn. Đã chuyển về hỏi trực tiếp.', kb.main_keyboard())
-            return
-    if channel and not ctx.settings['telegram.ask_channels']:
-        await ctx.send('Quản trị viên chưa bật hỏi trong kênh qua Telegram.')
-        return
-
-    model_label = html.escape(model.get('name') or model_id)
-    if channel:
-        header = f'📁 <b>#{html.escape(channel.name)}</b> · {model_label}'
-    else:
-        header = f'💬 <b>Trực tiếp</b> · {model_label}'
-    progress = await ctx.send(f'{header}\n⏳ Đang trả lời…', kb.stop(run['key']))
-    if not progress:
-        return
-    progress_id = progress['message_id']
-    try:
-        if channel:
-            handle = await ask.ask_channel(ctx.app, request, ctx.user, channel, model, text, thread_id, files)
-        else:
-            handle = await ask.ask_direct(ctx.app, request, ctx.user, ctx.session, model_id, text, ctx.settings, files)
-    except Exception as error:
-        detail = getattr(error, 'detail', None) or str(error)
-        log.warning('Telegram: asking failed for %s: %s', ctx.user.id, detail)
-        await ctx.edit(progress_id, f'{header}\n⚠️ Không gửi được câu hỏi: {html.escape(str(detail))}')
-        return
-    run['handle'] = handle
-    if handle['kind'] == 'chat':
-        ctx.session.chat_ref, ctx.session.last_message_id = handle['chat_id'], handle['message_id']
-        await Sessions.save(ctx.session)
-
-    answer = await _follow(ctx, run, handle, header, progress_id)
-    url = (f'{base}/channels/{handle["channel_id"]}' if handle['kind'] == 'channel' else f'{base}/c/{handle["chat_id"]}') if base else ''
-    if run['stopped']:
-        content = answer['content'].strip()
-        body = fmt.preview(content, header) if content else header
-        await ctx.edit(progress_id, f'{body}\n\n⏹ <i>Đã dừng.</i>', kb.inline([[kb.url_button('🌐 Mở trên web', url)]] if url else []))
-        return
-    if not answer['content'].strip():
-        reason = answer['error'] or ('AI chưa trả lời xong trong thời gian cho phép' if not answer['done'] else 'AI không trả lời')
-        await ctx.edit(progress_id, f'{header}\n⚠️ {html.escape(str(reason))}', kb.error_buttons(url))
-        await MessageMap.add(str(ctx.chat_id), progress_id, handle['kind'], handle.get('channel_id') or handle.get('chat_id'),
-                             handle['message_id'], handle.get('thread_id'), text)
-        return
-
-    parts = fmt.messages(answer['content'], header)
-    if not answer['done']:
-        parts[-1] += '\n\n<i>… câu trả lời còn dài, xem tiếp trên web.</i>'
-    markup = kb.answer(handle['kind'], url, ctx.settings['telegram.files'])
-    tg_ids = []
-    for index, part in enumerate(parts):
-        last = index == len(parts) - 1
-        if index == 0:
-            await ctx.edit(progress_id, part, markup if last else kb.inline([]))
-            tg_ids.append(progress_id)
-        else:
-            sent = await ctx.send(part, markup if last else None)
-            if sent:
-                tg_ids.append(sent['message_id'])
-    target_id = handle.get('channel_id') if handle['kind'] == 'channel' else handle['chat_id']
-    for tg_id in tg_ids:
-        await MessageMap.add(str(ctx.chat_id), tg_id, handle['kind'], target_id, handle['message_id'], handle.get('thread_id'), text)
-    await _send_files(ctx, answer['files'])
-    if handle['kind'] == 'channel':
-        data = dict(ctx.session.data or {})
-        data['recent'] = [target_id, *[i for i in data.get('recent', []) if i != target_id]][:4]
-        ctx.session.data = data
-    await Sessions.save(ctx.session)
-
-
-async def _follow(ctx: Ctx, run: dict, handle: dict, header: str, progress_id: int) -> dict:
-    """Wait for the answer, showing it as it is written (channel) or a progress line (chat)."""
-    deadline = time.monotonic() + ctx.settings['telegram.answer_minutes'] * 60
-    started = time.monotonic()
-    last_edit = last_action = 0.0
-    shown = ''
-    answer = {'content': '', 'done': False, 'error': None, 'files': []}
-    while time.monotonic() < deadline and not run['stopped']:
-        await asyncio.sleep(1.2)
-        try:
-            answer = await ask.fetch(handle)
-        except Exception:
-            log.debug('Telegram: fetching the answer failed', exc_info=True)
-            continue
-        if answer['done']:
-            break
-        now = time.monotonic()
-        if now - last_action > 5:
-            last_action = now
-            await api.chat_action(ctx.token, ctx.chat_id)
-        if now - last_edit < 2.5:
-            continue
-        content = fmt.clean(answer['content'])
-        if content and content != shown:
-            text = fmt.preview(content, header) + '\n\n⏳ <i>đang viết…</i>'
-        elif not content and now - last_edit > 10:
-            text = f'{header}\n⏳ Đang trả lời… {int(now - started)} giây'
-        else:
-            continue
-        try:
-            await ctx.edit(progress_id, text, kb.stop(run['key']))
-            shown = content
-            last_edit = now
-        except api.TelegramError as error:
-            log.debug('Telegram: progress edit failed: %s', error)
-            last_edit = now
-    return answer

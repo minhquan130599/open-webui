@@ -45,6 +45,7 @@ export type ReportAccess = {
 	allow_outside: boolean;
 	email_enabled: boolean;
 	telegram_enabled: boolean;
+	telegram_paused?: boolean; // reports are not sent by Telegram for now
 	telegram_bot: string;
 	allow_groups: boolean;
 	max_schedules: number;

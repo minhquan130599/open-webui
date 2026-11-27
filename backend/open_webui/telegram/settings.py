@@ -8,20 +8,28 @@ from typing import Any
 
 from open_webui.models.config import Config
 
+# Scheduled reports are not sent by Telegram for now (email still is): the delivery skips Telegram, the report form
+# hides it, and the bot no longer offers it. Schedules keep their Telegram choice, so it can come back by setting
+# this to False.
+REPORTS_PAUSED = True
+
 # key, type, default
 SETTINGS: list[tuple[str, str, Any]] = [
     ('telegram.bot_token', 'secret', ''),
     ('telegram.bot_username', 'text', ''),
-    ('telegram.reports', 'bool', False),  # send scheduled reports by Telegram
-    ('telegram.ask', 'bool', False),  # ask the AI from Telegram (users with the features.telegram permission)
-    ('telegram.ask_channels', 'bool', True),  # ... also inside channels
-    ('telegram.files', 'bool', True),  # send files (PDF / Word / Excel, attachments) to Telegram
-    ('telegram.model', 'text', ''),  # default model for Telegram; empty = the user's / system default
+    ('telegram.reports', 'bool', False),  # send scheduled reports by Telegram (paused for now: REPORTS_PAUSED)
+    # Post messages into channels from Telegram (users with the features.telegram permission). The bot no longer
+    # chats with the AI: messages only go one way, Telegram -> channel, as ordinary messages of the user.
+    ('telegram.ask', 'bool', False),
+    ('telegram.ask_channels', 'bool', True),  # no longer used (channels are the only thing the bot does)
     ('telegram.rate_per_minute', 'int:1-120', 10),
-    ('telegram.max_running', 'int:1-50', 5),  # questions answered at the same time, whole app
+    # The next five were for answers of the AI in Telegram; kept so saved values stay valid, no longer used.
+    ('telegram.files', 'bool', True),
+    ('telegram.model', 'text', ''),
+    ('telegram.max_running', 'int:1-50', 5),
     ('telegram.new_chat_hours', 'int:1-168', 4),
-    ('telegram.answer_minutes', 'int:1-30', 30),  # longest wait for an answer (a large file's summary takes minutes)
-    ('telegram.blocked_channels', 'list', []),  # channel ids that cannot be asked from Telegram
+    ('telegram.answer_minutes', 'int:1-30', 30),
+    ('telegram.blocked_channels', 'list', []),  # channel ids that cannot receive messages from Telegram
 ]
 BY_KEY = {key: (kind, default) for key, kind, default in SETTINGS}
 LEGACY = {

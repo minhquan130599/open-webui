@@ -23,13 +23,16 @@ class Denied(Exception):
 
 
 async def can_use_bot(user: UserModel, settings: dict) -> bool:
-    """May link a Telegram account: always when reports go by Telegram, else when allowed to ask."""
-    if settings['telegram.reports']:
+    """May link a Telegram account: when reports go by Telegram (paused for now), else when allowed to post."""
+    from open_webui.telegram.settings import REPORTS_PAUSED
+
+    if settings['telegram.reports'] and not REPORTS_PAUSED:
         return True
     return await can_ask(user, settings)
 
 
 async def can_ask(user: UserModel, settings: dict) -> bool:
+    """May post messages into channels from Telegram (the name is older: it used to be asking the AI)."""
     if not settings['telegram.ask'] or user.role not in ('user', 'admin'):
         return False
     if user.role == 'admin':

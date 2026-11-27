@@ -1,12 +1,12 @@
 """Telegram API (/api/v1/telegram): the user's linked Telegram account, and the bot settings for admins."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from open_webui.models.users import Users
 from open_webui.telegram import access, api
 from open_webui.telegram.models import Accounts
-from open_webui.telegram.settings import bot_ready, get_settings, public, save_settings
+from open_webui.telegram.settings import REPORTS_PAUSED, bot_ready, get_settings, public, save_settings
 from open_webui.utils.auth import get_admin_user, get_verified_user
 
 router = APIRouter()
@@ -18,6 +18,11 @@ class SettingsForm(BaseModel):
 
 class CodeForm(BaseModel):
     code: str
+
+
+class VerifyForm(BaseModel):
+    code: str
+    otp: str
 
 
 class TestForm(BaseModel):
@@ -44,30 +49,65 @@ async def me(user=Depends(get_verified_user)):
     return {
         'available': bot_ready(settings) and await access.can_use_bot(user, settings),
         'can_ask': bot_ready(settings) and await access.can_ask(user, settings),
-        'reports': settings['telegram.reports'],
+        'reports': settings['telegram.reports'] and not REPORTS_PAUSED,
         'bot': settings['telegram.bot_username'],
         'account': _account_view(account) if account else None,
     }
 
 
+MAIL_MISSING = (
+    'Liên kết Telegram cần gửi mã xác nhận qua email, nhưng quản trị viên chưa cấu hình gửi email. '
+    'Hãy liên hệ quản trị viên.'
+)
+
+
 @router.post('/me/link')
 async def new_link(user=Depends(get_verified_user)):
-    """A one-time code (10 minutes) inside the t.me link that opens the bot."""
+    """A one-time code (10 minutes) inside the t.me link that opens the bot. Pressing Start there emails a second
+    code to this account; the link is made when that one is entered here (/me/link/verify)."""
+    from open_webui.telegram import link_mail
+
     settings = await get_settings()
     if not bot_ready(settings) or not await access.can_use_bot(user, settings):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Telegram chưa được bật cho tài khoản của bạn')
     bot = settings['telegram.bot_username']
     if not bot:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Quản trị viên chưa kiểm tra bot (thiếu tên bot)')
+    # Checked here too (the bot checks again on Start): no point opening Telegram when the code cannot be emailed.
+    if not (await link_mail.ready())[0]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MAIL_MISSING)
+    if not user.email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Tài khoản chưa có email để nhận mã xác nhận')
     code = await Accounts.new_code(user.id)
     return {'code': code, 'url': f'https://t.me/{bot}?start=acc_{code}', 'bot': bot, 'minutes': 10}
 
 
 @router.post('/me/link/status')
 async def link_status(form: CodeForm, user=Depends(get_verified_user)):
+    """Polled by the page waiting for the link: waiting for Start, then for the email code (`otp`), then linked."""
     result = await Accounts.code_status(user.id, form.code)
     account = await Accounts.by_user(user.id) if result.get('linked') else None
     return {**result, 'account': _account_view(account) if account else None}
+
+
+@router.post('/me/link/verify')
+async def link_verify(request: Request, form: VerifyForm, user=Depends(get_verified_user)):
+    """The code from the email: only the right one, in time, links the Telegram that pressed Start."""
+    otp = (form.otp or '').strip()
+    if len(otp) != 6 or not otp.isdigit():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Mã xác nhận gồm 6 chữ số')
+    chat_id = await Accounts.pending_chat(form.code)
+    result, account, left = await Accounts.verify_otp(user.id, form.code, otp)
+    if result == 'linked' and account:
+        settings = await get_settings()
+        try:
+            from open_webui.telegram.bot import announce_linked
+
+            await announce_linked(request.app, settings, account, chat_id)
+        except Exception:
+            pass  # linked anyway; the bot's message is only a courtesy
+        return {'status': 'linked', 'account': _account_view(account)}
+    return {'status': result, 'attempts_left': left}
 
 
 @router.delete('/me')

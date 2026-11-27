@@ -101,7 +101,8 @@ async def _send_mail(to: list[str], bcc: list[str], subject: str, body: str, mai
 
 
 async def deliver(schedule_name: str, owner, config: dict, settings: dict, built: dict, test: bool = False) -> dict:
-    """Send by email and Telegram; a test goes to the owner's own email and the chosen chats only."""
+    """Send by email and Telegram (Telegram paused for now); a test goes to the owner's own email and the chosen
+    chats only."""
     from open_webui.tracker import mailer
 
     sent, errors = [], []
@@ -129,7 +130,14 @@ async def deliver(schedule_name: str, owner, config: dict, settings: dict, built
                     continue
                 sent += [f'email {a}' for a in group if a not in refused_now]
                 errors += [f'Email {a}: máy chủ từ chối người nhận' for a in group if a in refused_now]
-    if config['telegram'].get('enabled') and settings['reports.telegram.enable']:
+    from open_webui.telegram.settings import REPORTS_PAUSED
+
+    if config['telegram'].get('enabled') and REPORTS_PAUSED:
+        # Reports are not sent by Telegram for now: the schedule keeps its choice, only email goes out. Said in
+        # the result when nothing else was sent (a Telegram-only schedule), so the owner knows why.
+        if not sent and not errors:
+            errors.append('Tạm thời chưa hỗ trợ gửi báo cáo qua Telegram')
+    elif config['telegram'].get('enabled') and settings['reports.telegram.enable']:
         token = settings['reports.telegram.bot_token']
         link_ids = config['telegram'].get('link_ids') or []
         links = [l for l in await TelegramLinks.by_ids(link_ids) if l.user_id == owner.id and l.chat_id]

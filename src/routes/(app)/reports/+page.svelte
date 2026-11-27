@@ -463,7 +463,10 @@
 											? $i18n.t('All my project channels')
 											: $i18n.t('{{count}} channels', { count: schedule.config.channel_ids.length })}
 										·
-										{[schedule.config.email.enabled ? 'Email' : '', schedule.config.telegram.enabled ? 'Telegram' : '']
+										{[
+											schedule.config.email.enabled ? 'Email' : '',
+											schedule.config.telegram.enabled && !access?.telegram_paused ? 'Telegram' : ''
+										]
 											.filter(Boolean)
 											.join(', ')}
 									</span>
@@ -790,6 +793,16 @@
 												{/if}
 											</div>
 										{/if}
+										{#if access.telegram_paused}
+											<!-- Reports are not sent by Telegram for now (the backend skips it): the option is hidden. -->
+											<div class="flex min-w-64 flex-1 flex-col gap-1.5 rounded-xl border border-dashed border-gray-200 p-3.5 opacity-70 dark:border-gray-700">
+												<div class="flex items-center justify-between">
+													<span class="text-sm font-medium text-gray-500">Telegram</span>
+													<Switch state={false} disabled ariaLabel={$i18n.t('Send by Telegram')} />
+												</div>
+												<p class="text-xs text-gray-500">{$i18n.t('Sending reports by Telegram is not supported for now')}</p>
+											</div>
+										{/if}
 										{#if !access.email_enabled && !access.telegram_enabled}
 											<p class="text-xs text-gray-500">{$i18n.t('The administrator has not enabled email or Telegram yet.')}</p>
 										{/if}
@@ -866,7 +879,7 @@
 					</div>
 				</div>
 				<div class="flex gap-1 rounded-xl bg-gray-100 p-1 text-xs dark:bg-gray-850" role="group" aria-label={$i18n.t('Preview')}>
-					{#each [['email', 'Email'], ['telegram', 'Telegram']] as [value, label]}
+					{#each access?.telegram_paused ? [['email', 'Email']] : [['email', 'Email'], ['telegram', 'Telegram']] as [value, label]}
 						<button
 							type="button"
 							class="rounded-lg px-3 py-1 {previewTab === value ? 'bg-white font-medium shadow-sm dark:bg-gray-800' : ''}"
