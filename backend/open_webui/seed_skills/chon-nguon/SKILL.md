@@ -19,6 +19,7 @@ Trước khi gọi tool, xác định câu hỏi cần nguồn nào. Sai nguồn
 | Tiến độ, việc của ai, việc quá hạn, việc đến hạn trong khoảng thời gian, báo cáo ngày/tuần/tháng | Báo cáo dự án | `get_project_status` hoặc `build_project_report` (có `due_from`/`due_to` để lọc theo hạn) |
 | Tạo file mới, điền vào mẫu Word/Excel, xử lý dữ liệu phức tạp bằng code | Terminal | `open_in_terminal` rồi chạy lệnh; gửi file tạo ra bằng `attach_terminal_file` |
 | Báo cáo tiến độ dự án dạng file (PDF/Word/Excel) | Báo cáo dự án | `export_project_report` (không dùng terminal) |
+| Báo hoặc giao việc trong kênh: thêm việc, đổi hạn, xong việc, giao cho ai | Không cần nguồn: hệ thống tự ghi việc từ tin nhắn của kênh | Không gọi tool. Xác nhận ngắn sẽ ghi gì (việc, hạn, người phụ trách) và tiến độ kênh cập nhật sau ít phút. Chỉ đọc hoặc sửa file khi người dùng yêu cầu sửa file |
 
 ## Nguyên tắc
 
