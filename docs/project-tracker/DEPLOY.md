@@ -149,6 +149,7 @@ Tính năng **Channels** phải đang bật: Admin Panel → Settings → Genera
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
 | `TRACKER_MAX_CONCURRENCY` | 2 | Số lượt gọi LLM đồng thời **cho cả hệ thống** (tính trên mọi worker và container) |
+| `TRACKER_MAX_REBUILDS` | 1 | Trong số trên, bao nhiêu kênh được "Tổng hợp lại" cùng lúc. Luôn chừa ít nhất 1 chỗ cho tin mới. Cả hai chỉnh được trên monitor (Cài đặt › Tracker) |
 | `TRACKER_IDLE_SECONDS` | 90 | Kênh im lặng bao lâu thì tổng hợp |
 | `TRACKER_BATCH_SIZE` | 30 | Đủ bao nhiêu tin thì tổng hợp ngay, không chờ |
 | `TRACKER_BATCH_MAX_CHARS` | 24000 | Số ký tự tối đa mỗi lô, đặt theo context 32k |

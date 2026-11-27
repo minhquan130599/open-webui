@@ -66,6 +66,7 @@ async def tracker_worker_loop() -> None:
                 idle_ns=settings['idle_seconds'] * 1_000_000_000,
                 lease_ns=TRACKER_LEASE_SECONDS * 1_000_000_000,
                 max_active=settings['max_concurrency'],
+                max_rebuilds=settings.get('max_rebuilds', 1),
             )
             for channel_id, lease_id in claimed:
                 task = asyncio.create_task(_run(channel_id, lease_id))

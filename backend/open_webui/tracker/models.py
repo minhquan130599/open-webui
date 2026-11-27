@@ -208,8 +208,10 @@ class TrackerTable:
         lease_ns: int,
         max_active: int,
         db: Optional[AsyncSession] = None,
+        max_rebuilds: int = 1,
     ) -> list[tuple[str, str]]:
-        """Lease up to (max_active - active leases) due channels. Returns (channel_id, lease_id) pairs."""
+        """Lease up to (max_active - active leases) due channels. Returns (channel_id, lease_id) pairs.
+        max_rebuilds: rebuilds that may run at once, kept below max_active so new messages always have a slot."""
         async with get_async_db_context(db) as db:
             active = (
                 await db.execute(select(func.count()).select_from(TrackerState).where(TrackerState.lease_until > now))
@@ -217,8 +219,10 @@ class TrackerTable:
             limit = max_active - active
             if limit <= 0:
                 return []
-            # A rebuild reads a whole channel again (hundreds of model calls): at most one runs at a time, and the
-            # channels with new messages go first, so day-to-day updates do not wait behind it.
+            # A rebuild reads a whole channel again (hundreds of model calls): at most max_rebuilds run at a time,
+            # always leaving a slot for new messages, and the channels with new messages go first, so day-to-day
+            # updates do not wait behind them.
+            rebuild_slots = max(1, min(max_rebuilds, max_active - 1))
             rebuilding = (
                 await db.execute(
                     select(func.count())
@@ -237,7 +241,7 @@ class TrackerTable:
                     TrackerState.last_activity_at <= now - idle_ns,
                 ),
             ]
-            if rebuilding:
+            if rebuilding >= rebuild_slots:
                 conditions.append(TrackerState.rebuild.is_(None))
             stmt = (
                 select(TrackerState)
@@ -252,7 +256,7 @@ class TrackerTable:
             claimed = []
             for row in rows:
                 if row.rebuild is not None:
-                    if rebuilding:
+                    if rebuilding >= rebuild_slots:
                         continue
                     rebuilding += 1
                 row.lease_id = str(uuid.uuid4())

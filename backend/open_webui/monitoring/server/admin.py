@@ -36,7 +36,11 @@ SETTINGS: list[dict[str, Any]] = [
     {'key': 'tracker.model', 'label': 'Model ưu tiên', 'type': 'text', 'group': 'tracker',
      'help': 'Tên model, có thể nhiều model theo thứ tự ưu tiên: nai,gpt-4o-mini. Trống = tự chọn.'},
     {'key': 'tracker.llm_failover', 'label': 'Tự chuyển kết nối khi lỗi', 'type': 'bool', 'group': 'tracker'},
-    {'key': 'tracker.max_concurrency', 'label': 'Số kênh tổng hợp cùng lúc', 'type': 'int', 'group': 'tracker', 'min': 1, 'max': 20},
+    {'key': 'tracker.max_concurrency', 'label': 'Số kênh tổng hợp cùng lúc', 'type': 'int', 'group': 'tracker', 'min': 1, 'max': 20,
+     'help': 'Tổng số kênh xử lý song song (tin mới và tổng hợp lại). Mỗi kênh là một chuỗi lượt gọi model.'},
+    {'key': 'tracker.max_rebuilds', 'label': 'Số kênh tổng hợp lại cùng lúc', 'type': 'int', 'group': 'tracker', 'min': 1, 'max': 19,
+     'help': 'Trong số trên, bao nhiêu kênh được "Tổng hợp lại" cùng lúc. Luôn chừa ít nhất 1 chỗ cho tin mới, '
+             'nên thực tế tối đa bằng số kênh cùng lúc trừ 1. Tăng lên thì model chịu tải nặng hơn.'},
     {'key': 'tracker.idle_seconds', 'label': 'Kênh im lặng bao lâu thì tổng hợp (giây)', 'type': 'int', 'group': 'tracker', 'min': 10, 'max': 3600},
     {'key': 'tracker.batch_size', 'label': 'Đủ bao nhiêu tin thì tổng hợp ngay', 'type': 'int', 'group': 'tracker', 'min': 1, 'max': 500},
     # Background tasks

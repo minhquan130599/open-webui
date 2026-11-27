@@ -38,6 +38,9 @@ TRACKER_DISABLE_THINKING = _bool_env('TRACKER_DISABLE_THINKING', True)
 
 # Cluster-wide cap on concurrent tracker LLM calls (counted via active leases).
 TRACKER_MAX_CONCURRENCY = _int_env('TRACKER_MAX_CONCURRENCY', 2)
+# Of those, how many may be channel rebuilds ("Tổng hợp lại"). One slot always stays for new messages (when
+# TRACKER_MAX_CONCURRENCY is 1 a rebuild may still take it, or rebuilds would never run).
+TRACKER_MAX_REBUILDS = _int_env('TRACKER_MAX_REBUILDS', 1)
 TRACKER_POLL_INTERVAL = _int_env('TRACKER_POLL_INTERVAL', 5)
 # A running channel renews its lease every minute (worker.py), so the lease only needs to outlast a few missed
 # renewals: after a restart, a channel the stopped process was working on is picked up again within this time.
@@ -98,6 +101,7 @@ RUNTIME_KEYS = {
     'tracker.model': ('model', str),
     'tracker.llm_failover': ('failover', bool),
     'tracker.max_concurrency': ('max_concurrency', int),
+    'tracker.max_rebuilds': ('max_rebuilds', int),
     'tracker.idle_seconds': ('idle_seconds', int),
     'tracker.batch_size': ('batch_size', int),
 }
@@ -110,6 +114,7 @@ def runtime_defaults() -> dict:
         'model': TRACKER_MODEL,
         'failover': TRACKER_LLM_FAILOVER,
         'max_concurrency': TRACKER_MAX_CONCURRENCY,
+        'max_rebuilds': TRACKER_MAX_REBUILDS,
         'idle_seconds': TRACKER_IDLE_SECONDS,
         'batch_size': TRACKER_BATCH_SIZE,
     }
