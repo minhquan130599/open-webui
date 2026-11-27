@@ -11,6 +11,7 @@ from open_webui.tracker import llm, media, relevance
 from open_webui.tracker.config import (
     TRACKER_BATCH_MAX_CHARS,
     TRACKER_BATCH_MAX_MESSAGES,
+    TRACKER_GROUP_MAX_MESSAGES,
     TRACKER_MAX_TOKENS,
     TRACKER_MESSAGE_MAX_CHARS,
     TRACKER_STATE_MAX_CHARS,
@@ -239,11 +240,11 @@ def _split_long(messages: list[PromptMessage]) -> list[PromptMessage]:
 
 
 def _prompt_groups(messages: list[PromptMessage]) -> list[list[PromptMessage]]:
-    """Consecutive groups that each fit the batch budget (one group unless a long message was split)."""
+    """Consecutive groups, in order, that each fit the batch budget and hold at most TRACKER_GROUP_MAX_MESSAGES."""
     groups, current, used = [], [], 0
     for message in messages:
         size = len(message.content or '') + sum(len(a) for a in message.attachments) + 80
-        if current and used + size > TRACKER_BATCH_MAX_CHARS:
+        if current and (used + size > TRACKER_BATCH_MAX_CHARS or len(current) >= TRACKER_GROUP_MAX_MESSAGES):
             groups.append(current)
             current, used = [], 0
         current.append(message)
@@ -289,6 +290,24 @@ def _drop_ai_tasks(state, old_state, messages: list[Message], names: set[str]) -
     state.hang_muc = kept
     for step in state.viec_tiep_theo:
         step.phu_trach = [o for o in step.phu_trach if normalize_key(o) not in names]
+
+
+ANSWERS_MAX_CHARS = 20_000
+
+
+def _clip_answers(answers: list[dict]) -> list[dict]:
+    """The model's answers kept with a batch record, newest dropped first past ANSWERS_MAX_CHARS (a rebuild)."""
+    import json
+
+    kept, used = [], 0
+    for answer in answers:
+        size = len(json.dumps(answer, ensure_ascii=False))
+        if kept and used + size > ANSWERS_MAX_CHARS:
+            kept.append({'luoc_bo': len(answers) - len(kept)})
+            break
+        kept.append(answer)
+        used += size
+    return kept
 
 
 def _pending_entry(new, group: list[PromptMessage], today: str) -> dict:
@@ -604,6 +623,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         groups = _prompt_groups(_split_long(prompt_messages))
         file_drops: list[str] = []
         pending: list[dict] = []
+        answers: list[dict] = []
         while groups:
             group = groups.pop(0)
             roles = [f'{r["ten"]}: {", ".join(r["nguoi"])}' for r in ctx.config['vai_tro'].values()]
@@ -635,6 +655,10 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                         'Tracker: message %s in %s left out, its update does not fit (%s)', group[0].id, channel_id, again
                     )
                     continue
+            # What the model asked to change, as it wrote it (refs m1.. of this call), kept with the batch record:
+            # without it, an update that was understood but not applied could only be guessed at afterwards.
+            answers.append({'tin': [f'{ref}={source[4:]}' for ref, source in ref_map.items()],
+                            'thay_doi': delta.model_dump(mode='json', exclude_defaults=True)})
             by_message = {f'msg:{m.id}': m for m in group}
             ref_sources = {}
             for ref, source in ref_map.items():
@@ -708,6 +732,8 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                 **({'tep_danh_dau': [m['ten'] for m in chat_marks.values()]} if chat_marks else {}),
                 **({'viec_bo_theo_tep': marked_removed} if marked_removed else {}),
                 **({'vai_tro_moi': learned} if learned else {}),
+                **({'tra_loi_model': _clip_answers(answers)} if answers else {}),
+                **({'cho_xac_nhan': [p['ten'] for p in pending]} if pending else {}),
             },
         }
         await Trackers.complete(

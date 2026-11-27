@@ -49,6 +49,10 @@ TRACKER_IDLE_SECONDS = _int_env('TRACKER_IDLE_SECONDS', 90)
 TRACKER_BATCH_MAX_MESSAGES = _int_env('TRACKER_BATCH_MAX_MESSAGES', 80)
 # Sized for a 32k-token context: state (~4k tokens) + batch (~10k tokens) + output (4k tokens).
 TRACKER_BATCH_MAX_CHARS = _int_env('TRACKER_BATCH_MAX_CHARS', 24_000)
+# Messages read in one call to the update model. Catching up (a rebuild, a busy channel) reads them a few at a time,
+# in order, each call seeing what the previous ones changed, as when they arrived one by one: one call over a
+# few dozen messages wrote the summary of a completion report but left the items' status unchanged.
+TRACKER_GROUP_MAX_MESSAGES = _int_env('TRACKER_GROUP_MAX_MESSAGES', 8)
 # A longer message is not cut: it is read in parts of this size over consecutive updates.
 TRACKER_MESSAGE_MAX_CHARS = _int_env('TRACKER_MESSAGE_MAX_CHARS', 12_000)
 TRACKER_STATE_MAX_CHARS = _int_env('TRACKER_STATE_MAX_CHARS', 12_000)

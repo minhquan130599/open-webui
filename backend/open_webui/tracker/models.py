@@ -11,11 +11,12 @@ import uuid
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import JSON, BigInteger, Boolean, Column, Index, Integer, Text, and_, func, or_, select, update
+from sqlalchemy import JSON, BigInteger, Boolean, Column, Index, Integer, Text, and_, case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from open_webui.internal.db import Base, get_async_db_context
+from open_webui.models.channels import Channel
 from open_webui.models.messages import Message
 from open_webui.tracker.schema import (
     SCHEMA_VERSION,
@@ -638,6 +639,39 @@ class TrackerTable:
             )
             await db.commit()
             return bool(result.rowcount)
+
+    async def requeue_forgotten(self, now: int, db: Optional[AsyncSession] = None) -> list[str]:
+        """Channels with messages after their watermark but no dirty mark are never claimed again: their new messages
+        would wait for ever (seen on a server whose data was restored). Mark them due; returns their ids."""
+        async with get_async_db_context(db) as db:
+            ids = list(
+                (
+                    await db.execute(
+                        select(TrackerState.channel_id).where(
+                            TrackerState.dirty_at.is_(None),
+                            or_(TrackerState.lease_until.is_(None), TrackerState.lease_until <= now),
+                            select(Message.id)
+                            .where(Message.channel_id == TrackerState.channel_id, Message.created_at > TrackerState.watermark)
+                            .exists(),
+                            select(Channel.id)
+                            .where(Channel.id == TrackerState.channel_id, Channel.deleted_at.is_(None))
+                            .exists(),
+                        )
+                    )
+                ).scalars()
+            )
+            if ids:
+                await db.execute(
+                    update(TrackerState)
+                    .where(TrackerState.channel_id.in_(ids), TrackerState.dirty_at.is_(None))
+                    .values(
+                        dirty_at=now,
+                        pending_count=case((TrackerState.pending_count < 1, 1), else_=TrackerState.pending_count),
+                        updated_at=now,
+                    )
+                )
+                await db.commit()
+            return ids
 
     async def fail(self, channel_id: str, lease_id: str, error: str, db: Optional[AsyncSession] = None) -> None:
         now = time.time_ns()

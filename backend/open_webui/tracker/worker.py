@@ -42,12 +42,22 @@ async def _run(channel_id: str, lease_id: str) -> None:
         keeper.cancel()
 
 
+REQUEUE_CHECK_SECONDS = 600
+
+
 async def tracker_worker_loop() -> None:
     log.info('Project tracker worker started (max concurrency %s)', (await tracker_runtime())['max_concurrency'])
     running: set[asyncio.Task] = set()
+    next_check = 0.0
 
     while True:
         try:
+            if time.monotonic() >= next_check:
+                next_check = time.monotonic() + REQUEUE_CHECK_SECONDS
+                forgotten = await Trackers.requeue_forgotten(time.time_ns())
+                if forgotten:
+                    log.warning('Tracker: %d channels had unread messages but were not queued; queued again: %s',
+                                len(forgotten), ', '.join(forgotten[:10]))
             # Re-read every poll: these can be changed from the monitor page while running.
             settings = await tracker_runtime()
             claimed = await Trackers.claim_due(
