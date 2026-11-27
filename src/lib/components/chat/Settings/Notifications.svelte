@@ -12,7 +12,9 @@
 	import type { Writable } from 'svelte/store';
 	import { toast } from 'svelte-sonner';
 
-	import { config, settings, user } from '$lib/stores';
+	import { config, settings, showSettings, user } from '$lib/stores';
+	import { getTelegramMe, type TelegramMe } from '$lib/apis/telegram';
+	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import Modal from '$lib/components/common/Modal.svelte';
 	import Switch from '$lib/components/common/Switch.svelte';
 	import SettingsSelect from '$lib/components/common/SettingsSelect.svelte';
@@ -35,6 +37,17 @@
 
 	let notificationEnabled = false;
 	let trackerEmailReminders = true;
+	// Reminders by Telegram (off by default): needs a linked Telegram; switching on without one offers to link it.
+	let trackerTelegramReminders = false;
+	let telegram: TelegramMe | null = null;
+	let showTelegramLink = false;
+
+	const toggleTelegramReminders = async () => {
+		saveSettings({ trackerTelegramReminders });
+		if (!trackerTelegramReminders) return;
+		telegram = await getTelegramMe(localStorage.token).catch(() => telegram);
+		if (!telegram?.account) showTelegramLink = true;
+	};
 	let notificationSound = true;
 	let notificationSoundType: NotificationSoundStyle = 'chime';
 	const previewSound = async () => {
@@ -207,6 +220,8 @@
 	onMount(async () => {
 		notificationEnabled = $settings.notificationEnabled ?? false;
 		trackerEmailReminders = $settings?.trackerEmailReminders ?? true;
+		trackerTelegramReminders = $settings?.trackerTelegramReminders ?? false;
+		telegram = await getTelegramMe(localStorage.token).catch(() => null);
 		notificationSound = $settings?.notificationSound ?? true;
 		const savedSound = $settings?.notificationSoundType ?? 'chime';
 		notificationSoundType = notificationSoundStyles.includes(savedSound) ? savedSound : 'chime';
@@ -302,6 +317,20 @@
 						on:change={() => saveSettings({ trackerEmailReminders })}
 					/>
 				</UserSettingRow>
+				{#if telegram && (telegram.available || telegram.account)}
+					<UserSettingRow
+						description={$i18n.t('Every day, the work items you are in charge of that are due today or tomorrow (and overdue ones) are also sent to your linked Telegram.')}
+						let:labelId
+					>
+						<span slot="label">{$i18n.t('Task reminders by Telegram')}</span>
+						<Switch
+							ariaLabelledbyId={labelId}
+							bind:state={trackerTelegramReminders}
+							ariaLabel={$i18n.t('Task reminders by Telegram')}
+							on:change={toggleTelegramReminders}
+						/>
+					</UserSettingRow>
+				{/if}
 			{/if}
 
 			{#if canUseWebhooks}
@@ -537,3 +566,12 @@
 		</div>
 	</div>
 </Modal>
+
+<ConfirmDialog
+	bind:show={showTelegramLink}
+	title={$i18n.t('Telegram not linked yet')}
+	message={$i18n.t('Reminders are sent by Telegram once your account is linked to Telegram. Link it now in Account settings?')}
+	confirmLabel={$i18n.t('Link Telegram')}
+	cancelLabel={$i18n.t('Later')}
+	onConfirm={() => showSettings.set({ tab: 'account', state: { linkTelegram: true } })}
+/>

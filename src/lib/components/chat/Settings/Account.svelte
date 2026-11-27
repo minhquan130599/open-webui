@@ -38,6 +38,15 @@
 	const i18n = getContext('i18n');
 
 	export let saveHandler: () => void | Promise<void>;
+	// Opened to link Telegram (from the Telegram reminder switch): the linking starts and the box is shown.
+	export let linkTelegram = false;
+	onMount(() => {
+		if (linkTelegram)
+			setTimeout(
+				() => document.getElementById('account-telegram')?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+				400
+			);
+	});
 
 	let profileImageUrl = '';
 	let name = '';
@@ -390,7 +399,9 @@
 
 		<!-- Shown only when the Telegram bot is set up and the user may use it. -->
 		<section class="mt-4 w-full">
-			<TelegramAccountLink />
+			<div id="account-telegram">
+				<TelegramAccountLink autoStart={linkTelegram} />
+			</div>
 		</section>
 
 		{#if canUseApiKeys({ user: $user, config: $config })}

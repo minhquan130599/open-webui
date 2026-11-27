@@ -128,6 +128,13 @@ async def send_due_reminders(day_before: bool = True) -> int:
             await mailer.send_reminders(emails)
         except Exception:
             log.exception('Reminder emails failed')
+        # The same reminders by Telegram, for people who switched that on and linked their Telegram.
+        try:
+            from open_webui.telegram.reminders import send_reminders as send_telegram_reminders
+
+            await send_telegram_reminders(emails)
+        except Exception:
+            log.exception('Telegram reminders failed')
     try:
         await _owner_digests(by_channel)
     except Exception:

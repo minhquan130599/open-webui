@@ -921,6 +921,7 @@
 				<ArchivedChats />
 			{:else if selectedTab === 'account'}
 				<Account
+					linkTelegram={tabState?.linkTelegram === true}
 					saveHandler={() => {
 						toast.success($i18n.t('Settings saved successfully!'));
 					}}

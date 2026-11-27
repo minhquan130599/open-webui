@@ -5033,5 +5033,9 @@
 	"Channels that cannot receive messages from Telegram ({{count}})": "Kênh không nhận tin nhắn từ Telegram ({{count}})",
 	"This message was sent from Telegram": "Tin nhắn này được gửi từ Telegram",
 	"Sent from Telegram": "Gửi từ Telegram",
-	"Link their Telegram and send messages into channels from Telegram (Admin settings → Telegram must allow it).": "Liên kết Telegram và gửi tin nhắn vào kênh từ Telegram (cần bật trong Cài đặt quản trị → Telegram)."
+	"Link their Telegram and send messages into channels from Telegram (Admin settings → Telegram must allow it).": "Liên kết Telegram và gửi tin nhắn vào kênh từ Telegram (cần bật trong Cài đặt quản trị → Telegram).",
+	"Task reminders by Telegram": "Nhắc việc qua Telegram",
+	"Every day, the work items you are in charge of that are due today or tomorrow (and overdue ones) are also sent to your linked Telegram.": "Mỗi ngày gửi thêm vào Telegram đã liên kết các công việc bạn phụ trách đến hạn hôm nay, ngày mai (và việc quá hạn).",
+	"Telegram not linked yet": "Chưa liên kết Telegram",
+	"Reminders are sent by Telegram once your account is linked to Telegram. Link it now in Account settings?": "Nhắc việc chỉ gửi qua Telegram khi tài khoản đã liên kết Telegram. Liên kết ngay trong Cài đặt → Tài khoản?"
 }

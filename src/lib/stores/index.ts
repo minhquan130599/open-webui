@@ -293,6 +293,8 @@ type Settings = {
 	expandDetails?: boolean;
 	notificationSound?: boolean;
 	notificationSoundType?: NotificationSoundStyle;
+	trackerEmailReminders?: boolean; // daily due-date email (on unless switched off)
+	trackerTelegramReminders?: boolean; // the same reminders by Telegram (off unless switched on)
 	notificationSoundAlways?: boolean;
 	stylizedPdfExport?: boolean;
 	notifications?: any;

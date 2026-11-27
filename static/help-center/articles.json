@@ -574,6 +574,10 @@
 					"caption": "Tin gửi từ Telegram có nhãn \"Gửi từ Telegram\" trong kênh"
 				},
 				{
+					"title": "Nhận nhắc việc qua Telegram",
+					"text": "Mở Cài đặt → Thông báo, bật Nhắc việc qua Telegram (mặc định tắt). Mỗi ngày bot gửi vào chat với bạn các công việc bạn phụ trách đến hạn hôm nay, ngày mai và việc quá hạn, giống email nhắc việc. Chưa liên kết Telegram mà bật: NCS AI hỏi có liên kết ngay không, bấm Liên kết Telegram để chuyển sang Cài đặt → Tài khoản và làm theo bài \"Liên kết Telegram với tài khoản\". Email nhắc việc vẫn gửi như cũ nếu bạn không tắt."
+				},
+				{
 					"title": "Cài đặt, hủy liên kết",
 					"text": "Bấm ⚙️ Cài đặt (hoặc /caidat) để xem tài khoản đang liên kết và kênh đang gửi vào. 📁 Chọn kênh: chọn kênh khác. ❓ Hướng dẫn: cách dùng tóm tắt. 🔓 Hủy liên kết: ngắt Telegram khỏi tài khoản, bot hỏi xác nhận trước."
 				}
