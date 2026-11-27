@@ -150,7 +150,6 @@
 					{$i18n.t('Linking needs email: pressing Start in the bot emails a 6-digit code to the account, entered on the web. Set up the email sender (monitor page → Reminder email) first.')}
 				</p>
 				<p class="text-xs text-gray-500">{$i18n.t('The chat history with the bot is deleted every day.')}</p>
-				<p class="text-xs text-gray-500">{$i18n.t('Linking Telegram groups is switched off for now.')}</p>
 			</AdminSettingSection>
 
 			<AdminSettingSection title={$i18n.t('Limits')}>
