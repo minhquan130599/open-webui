@@ -1199,11 +1199,12 @@
 
   // Work items of one channel, and the trace of one item: where it comes from and why it exists.
   const TXI_FILTERS = [
-    ['open', 'Đang mở', (i) => !i.da_dong],
-    ['unassigned', 'Chưa gán', (i) => !i.da_dong && (i.chua_giao || !(i.phu_trach || []).length)],
+    ['open', 'Đang mở', (i) => !i.da_dong && !i.cho_xac_nhan],
+    ['unassigned', 'Chưa gán', (i) => !i.da_dong && !i.cho_xac_nhan && (i.chua_giao || !(i.phu_trach || []).length)],
     ['suggested', 'Đề xuất từ yêu cầu', (i) => !i.da_dong && (i.nguon || []).some((s) => s.includes('#yc'))],
+    ['waiting', 'Chờ xác nhận (chưa rõ nguồn)', (i) => i.cho_xac_nhan],
     ['file', 'Từ file', (i) => !i.da_dong && (i.nguon_dem.file || i.nguon_dem.dong_bang)],
-    ['message', 'Chỉ từ tin nhắn', (i) => !i.da_dong && !i.nguon_dem.file && !i.nguon_dem.dong_bang],
+    ['message', 'Chỉ từ tin nhắn', (i) => !i.da_dong && !i.cho_xac_nhan && !i.nguon_dem.file && !i.nguon_dem.dong_bang],
     ['closed', 'Đã đóng / hủy', (i) => i.da_dong],
   ];
   function txItemsHtml() {
@@ -1219,7 +1220,7 @@
     const list = all.filter(test);
     const sourceText = (i) => [i.nguon_dem.dong_bang ? `${i.nguon_dem.dong_bang} dòng bảng` : '', i.nguon_dem.file ? `${i.nguon_dem.file} file` : '', i.nguon_dem.tin_nhan ? `${i.nguon_dem.tin_nhan} tin nhắn` : ''].filter(Boolean).join(' · ') || '<span class="pill warn">không còn nguồn</span>';
     const rowsHtml = table([
-      { label: 'Việc', render: (i) => `<b>${esc(i.ten)}</b>${(i.nguon || []).some((s) => s.includes('#yc')) ? ' <span class="pill">đề xuất từ yêu cầu</span>' : ''}${(i.chi_tiet || []).length ? `<ul style="margin:2px 0 0 16px;padding:0;font-size:11.5px" class="muted">${i.chi_tiet.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}${i.vuong_mac ? `<div class="muted" style="font-size:11px">vướng: ${esc(i.vuong_mac)}</div>` : ''}` },
+      { label: 'Việc', render: (i) => `<b>${esc(i.ten)}</b>${(i.nguon || []).some((s) => s.includes('#yc')) ? ' <span class="pill">đề xuất từ yêu cầu</span>' : ''}${i.cho_xac_nhan ? ` <span class="pill warn">chờ xác nhận · chưa rõ nguồn</span>${(i.phu_trach_doc_duoc || []).length ? `<div class="muted" style="font-size:11px">AI đọc được người phụ trách: ${esc(i.phu_trach_doc_duoc.join(', '))}</div>` : ''}` : ''}${(i.chi_tiet || []).length ? `<ul style="margin:2px 0 0 16px;padding:0;font-size:11.5px" class="muted">${i.chi_tiet.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}${i.vuong_mac ? `<div class="muted" style="font-size:11px">vướng: ${esc(i.vuong_mac)}</div>` : ''}` },
       { label: 'Phụ trách', render: (i) => (i.chua_giao || !(i.phu_trach || []).length ? '<span class="pill warn">chưa gán</span>' : esc((i.phu_trach || []).join(', '))) },
       { label: 'Hạn', render: (i) => esc(i.han || '—') },
       { label: 'Trạng thái', render: (i) => `${esc(TX_STATUS[i.trang_thai] || i.trang_thai || '')}${i.tien_do != null ? ` · ${i.tien_do}%` : ''}` },

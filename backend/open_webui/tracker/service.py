@@ -7,10 +7,11 @@ from typing import Optional
 from open_webui.models.channels import Channels
 from open_webui.models.messages import Message
 from open_webui.models.users import Users
-from open_webui.tracker import llm, media
+from open_webui.tracker import llm, media, relevance
 from open_webui.tracker.config import (
     TRACKER_BATCH_MAX_CHARS,
     TRACKER_BATCH_MAX_MESSAGES,
+    TRACKER_MAX_TOKENS,
     TRACKER_MESSAGE_MAX_CHARS,
     TRACKER_STATE_MAX_CHARS,
     TRACKER_TAIL_LIMIT,
@@ -22,6 +23,7 @@ from open_webui.tracker.prompts import (
     PromptMessage,
     build_update_messages,
     format_message_line,
+    state_prompt_chars,
     format_time,
     get_tz,
     is_trivial,
@@ -30,9 +32,13 @@ from open_webui.tracker import assign, channel_config
 from open_webui.tracker.people import channel_people, channel_roles, link_owners
 from open_webui.tracker.schema import (
     SCHEMA_VERSION,
+    PendingItem,
     apply_delta,
     drop_marked_files,
+    item_text,
+    items_prompt_chars,
     load_state,
+    new_item_id,
     normalize_key,
     render_state_markdown,
 )
@@ -285,16 +291,39 @@ def _drop_ai_tasks(state, old_state, messages: list[Message], names: set[str]) -
         step.phu_trach = [o for o in step.phu_trach if normalize_key(o) not in names]
 
 
-def _assign_owners(delta, ref_sources: dict, ctx, counts: dict, state=None) -> dict:
+def _pending_entry(new, group: list[PromptMessage], today: str) -> dict:
+    """A waiting-list entry for a new item read without a source (schema.PendingItem)."""
+    owners = list(new.phu_trach) or (list(new.giao_cho.ten) if new.giao_cho else [])
+    entry = PendingItem(
+        id=new_item_id(),
+        ten=new.ten,
+        chi_tiet=list(new.chi_tiet),
+        trang_thai=new.trang_thai,
+        tien_do=new.tien_do,
+        han=new.han,
+        vuong_mac=new.vuong_mac,
+        chua_giao=True,
+        tao_luc=today,
+        cap_nhat_luc=today,
+        tin_lien_quan=list(dict.fromkeys(f'msg:{m.id}' for m in group))[:20],
+        phu_trach_doc_duoc=owners,
+    )
+    return entry.model_dump()
+
+
+def _assign_owners(delta, ref_sources: dict, ctx, counts: dict, state=None, unsourced: Optional[list] = None) -> dict:
     """Owners of the delta's new items and owner changes, worked out by code from how the model says the work was
-    given (assign.py). New items without a valid source message are dropped. Returns {item id: Resolved} for the
+    given (assign.py). A new item without a valid source message cannot be traced nor given owners: it goes to
+    `unsourced` (the waiting list a manager confirms) instead of the progress. Returns {item id: Resolved} for the
     changes, to set their group after the delta is applied."""
     kept = []
     for new in delta.hang_muc_moi:
         refs = [r for r in new.nguon if r in ref_sources]
         if not refs:
             counts['khong_nguon'] = counts.get('khong_nguon', 0) + 1
-            log.info('Tracker: dropped new item "%s" without a source message', new.ten)
+            log.info('Tracker: new item "%s" has no source message (nguon: %s); waiting for a manager', new.ten, new.nguon)
+            if unsourced is not None:
+                unsourced.append(new)
             continue
         resolved = assign.resolve(
             new.giao_cho.model_dump() if new.giao_cho else None, new.phu_trach, [ref_sources[r] for r in refs], ctx
@@ -574,21 +603,38 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
         # the group is read again in two halves, down to one message.
         groups = _prompt_groups(_split_long(prompt_messages))
         file_drops: list[str] = []
+        pending: list[dict] = []
         while groups:
             group = groups.pop(0)
             roles = [f'{r["ten"]}: {", ".join(r["nguoi"])}' for r in ctx.config['vai_tro'].values()]
-            chat_messages, ref_map = build_update_messages(
-                channel.name, state, group, TZ, TRACKER_MESSAGE_MAX_CHARS, time.time_ns(), members, roles
+            texts = ['\n'.join([m.content or '', *m.attachments]) for m in group]
+            # Only a list that does not fit is cut down, and only then is it worth matching items by meaning.
+            scores = (
+                await relevance.item_scores([item_text(item) for item in state.hang_muc], texts)
+                if items_prompt_chars(state.hang_muc) > state_prompt_chars('\n'.join(texts))
+                else None
             )
+            chat_messages, ref_map = build_update_messages(
+                channel.name, state, group, TZ, TRACKER_MESSAGE_MAX_CHARS, time.time_ns(), members, roles, scores
+            )
+            refs = list(ref_map)
             try:
-                delta = await llm.generate_state_update(chat_messages)
+                delta = await llm.generate_state_update(chat_messages, refs=refs)
             except llm.TrackerOutputError as e:
-                if len(group) < 2:
-                    raise
-                half = len(group) // 2
-                log.warning('Tracker: %s for %d messages in %s; reading them in two halves', e, len(group), channel_id)
-                groups[0:0] = [group[:half], group[half:]]
-                continue
+                if len(group) >= 2:
+                    half = len(group) // 2
+                    log.warning('Tracker: %s for %d messages in %s; reading them in two halves', e, len(group), channel_id)
+                    groups[0:0] = [group[:half], group[half:]]
+                    continue
+                # One message whose update does not fit: once more with twice the room, then it is left out so the
+                # messages after it are still read (otherwise the channel would stop updating for good).
+                try:
+                    delta = await llm.generate_state_update(chat_messages, max_tokens=TRACKER_MAX_TOKENS * 2, refs=refs)
+                except llm.TrackerOutputError as again:
+                    log.error(
+                        'Tracker: message %s in %s left out, its update does not fit (%s)', group[0].id, channel_id, again
+                    )
+                    continue
             by_message = {f'msg:{m.id}': m for m in group}
             ref_sources = {}
             for ref, source in ref_map.items():
@@ -601,11 +647,19 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
                     sender_id=original.user_id if original else None,
                     tagged=assign.tagged_ids(original.content if original else ''),
                 )
+            if len(ref_sources) == 1:
+                # One message in this call: it is the source of every new item, whatever the model wrote.
+                only = next(iter(ref_sources))
+                for new in delta.hang_muc_moi:
+                    if not any(r in ref_sources for r in new.nguon):
+                        new.nguon = [only]
             roles_now = assign.learned_roles(delta.vai_tro_moi, ref_sources, ref_map, ctx)
             if roles_now:
                 ctx.config = await channel_config.update(channel_id, lambda c: channel_config.learn_roles(c, roles_now))
                 learned += roles_now
-            changed_groups = _assign_owners(delta, ref_sources, ctx, counts, state)
+            unsourced: list = []
+            changed_groups = _assign_owners(delta, ref_sources, ctx, counts, state, unsourced)
+            pending += [_pending_entry(new, group, today) for new in unsourced]
             state, merged = apply_delta(state, delta, ref_map, today, archived_keys)
             for item in state.hang_muc:
                 if item.id in changed_groups:
@@ -667,6 +721,7 @@ async def process_channel(channel_id: str, lease_id: str) -> None:
             retry_after_ns=retry_after_ns,
             merged_away=merged_away | (started_ids - {i.id for i in state.hang_muc}),
             reread_done=reread_done,
+            pending=pending,
         )
         log.info(
             'Tracker updated channel %s with %s messages, %s deletions in %.1fs',

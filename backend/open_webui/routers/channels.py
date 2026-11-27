@@ -1455,6 +1455,21 @@ CHANNEL_ANSWER_RULES = (
     '- If the question is unclear about which file or topic it means, use the file the conversation was just about.'
 )
 
+# How work items reach the channel's progress, so a model asked to add or assign one knows what already happens
+# (facts about the system, not rules about the message).
+TRACKER_FACTS = (
+    'How work items reach this project\'s progress: the system reads every message of the channel, this one '
+    'included, and records by itself the work items it gives, adds, changes or assigns to someone (the item, the '
+    'people in charge, the deadline, the progress), usually within a few minutes. You have no tool that writes work '
+    'items and none is needed for that: when a message adds or assigns one, confirm briefly what will be recorded '
+    '(the item, the time or deadline, the people in charge) and that the channel progress updates in a few minutes. '
+    'A person in charge who is not a member of the channel is recorded too but gets no reminders; say so if that '
+    'is the case.\n'
+    'The plan files attached in the channel are separate documents: recording progress does not change them, and '
+    'editing them is done only when the user asks for the file to be changed (copy it into the terminal with '
+    'open_in_terminal, edit it there, send the new version with attach_terminal_file).\n\n'
+)
+
 
 async def _add_model_file(file: dict, images: list, files: list, seen: set, user, label: str = '') -> None:
     """images collects (url, label) pairs so each image can be introduced with who posted it."""
@@ -1719,6 +1734,7 @@ async def model_response_handler(request, channel, message, user, db=None, colle
                     system_message['content'] += (
                         f'\n\nThis channel is the project "{channel.name}". Use the project context below to answer '
                         'questions about progress, owners, deadlines and blockers; cite sources when helpful.\n\n'
+                        + TRACKER_FACTS
                         + project_context
                     )
 

@@ -112,7 +112,7 @@ async def _run(channel_id: str):
 
 
 def _fake_update(prompts: list):
-    async def fake(messages):
+    async def fake(messages, **kwargs):
         prompts.append(messages[-1]['content'])
         return StateDelta.model_validate(
             {

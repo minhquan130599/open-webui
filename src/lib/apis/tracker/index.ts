@@ -36,9 +36,16 @@ export type TrackerEntry = {
 	nguon: string[];
 };
 
+// A work item read without a message it could be traced to: not in the progress until a manager confirms it.
+export type TrackerPendingItem = TrackerWorkItem & {
+	tin_lien_quan: string[]; // "msg:<id>" of the messages read in that update, one of which gave it
+	phu_trach_doc_duoc: string[]; // owners as the AI read them; nobody is assigned before confirming
+};
+
 export type TrackerProjectState = {
 	tong_quan: string;
 	hang_muc: TrackerWorkItem[];
+	cho_xac_nhan?: TrackerPendingItem[];
 	quyet_dinh: TrackerEntry[];
 	rui_ro: TrackerEntry[];
 	viec_tiep_theo: TrackerEntry[];
@@ -172,6 +179,16 @@ export const closeDoneTrackerItems = async (
 
 export const reopenTrackerItem = async (token: string, channelId: string, itemId: string) =>
 	request(token, `${channelPath(channelId)}/items/${encodeURIComponent(itemId)}/reopen`, 'POST');
+
+export const confirmPendingTrackerItem = async (
+	token: string,
+	channelId: string,
+	itemId: string
+): Promise<{ status: boolean; id: string }> =>
+	request(token, `${channelPath(channelId)}/pending/${encodeURIComponent(itemId)}/confirm`, 'POST');
+
+export const deletePendingTrackerItem = async (token: string, channelId: string, itemId: string) =>
+	request(token, `${channelPath(channelId)}/pending/${encodeURIComponent(itemId)}`, 'DELETE');
 
 export type WorkBucket = 'overdue' | 'today' | 'week' | 'later' | 'no_due' | 'done';
 

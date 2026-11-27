@@ -228,6 +228,9 @@ async def _channel_items(channel_id: str) -> dict:
         items.append({**entry, 'da_dong': False, 'nguon_dem': _source_kinds(entry.get('nguon') or [])})
     for entry in found['archive'] or []:
         items.append({**entry, 'da_dong': True, 'nguon_dem': _source_kinds(entry.get('nguon') or [])})
+    # Read without a source message: waiting for a channel manager, not in the progress.
+    for entry in (found['state'] or {}).get('cho_xac_nhan') or []:
+        items.append({**entry, 'da_dong': False, 'cho_xac_nhan': True, 'nguon_dem': _source_kinds([])})
     return {'channel': found['channel'], 'processed_at': found['processed_at'], 'items': items}
 
 
@@ -237,11 +240,13 @@ async def _trace(channel_id: str, item_id: str) -> dict:
     from open_webui.monitoring.server.app import rows
 
     found = await _channel_state(channel_id)
-    entries = [*((found['state'] or {}).get('hang_muc') or []), *(found['archive'] or [])]
+    state = found['state'] or {}
+    entries = [*(state.get('hang_muc') or []), *(found['archive'] or []), *(state.get('cho_xac_nhan') or [])]
     item = next((e for e in entries if e.get('id') == item_id), None)
     if not item:
         raise HTTPException(404, 'Không có việc này trong kênh (có thể đã bị gỡ ở lần tổng hợp sau)')
-    sources = item.get('nguon') or []
+    # A waiting item has no source of its own: the messages read in its update are shown instead.
+    sources = item.get('nguon') or item.get('tin_lien_quan') or []
     message_ids = [s[4:] for s in sources if s.startswith('msg:')]
     file_ids = [s[5:] for s in sources if s.startswith('file:')]
     table_keys = [s for s in sources if s.startswith('table:')]

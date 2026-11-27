@@ -225,9 +225,24 @@ class NextStep(_Entry):
         return _clean_date(value)
 
 
+class PendingItem(WorkItem):
+    """A new item the model read without a message it could name as the source: kept out of the progress
+    (reports, reminders, the model's view) until a channel manager confirms it or deletes it."""
+
+    # The messages read in that call ("msg:<id>"), one of which gave the item: shown to the manager to check.
+    tin_lien_quan: list[str] = Field(default_factory=list)
+    # Owners as the model read them; nobody is assigned until the manager confirms and assigns.
+    phu_trach_doc_duoc: list[str] = Field(default_factory=list)
+
+
+PENDING_MAX = 50  # newest kept; older unconfirmed items drop off
+
+
 class ProjectState(BaseModel):
     tong_quan: str = ''
     hang_muc: list[WorkItem] = Field(default_factory=list)
+    # Waiting for a channel manager (see PendingItem); not part of the progress.
+    cho_xac_nhan: list[PendingItem] = Field(default_factory=list)
     quyet_dinh: list[Decision] = Field(default_factory=list)
     rui_ro: list[Risk] = Field(default_factory=list)
     viec_tiep_theo: list[NextStep] = Field(default_factory=list)
@@ -237,7 +252,7 @@ class ProjectState(BaseModel):
     def _summary(cls, value):
         return _clean_text(value) or ''
 
-    @field_validator('hang_muc', 'quyet_dinh', 'rui_ro', 'viec_tiep_theo', mode='before')
+    @field_validator('hang_muc', 'cho_xac_nhan', 'quyet_dinh', 'rui_ro', 'viec_tiep_theo', mode='before')
     @classmethod
     def _drop_unnamed(cls, value):
         # An entry without a name/content is noise; drop it instead of rejecting the whole update.
@@ -407,8 +422,20 @@ class StateDelta(BaseModel):
         return [v for v in value if isinstance(v, dict) and _clean_text(v.get('id', v.get('vao')))]
 
 
-def update_json_schema() -> dict:
-    return StateDelta.model_json_schema()
+def update_json_schema(refs: Optional[list[str]] = None) -> dict:
+    """The answer's JSON schema. With the batch's message refs (m1, m2, ...), every "nguon" can only name one of
+    them and a new item must have one: a source written any other way ("[m3]", "tin 3", a message id) made the
+    new item unusable, so it was dropped and the work never reached the progress."""
+    schema = StateDelta.model_json_schema()
+    if not refs:
+        return schema
+    for name, definition in (schema.get('$defs') or {}).items():
+        properties = definition.get('properties') or {}
+        if 'nguon' in properties:
+            properties['nguon'] = {'type': 'array', 'items': {'type': 'string', 'enum': list(refs)}}
+            if name == 'NewItem':
+                definition['required'] = sorted({*definition.get('required', []), 'nguon'})
+    return schema
 
 
 def drop_marked_files(state: 'ProjectState', marks: dict) -> list[str]:
@@ -607,6 +634,22 @@ def reconcile(new_state: dict, current_state: Optional[dict], archive: Optional[
     return {**new_state, 'hang_muc': items}
 
 
+def merge_pending(current: Optional[dict], merged: dict, archive: Optional[list], new: list[dict]) -> list[dict]:
+    """The waiting list at commit time: what is stored now (a manager may have confirmed or deleted items while the
+    run was going) plus this run's items, without one that is already open, waiting or closed under the same name."""
+    waiting = list((current or {}).get('cho_xac_nhan') or [])
+    seen = {
+        normalize_key(entry.get('ten') or '')
+        for entry in [*waiting, *(merged.get('hang_muc') or []), *(archive or [])]
+    }
+    for entry in new:
+        name = normalize_key(entry.get('ten') or '')
+        if name and name not in seen:
+            waiting.append(entry)
+            seen.add(name)
+    return waiting[-PENDING_MAX:]
+
+
 def load_state(data: Optional[dict]) -> ProjectState:
     try:
         return ProjectState.model_validate(data or {})
@@ -618,38 +661,73 @@ def _words(text: str) -> set[str]:
     return {w for w in normalize_key(text).split() if len(w) >= 3 or w.isdigit()}
 
 
-def _items_for_prompt(items: list, focus: str, max_chars: Optional[int]) -> tuple[list, int]:
-    """The items to show and how many are left out. A long list (a plan of hundreds of rows) does not fit the
-    model's context with the new messages: the items those messages are about come first (shared words with them:
-    names, owners, details), then the most recently changed; the order of the list is kept."""
+def _prompt_size(item: WorkItem) -> int:
+    return len(item.ten) + sum(len(d) for d in item.chi_tiet[:3]) + 60
+
+
+def items_prompt_chars(items: list) -> int:
+    """About how much room the whole list takes in the update prompt."""
+    return sum(_prompt_size(item) for item in items)
+
+
+def item_text(item: WorkItem) -> str:
+    """What an item is about, for matching it with new messages: name, details, owners, blocker."""
+    return ' '.join([item.ten, *item.chi_tiet[:3], *item.phu_trach, item.vuong_mac or ''])
+
+
+# Share of the room kept for the most recently changed items, whatever the new messages say: work under way stays in
+# view, so a short "xong rồi" in a thread can still close it.
+RECENT_SHARE = 0.2
+
+
+def _items_for_prompt(
+    items: list, focus: str, max_chars: Optional[int], scores: Optional[list[float]] = None
+) -> tuple[list, int]:
+    """The items to show and how many are left out. When the list does not fit the room, the items the new
+    messages are about come first (scores: how close each item is to the messages in meaning, from the embedding
+    model; without them, the words they share), then the most recently changed; the order of the list is kept."""
     if not max_chars:
         return items, 0
-    sizes = [len(item.ten) + sum(len(d) for d in item.chi_tiet[:3]) + 60 for item in items]
+    sizes = [_prompt_size(item) for item in items]
     if sum(sizes) <= max_chars:
         return items, 0
-    asked = _words(focus)
+    if scores is None or len(scores) != len(items):
+        asked = _words(focus)
+        scores = [float(len(_words(item_text(item)) & asked)) for item in items]
 
-    def score(index: int) -> tuple:
-        item = items[index]
-        text = ' '.join([item.ten, *item.phu_trach, *item.chi_tiet, item.vuong_mac or ''])
-        from_message = not any(n.startswith('table:') for n in item.nguon)
-        return (len(_words(text) & asked), from_message, item.cap_nhat_luc or '', -index)
+    def from_message(index: int) -> bool:
+        return not any(n.startswith('table:') for n in items[index].nguon)
 
+    relevant = sorted(
+        range(len(items)),
+        key=lambda i: (scores[i], from_message(i), items[i].cap_nhat_luc or '', -i),
+        reverse=True,
+    )
+    recent = sorted(range(len(items)), key=lambda i: (items[i].cap_nhat_luc or '', -i), reverse=True)
     chosen, used = set(), 0
-    for index in sorted(range(len(items)), key=score, reverse=True):
-        if used + sizes[index] > max_chars:
-            continue
-        chosen.add(index)
-        used += sizes[index]
+
+    def take(order: list[int], limit: int) -> None:
+        nonlocal used
+        for index in order:
+            if index not in chosen and used + sizes[index] <= limit:
+                chosen.add(index)
+                used += sizes[index]
+
+    take(relevant, int(max_chars * (1 - RECENT_SHARE)))
+    take(recent, max_chars)
+    take(relevant, max_chars)  # room the recent items did not use
     return [item for index, item in enumerate(items) if index in chosen], len(items) - len(chosen)
 
 
-def state_for_prompt(state: ProjectState, focus: str = '', max_chars: Optional[int] = None) -> str:
+def state_for_prompt(
+    state: ProjectState, focus: str = '', max_chars: Optional[int] = None, scores: Optional[list[float]] = None
+) -> str:
     """The previous state as the LLM sees it: one compact line per item with its id, no sources or bookkeeping.
-    With max_chars, a long list keeps the items the focus text (the new messages) is about."""
+    With max_chars, a long list keeps the items the focus text (the new messages) is about (scores: see
+    _items_for_prompt)."""
     lines = [f'tong_quan: {state.tong_quan}'] if state.tong_quan else []
     if state.hang_muc:
-        shown, hidden = _items_for_prompt(state.hang_muc, focus, max_chars)
+        shown, hidden = _items_for_prompt(state.hang_muc, focus, max_chars, scores)
         lines.append('hang_muc (id | ten | phu_trach | trang_thai | tien_do | han | vuong_mac):')
         if hidden:
             lines.append(

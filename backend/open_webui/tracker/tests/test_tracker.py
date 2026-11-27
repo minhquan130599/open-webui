@@ -214,7 +214,7 @@ async def test_end_to_end(project, monkeypatch):
 
     prompts = []
 
-    async def fake_update(messages):
+    async def fake_update(messages, **kwargs):
         prompts.append(messages[-1]['content'])
         return StateDelta.model_validate(
             {
@@ -293,7 +293,7 @@ async def test_failure_backs_off_and_lease_is_checked(project, monkeypatch):
     user, channel = project
     await _post(channel.id, user.id, 'Bắt đầu thiết kế database')
 
-    async def boom(messages):
+    async def boom(messages, **kwargs):
         raise llm.TrackerLLMError('vLLM down')
 
     monkeypatch.setattr(llm, 'generate_state_update', boom)
@@ -334,7 +334,7 @@ async def test_archive_survives_a_concurrent_run(project, monkeypatch):
     channel = await Channels.insert_new_channel(CreateChannelForm(name=f'arc-{uuid.uuid4().hex[:6]}'), user.id)
     await _post(channel.id, user.id, 'Việc A xong, việc B đang làm')
 
-    async def first(messages):
+    async def first(messages, **kwargs):
         return StateDelta.model_validate(
             {'hang_muc_moi': [{'ten': 'Việc A', 'trang_thai': 'done'}, {'ten': 'Việc B'}], 'tom_tat_lo': 's'}
         )
@@ -347,7 +347,7 @@ async def test_archive_survives_a_concurrent_run(project, monkeypatch):
     await _post(channel.id, user.id, 'Việc B 60%, việc C mới')
     claimed = [c for c in await _claim() if c[0] == channel.id][0]
 
-    async def second(messages):
+    async def second(messages, **kwargs):
         assert await Trackers.archive_items(channel.id, [items['Việc A']], 'dong', user.id) == 1
         return StateDelta.model_validate(
             {'cap_nhat': [{'id': items['Việc B'], 'tien_do': 60}], 'hang_muc_moi': [{'ten': 'Việc C'}]}

@@ -3,8 +3,13 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-from open_webui.tracker.config import TRACKER_STATE_PROMPT_CHARS
+from open_webui.tracker.config import TRACKER_STATE_PROMPT_CHARS, TRACKER_STATE_PROMPT_MIN_CHARS
 from open_webui.tracker.schema import ProjectState, state_for_prompt
+
+
+def state_prompt_chars(messages_text: str) -> int:
+    """Room for the current items next to these messages (config: TRACKER_STATE_PROMPT_MIN_CHARS)."""
+    return min(TRACKER_STATE_PROMPT_CHARS, TRACKER_STATE_PROMPT_MIN_CHARS + len(messages_text))
 
 _TRIVIAL_RE = re.compile(
     r'^(ok+|oke+|okay|ừ+|uh+|ừm+|vâng|dạ|da|yes|no|thanks?|thank you|cảm ơn|cam on|tks|thx|'
@@ -118,13 +123,16 @@ def build_update_messages(
     now_ns: int,
     members: Optional[list[str]] = None,
     roles: Optional[list[str]] = None,
+    item_scores: Optional[list[float]] = None,
 ) -> tuple[list[dict], dict[str, str]]:
-    """Return the chat messages for one batch and the ref -> source id map."""
+    """Return the chat messages for one batch and the ref -> source id map. item_scores: how close each current
+    item is to these messages (tracker.relevance), to choose the items shown when they do not all fit."""
     ref_by_id = {m.id: f'm{i + 1}' for i, m in enumerate(messages)}
     lines = [
         format_message_line(ref_by_id[m.id], m, tz, ref_by_id.get(m.parent_id), message_max_chars) for m in messages
     ]
-    previous = state_for_prompt(state, '\n'.join(lines), TRACKER_STATE_PROMPT_CHARS)
+    focus = '\n'.join(lines)
+    previous = state_for_prompt(state, focus, state_prompt_chars(focus), item_scores)
     user_prompt = (
         f'Hôm nay: {format_time(now_ns, tz)[:10]}\n'
         f'Kênh (dự án): {channel_name}\n'

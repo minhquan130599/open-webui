@@ -23,6 +23,7 @@ from open_webui.tracker.schema import (
     drop_marked_files,
     ensure_item_ids,
     load_state,
+    merge_pending,
     reconcile,
 )
 
@@ -367,12 +368,14 @@ class TrackerTable:
         retry_after_ns: int = 0,
         merged_away: Optional[set[str]] = None,
         reread_done: Optional[set[str]] = None,
+        pending: Optional[list[dict]] = None,
         db: Optional[AsyncSession] = None,
     ) -> bool:
         """Store a processed batch if the lease is still ours, and requeue if messages remain.
 
         retry_after_ns > 0 means the remaining messages are waiting on something (file extraction), so the
         channel is retried after that delay instead of immediately. reread_done: files read again in this run.
+        pending: new items read without a source, added to the waiting list (schema.PendingItem).
         """
         now = time.time_ns()
         async with get_async_db_context(db) as db:
@@ -397,6 +400,8 @@ class TrackerTable:
             if state is not None:
                 # Closes/reopens by the channel owner may have happened while the LLM was running.
                 merged = reconcile(state, row.state, row.archive, merged_away or set())
+                # The waiting list as stored now (confirmed / deleted meanwhile) plus this run's.
+                merged['cho_xac_nhan'] = merge_pending(row.state, merged, row.archive, pending or [])
                 # A file marked while the LLM was running: its items are in this run's result, keep them out.
                 skip = (row.file_marks or {}).get('skip')
                 if skip:
@@ -525,6 +530,35 @@ class TrackerTable:
             self._save_state(row, state, now)
             await db.commit()
             return True
+
+    async def resolve_pending(
+        self, channel_id: str, item_id: str, confirm: bool, user_id: str, db: Optional[AsyncSession] = None
+    ) -> Optional[str]:
+        """Confirm a waiting item (it becomes an open, unassigned work item) or delete it. Returns its id in the
+        open list when confirmed, '' when deleted, None when it is not waiting."""
+        now = time.time_ns()
+        async with get_async_db_context(db) as db:
+            row = await self._locked_row(db, channel_id)
+            if not row or not row.state:
+                return None
+            state = load_state(row.state)
+            entry = next((p for p in state.cho_xac_nhan if p.id == item_id), None)
+            if entry is None:
+                return None
+            state.cho_xac_nhan = [p for p in state.cho_xac_nhan if p.id != item_id]
+            result = ''
+            if confirm:
+                data = entry.model_dump(exclude={'tin_lien_quan', 'phu_trach_doc_duoc'})
+                # Its messages become its sources, so it can be traced and retracted like any other item.
+                item = WorkItem.model_validate({**data, 'nguon': list(entry.tin_lien_quan), 'cap_nhat_luc': _today()})
+                state.hang_muc.append(item)
+                result = item.id or ''
+                log.info('Tracker: %s confirmed waiting item "%s" in %s', user_id, item.ten, channel_id)
+            else:
+                log.info('Tracker: %s deleted waiting item "%s" in %s', user_id, entry.ten, channel_id)
+            self._save_state(row, state, now)
+            await db.commit()
+            return result
 
     async def add_deletion(self, channel_id: str, entry: dict, db: Optional[AsyncSession] = None) -> None:
         """Remember a deleted, already-processed message so the next run can retract what it said."""

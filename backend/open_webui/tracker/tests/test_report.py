@@ -147,7 +147,7 @@ async def test_build_project_report_tool_end_to_end(monkeypatch):
     await Trackers.mark_dirty(channel.id)
     time.sleep(0.002)
 
-    async def fake(messages):
+    async def fake(messages, **kwargs):
         return StateDelta.model_validate(
             {'hang_muc_moi': [{'ten': f'Đầu việc {n}', 'phu_trach': ['Long']} for n in range(60)], 'tom_tat_lo': 's'}
         )

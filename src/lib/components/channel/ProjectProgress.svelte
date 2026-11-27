@@ -10,6 +10,8 @@
 		archiveTrackerItems,
 		assignTrackerItem,
 		closeDoneTrackerItems,
+		confirmPendingTrackerItem,
+		deletePendingTrackerItem,
 		getChannelTeam,
 		type ChannelTeam as ChannelTeamData,
 		getTrackerItems,
@@ -308,6 +310,7 @@
 	$: visibleItems = all.filter((item) => matches(item, filter, hideCompleted));
 	$: canManage = tracker?.can_manage ?? false;
 	$: archive = tracker?.archive ?? [];
+	$: waiting = canManage ? (tracker?.state?.cho_xac_nhan ?? []) : [];
 
 	// An item with several owners appears under each of them; items without an owner come last.
 	const groupByPerson = (list: TrackerWorkItem[], unassigned: string) => {
@@ -374,6 +377,16 @@
 		act(
 			() => reopenTrackerItem(localStorage.token, channel.id, itemId),
 			$i18n.t('Work item reopened')
+		);
+	const confirmPending = (itemId: string) =>
+		act(
+			() => confirmPendingTrackerItem(localStorage.token, channel.id, itemId),
+			$i18n.t('Work item added to the progress; assign who does it')
+		);
+	const deletePending = (itemId: string) =>
+		act(
+			() => deletePendingTrackerItem(localStorage.token, channel.id, itemId),
+			$i18n.t('Suggested work item deleted')
 		);
 
 	const fromNs = (ns: number | null) =>
@@ -1079,6 +1092,92 @@
 						{/if}
 					</div>
 				{/each}
+
+				{#if waiting.length}
+					<!-- Open by default: these items are not in the progress until someone confirms them. -->
+					<div class="rounded-xl border border-amber-200 bg-amber-50/60 px-2 dark:border-amber-900/60 dark:bg-amber-950/20">
+						<button
+							type="button"
+							class="flex w-full items-center gap-2 px-1 py-2.5 text-left text-[0.8125rem] font-medium text-gray-800 hover:text-gray-950 dark:text-gray-200 dark:hover:text-white"
+							aria-expanded={!expanded.pendingClosed}
+							on:click={() => toggle('pendingClosed')}
+						>
+							<svg
+								class="size-3 text-gray-400 transition-transform {expanded.pendingClosed
+									? ''
+									: 'rotate-90'}"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.4"
+								aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg
+							>
+							{$i18n.t('Waiting for confirmation')}
+							<span class="ml-auto text-xs font-normal text-gray-500">{waiting.length}</span>
+						</button>
+						{#if !expanded.pendingClosed}
+							<p class="px-1 pb-2 text-xs text-gray-500 dark:text-gray-400">
+								{$i18n.t(
+									'The AI read these work items but could not tell which message they came from, so they are not in the progress yet. Check the messages, then add or delete each one.'
+								)}
+							</p>
+							<ul class="flex flex-col gap-2.5 px-1 pb-3" transition:slide={{ duration: 150 }}>
+								{#each waiting as entry (entry.id)}
+									<li class="flex items-start justify-between gap-2 text-xs">
+										<div class="min-w-0">
+											<div class="break-words font-medium text-gray-800 dark:text-gray-200">
+												{entry.ten}
+											</div>
+											{#if entry.chi_tiet?.length}
+												<ul class="ml-4 list-disc text-gray-500 dark:text-gray-400">
+													{#each entry.chi_tiet as point}<li>{point}</li>{/each}
+												</ul>
+											{/if}
+											<div class="mt-0.5 flex flex-wrap items-center gap-1.5 text-gray-500 dark:text-gray-400">
+												<span
+													class="rounded-full bg-amber-100 px-1.5 py-px text-[0.625rem] text-amber-800 dark:bg-amber-900/50 dark:text-amber-200"
+												>
+													{$i18n.t('Source unclear, not assigned')}
+												</span>
+												{#if entry.phu_trach_doc_duoc?.length}
+													<span>{$i18n.t('AI read owners')}: {entry.phu_trach_doc_duoc.join(', ')}</span>
+												{/if}
+												{#if entry.han}<span>· {$i18n.t('Due')} {entry.han}</span>{/if}
+												{#each sourceIds(entry.tin_lien_quan).slice(-3) as messageId, index}
+													<button
+														type="button"
+														class="underline decoration-dotted hover:text-gray-800 dark:hover:text-gray-200"
+														on:click={() => onSource(messageId)}
+													>
+														{$i18n.t('Message')} {index + 1}
+													</button>
+												{/each}
+											</div>
+										</div>
+										<div class="flex shrink-0 gap-1">
+											<button
+												type="button"
+												class="rounded-md bg-gray-900 px-2 py-0.5 text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+												disabled={busy}
+												on:click={() => confirmPending(entry.id)}
+											>
+												{$i18n.t('Add to progress')}
+											</button>
+											<button
+												type="button"
+												class="rounded-md px-1.5 py-0.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
+												disabled={busy}
+												on:click={() => deletePending(entry.id)}
+											>
+												{$i18n.t('Delete')}
+											</button>
+										</div>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					</div>
+				{/if}
 
 				{#if archive.length}
 					<div>

@@ -5000,5 +5000,12 @@
 	"linked account": "tài khoản đã liên kết",
 	"no": "không",
 	"settings.admin.telegram.title": "Telegram",
-	"yes": "có"
+	"yes": "có",
+	"Waiting for confirmation": "Chờ xác nhận",
+	"The AI read these work items but could not tell which message they came from, so they are not in the progress yet. Check the messages, then add or delete each one.": "AI đọc được các đầu việc này nhưng không xác định được chúng đến từ tin nhắn nào, nên chưa đưa vào tiến độ. Xem lại tin nhắn rồi thêm hoặc xóa từng việc.",
+	"Source unclear, not assigned": "Chưa rõ nguồn, chưa gán",
+	"AI read owners": "AI đọc được người phụ trách",
+	"Add to progress": "Thêm vào tiến độ",
+	"Work item added to the progress; assign who does it": "Đã thêm vào tiến độ; hãy gán người phụ trách",
+	"Suggested work item deleted": "Đã xóa đầu việc đề xuất"
 }

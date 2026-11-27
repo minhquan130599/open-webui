@@ -412,9 +412,13 @@ async def generate_text(
     raise TrackerOutputError(f'Answer still cut after {MAX_CONTINUATIONS} continuations ({len(written)} characters)')
 
 
-async def generate_state_update(messages: list[dict]) -> StateDelta:
-    """One chat completion returning a validated StateDelta; retries once with the validation error."""
+async def generate_state_update(
+    messages: list[dict], max_tokens: Optional[int] = None, refs: Optional[list[str]] = None
+) -> StateDelta:
+    """One chat completion returning a validated StateDelta; retries once with the validation error.
+    refs: the batch's message refs, the only values a source may take (update_json_schema)."""
     global _guided_json_supported
+    max_tokens = max_tokens or TRACKER_MAX_TOKENS
 
     timeout = aiohttp.ClientTimeout(total=TRACKER_LLM_TIMEOUT, sock_connect=20)
     conversation = list(messages)
@@ -422,13 +426,13 @@ async def generate_state_update(messages: list[dict]) -> StateDelta:
 
     async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
         for attempt in range(2):
-            payload = _payload(conversation, TRACKER_MAX_TOKENS)
+            payload = _payload(conversation, max_tokens)
             # Streamed so a proxy waiting for the first byte (nginx 504 after ~60 s) does not cut a long update.
             payload.update(stream=True, stream_options={'include_usage': True})
             if _guided_json_supported:
                 payload['response_format'] = {
                     'type': 'json_schema',
-                    'json_schema': {'name': 'state_update', 'schema': update_json_schema()},
+                    'json_schema': {'name': 'state_update', 'schema': update_json_schema(refs)},
                 }
 
             status, body = await _post(session, payload)
@@ -440,10 +444,13 @@ async def generate_state_update(messages: list[dict]) -> StateDelta:
 
             content = _content(status, body)
             if _finish_reason(body) == 'length':
-                # Cut at the token limit: asking again for the same messages is cut again.
-                raise TrackerOutputError(
-                    f'State update cut at {TRACKER_MAX_TOKENS} tokens ({len(content)} characters): too many messages in one call'
+                # Cut at the token limit: asking again for the same messages is cut again. The start and the end
+                # of what was written show whether the update was long or the model went in circles.
+                log.warning(
+                    'Tracker state update cut at %s tokens (%s characters). Start: %s ... End: %s',
+                    max_tokens, len(content), content[:600].replace('\n', ' '), content[-600:].replace('\n', ' '),
                 )
+                raise TrackerOutputError(f'State update cut at {max_tokens} tokens ({len(content)} characters)')
             try:
                 return StateDelta.model_validate(extract_json(content))
             except (ValueError, ValidationError) as e:

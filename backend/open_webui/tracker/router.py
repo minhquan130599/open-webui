@@ -116,6 +116,24 @@ async def reopen_work_item(channel_id: str, item_id: str, user=Depends(get_verif
     return {'status': True}
 
 
+@router.post('/channels/{channel_id}/pending/{item_id}/confirm')
+async def confirm_pending_item(channel_id: str, item_id: str, user=Depends(get_verified_user)):
+    """A work item read without a source message joins the progress (open, nobody assigned yet)."""
+    await _get_managed_channel(channel_id, user)
+    result = await Trackers.resolve_pending(channel_id, item_id, True, user.id)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND)
+    return {'status': True, 'id': result}
+
+
+@router.delete('/channels/{channel_id}/pending/{item_id}')
+async def delete_pending_item(channel_id: str, item_id: str, user=Depends(get_verified_user)):
+    await _get_managed_channel(channel_id, user)
+    if await Trackers.resolve_pending(channel_id, item_id, False, user.id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND)
+    return {'status': True}
+
+
 class FileMarkForm(BaseModel):
     message_id: str
     # True: mark the file as reference material (its items are dropped); False: unmark it (read again).
