@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from open_webui.tracker.config import TRACKER_STATE_PROMPT_CHARS, TRACKER_STATE_PROMPT_MIN_CHARS
-from open_webui.tracker.schema import ProjectState, state_for_prompt
+from open_webui.tracker.schema import ProjectState, answer_shape, state_for_prompt
 
 
 def state_prompt_chars(messages_text: str) -> int:
@@ -44,8 +44,11 @@ Quy tắc:
 10. Tin nhắn có thẻ (hỏi trợ lý AI) gửi cho trợ lý AI. Phần nhờ AI làm (tra cứu, lọc, tổng hợp, soạn báo cáo, thông báo, nhắc, tính điểm) KHÔNG phải việc của dự án. Nhưng tin đó vẫn có thể GIAO VIỆC cho người ("@Knight thông báo cho các AM sẽ báo cáo thứ 3", "@Knight remind PM X cập nhật tiến độ"): việc của những người đó vẫn phải ghi nhận. Tin đó cũng có thể BÁO TIẾN ĐỘ hoặc ĐỔI việc ("@Knight cập nhật các việc dưới đây đã hoàn thành: …", "@Knight việc X dời hạn sang 2/12", "@Knight bổ sung đầu việc Y"): người gửi đang báo cho dự án, ghi đúng như tin nhắn bình thường (cap_nhat trạng thái / hạn / tiến độ, hoặc hang_muc_moi). Trợ lý AI không bao giờ là người làm.
 11. quyet_dinh_moi: quyết định mới trong lô này. rui_ro và viec_tiep_theo: nếu có thay đổi thì ghi lại TOÀN BỘ danh sách mới; nếu không đổi thì bỏ trường đó.
 12. bo_tep: khi tin nhắn nói một tệp đã gửi (có thể gửi từ trước) KHÔNG phải đầu việc, chỉ là tài liệu tham khảo, hoặc không cần tổng hợp / theo dõi ("file X là tài liệu, không phải đầu việc", "bỏ file X đi"), ghi tên tệp đó như trong tin vào bo_tep. Chỉ ghi khi tin nói rõ như vậy; yêu cầu tóm tắt, tra cứu hay rà soát tệp thì không phải bo_tep.
-13. Viết tiếng Việt, ngắn gọn. Chỉ trả về một đối tượng JSON, bỏ các trường không có thay đổi:
-{"tong_quan": str, "hang_muc_moi": [{"ten", "viec_cu": id | null, "quan_he": "cung_viec|lap_lai|mo_lai" | null, "giao_cho": {"kieu": "ten|chuc_vu|ca_nhom|tu_nhan|khong_ro", "ten": [str], "chuc_vu": str, "ben_ngoai": [str], "thay_the": bool, "goi_tat_ca": bool}, "trang_thai", "tien_do", "han", "vuong_mac", "nguon": [str]}], "cap_nhat": [{"id", "ten", "giao_cho", "trang_thai", "tien_do", "han", "vuong_mac", "nguon"}], "vai_tro_moi": [{"ten": "AM", "nguoi": [str], "thay_the": bool, "nguon": [str]}], "gop": [{"vao": id, "tu": [id]}], "quyet_dinh_moi": [{"noi_dung", "ngay", "nguon"}], "rui_ro": [{"noi_dung", "muc_do", "nguon"}], "viec_tiep_theo": [{"noi_dung", "phu_trach", "han", "nguon"}], "bo_tep": [str], "tom_tat_lo": str}"""
+13. Viết tiếng Việt, ngắn gọn. Chỉ trả về một đối tượng JSON theo mẫu dưới, giữ đúng thứ tự các trường như mẫu, bỏ các trường không có thay đổi:
+{ANSWER_SHAPE}"""
+# The answer shape is generated from the JSON schema the answer is decoded with, so both list the same fields in the
+# same order (schema.ANSWER_FIELDS).
+SYSTEM_PROMPT = SYSTEM_PROMPT.replace('{ANSWER_SHAPE}', answer_shape())
 
 
 @dataclass

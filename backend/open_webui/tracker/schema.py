@@ -483,27 +483,121 @@ class StateDelta(BaseModel):
         return [v for v in value if isinstance(v, dict) and _clean_text(v.get('id', v.get('vao')))]
 
 
+# What the update model writes, field by field, in the order it writes them. The JSON schema sent to vLLM is built
+# from this list and the example shape in the prompt is generated from that schema (answer_shape), so the two can
+# never disagree. They must not: guided decoding emits an object's fields in schema order and can skip but never go
+# back, so a model following another order (as the hand-written example once had, the owner before the deadline)
+# loses every field it reaches too late: new items came without deadline, status or progress. Order: what the work
+# is first (name, how it relates to a listed item, deadline, status), who does it after, its source last (required,
+# so it is always written). Fields the system sets itself (ids, dates, linked accounts) are left out.
+ANSWER_FIELDS: dict[str, list[str]] = {
+    'StateDelta': ['tong_quan', 'hang_muc_moi', 'cap_nhat', 'vai_tro_moi', 'gop', 'quyet_dinh_moi', 'rui_ro',
+                   'viec_tiep_theo', 'bo_tep', 'tom_tat_lo'],
+    'NewItem': ['ten', 'viec_cu', 'quan_he', 'han', 'trang_thai', 'tien_do', 'vuong_mac', 'giao_cho', 'nguon'],
+    'ItemChange': ['id', 'ten', 'han', 'trang_thai', 'tien_do', 'vuong_mac', 'giao_cho', 'nguon'],
+    'Assignment': ['kieu', 'ten', 'chuc_vu', 'ben_ngoai', 'thay_the', 'goi_tat_ca'],
+    'RoleUpdate': ['ten', 'nguoi', 'thay_the', 'nguon'],
+    'ItemMerge': ['vao', 'tu'],
+    'Decision': ['noi_dung', 'ngay', 'nguon'],
+    'Risk': ['noi_dung', 'muc_do', 'nguon'],
+    'NextStep': ['noi_dung', 'phu_trach', 'han', 'nguon'],
+}
+# Fixed choices, shown to the model and enforced by the schema.
+_ANSWER_CHOICES = {
+    'trang_thai': list(STATUSES),
+    'kieu': ['ten', 'chuc_vu', 'ca_nhom', 'tu_nhan', 'khong_ro'],
+    'quan_he': ['cung_viec', 'lap_lai', 'mo_lai'],
+    'muc_do': ['thap', 'trung_binh', 'cao'],
+}
+# Free values the example shows by what they hold instead of their type.
+_ANSWER_NOTES = {
+    'han': 'YYYY-MM-DD',
+    'ngay': 'YYYY-MM-DD',
+    'tien_do': '0-100',
+    'id': 'id',
+    'viec_cu': 'id',
+    'vao': 'id',
+    'tu': '"id", …',
+    'nguon': '"m1", "m2", …',
+}
+
+
+def _ordered(definition: dict, fields: list[str], name: str) -> None:
+    properties = definition.get('properties') or {}
+    missing = [f for f in fields if f not in properties]
+    if missing:
+        raise KeyError(f'{name} has no field {missing}: ANSWER_FIELDS and the models disagree')
+    ordered = {}
+    for field in fields:
+        prop = properties[field]
+        if field in _ANSWER_CHOICES:
+            choice = {'type': 'string', 'enum': list(_ANSWER_CHOICES[field])}
+            prop = choice if field in (definition.get('required') or []) else {'anyOf': [choice, {'type': 'null'}]}
+        if field in _ANSWER_NOTES:
+            prop = {**prop, 'description': _ANSWER_NOTES[field]}
+        ordered[field] = prop
+    definition['properties'] = ordered
+    definition['required'] = [f for f in fields if f in (definition.get('required') or [])]
+    definition['additionalProperties'] = False
+
+
 def update_json_schema(refs: Optional[list[str]] = None, item_ids: Optional[list[str]] = None) -> dict:
-    """The answer's JSON schema. With the batch's message refs (m1, m2, ...), every "nguon" can only name one of
-    them and a new item must have one: a source written any other way ("[m3]", "tin 3", a message id) made the
-    new item unusable, so it was dropped and the work never reached the progress. With the ids of the items shown
-    (open and closed), "viec_cu" can only name one of them."""
+    """The answer's JSON schema, its fields and their order from ANSWER_FIELDS. With the batch's message refs (m1,
+    m2, ...), every "nguon" can only name one of them and a new item must have one: a source written any other way
+    ("[m3]", "tin 3", a message id) made the new item unusable. With the ids of the items shown (open and closed),
+    "viec_cu" can only name one of them; without, the relation fields are left out."""
     schema = StateDelta.model_json_schema()
-    for name, definition in (schema.get('$defs') or {}).items():
+    defs = schema.get('$defs') or {}
+    for name, fields in ANSWER_FIELDS.items():
+        definition = schema if name == 'StateDelta' else defs.get(name)
+        if definition is None:
+            raise KeyError(f'{name} is not part of the answer schema')
+        if name == 'NewItem' and not item_ids:
+            fields = [f for f in fields if f not in ('viec_cu', 'quan_he')]
+        _ordered(definition, fields, name)
+    for name, definition in defs.items():
         properties = definition.get('properties') or {}
         if refs and 'nguon' in properties:
-            properties['nguon'] = {'type': 'array', 'items': {'type': 'string', 'enum': list(refs)}}
-            if name == 'NewItem':
-                definition['required'] = sorted({*definition.get('required', []), 'nguon'})
-        if 'han' in properties and name in ('NewItem', 'ItemChange'):
-            properties['han'] = {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'YYYY-MM-DD'}
-        if name == 'NewItem':
-            if item_ids:
-                properties['viec_cu'] = {'anyOf': [{'type': 'string', 'enum': list(item_ids)}, {'type': 'null'}]}
-            else:
-                properties.pop('viec_cu', None)
-                properties.pop('quan_he', None)
+            properties['nguon'] = {
+                'type': 'array', 'items': {'type': 'string', 'enum': list(refs)}, 'description': _ANSWER_NOTES['nguon']
+            }
+            if name == 'NewItem' and 'nguon' not in definition['required']:
+                definition['required'].append('nguon')
+        if name == 'NewItem' and item_ids and 'viec_cu' in properties:
+            properties['viec_cu'] = {
+                'anyOf': [{'type': 'string', 'enum': list(item_ids)}, {'type': 'null'}], 'description': _ANSWER_NOTES['viec_cu']
+            }
     return schema
+
+
+def _shape(node: dict, defs: dict) -> str:
+    """One schema node as the compact example the prompt shows: {"field": value}, [item], "a|b" for fixed choices,
+    the note for a value with one (dates, progress, sources), else its type. Null is left out: absent fields are."""
+    if '$ref' in node:
+        node = defs[node['$ref'].split('/')[-1]]
+    options = [o for o in node.get('anyOf') or [] if o.get('type') != 'null']
+    if options:
+        inner = options[0]
+        if node.get('description') and not inner.get('description'):
+            inner = {**inner, 'description': node['description']}
+        return _shape(inner, defs)
+    kind = node.get('type')
+    if kind == 'object' or 'properties' in node:
+        return '{' + ', '.join(f'"{k}": {_shape(v, defs)}' for k, v in (node.get('properties') or {}).items()) + '}'
+    note = node.get('description')
+    if kind == 'array':
+        return f'[{note}]' if note else '[' + _shape(node.get('items') or {}, defs) + ']'
+    if 'enum' in node and not note:
+        return '"' + '|'.join(str(v) for v in node['enum']) + '"'
+    if note:
+        return f'"{note}"' if kind == 'string' else note
+    return {'string': 'str', 'integer': 'int', 'number': 'số', 'boolean': 'true|false'}.get(kind, 'str')
+
+
+def answer_shape() -> str:
+    """The example answer in the prompt, generated from the schema sent to vLLM: same fields, same order."""
+    schema = update_json_schema(['m1'], ['id'])
+    return _shape(schema, schema.get('$defs') or {})
 
 
 def drop_marked_files(state: 'ProjectState', marks: dict) -> list[str]:
